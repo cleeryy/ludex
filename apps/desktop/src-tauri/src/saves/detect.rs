@@ -19,6 +19,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -48,11 +49,36 @@ const MAX_SAVE_FILES: u64 = 10_000;
 const MAX_SAVE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_GLOB_MATCHES: usize = 256;
 const MAX_TEMPLATE_RESULTS: usize = 64;
-/// Games the parser will accept. The published manifest reached 53,549 games on
-/// 2026-11-16, so the limit sits well above the current file while `MAX_MANIFEST_BYTES`
-/// stays the real memory guard.
-const MAX_MANIFEST_GAMES: usize = 200_000;
-const MAX_MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
+/// Top-level manifest entries accepted (#236). The official manifest holds
+/// 53,557 games in 17.8 MB (2026-11-18), past the old 50,000 cap that rejected
+/// every detection. 250,000 leaves room for years of growth while a corrupt
+/// file still stops early.
+const MAX_MANIFEST_GAMES: usize = 250_000;
+/// Hard cap on the manifest file, shared with the downloader
+/// (`saves/manifest.rs` re-exports it). The official file is 17.8 MB, so 64 MiB
+/// is headroom and a real memory guard.
+pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
+/// One game entry may not exceed this: chunked parsing is only bounded if a
+/// single value cannot be arbitrarily large. Official entries are < 100 KiB.
+const MAX_MANIFEST_ENTRY_BYTES: usize = 4 * 1024 * 1024;
+/// Total YAML nodes (mappings, sequences, scalars) parsed across the file. The
+/// official manifest has ~1.9 M; this bounds the traversal work of a file that
+/// is under `MAX_MANIFEST_BYTES` but absurdly dense.
+const MAX_MANIFEST_NODES: usize = 16_000_000;
+/// YAML anchors/aliases are rejected: an alias bomb is a few KB that expands
+/// until memory is exhausted. The official manifest uses none, so this costs
+/// nothing real. `serde_yaml` has a repetition limit, but it scales with the
+/// document, which is not enough for a 64 MiB file.
+const MAX_MANIFEST_ALIASES: usize = 0;
+/// Top-level entries parsed per `serde_yaml` document. The whole official file
+/// as one document peaks around 670 MB; 4,000-entry chunks (~1.4 MB each) stay
+/// near 25 MB while keeping the parse in one pass.
+const MANIFEST_CHUNK_GAMES: usize = 4_000;
+/// Or 4 MiB of text per chunk, whichever comes first: a file with few but fat
+/// entries must not be parsed as one document either. With
+/// `MAX_MANIFEST_ENTRY_BYTES` this bounds a chunk to 8 MiB and its YAML tree
+/// near 130 MB in the worst case.
+const MAX_MANIFEST_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 const MAX_STORE_USER_IDS: usize = 4;
 const MAX_CLI_OUTPUT: u64 = 1024 * 1024;
 const CLI_TIMEOUT: Duration = Duration::from_secs(20);
@@ -408,64 +434,65 @@ pub fn detect_at(
     //    folder. The CLI (below) stays an advanced optional override.
     if let Some(path) = env.manifest_path.as_deref() {
         provider_source = "manifest";
-        match fs::read_to_string(path) {
-            Ok(text) if text.len() as u64 > MAX_MANIFEST_BYTES => {
-                detection.warnings.push(format!(
-                    "{} is larger than {}; it was not parsed.",
-                    path.display(),
-                    crate::util::human_bytes(MAX_MANIFEST_BYTES)
-                ));
-                status = Some(
-                    "The Ludusavi manifest is too large to parse safely. Add a save path manually."
-                        .to_string(),
-                );
-            }
-            Ok(text) => match parse_manifest(&text) {
-                Ok(manifest) => {
-                    manifest_version = Some(manifest_version_for_text(&text));
-                    match manifest.find(game) {
-                        ManifestMatch::Found(found) => {
-                            let walk =
-                                walk_manifest(found, env, game, &roots, &mut detection.warnings);
-                            provider_saves = walk.saves;
-                            if !walk.missing_stores.is_empty() {
-                                let names: Vec<String> = walk.missing_stores.into_iter().collect();
-                                detection.warnings.push(format!(
-                                    "Some manifest entries need a store Ludex could not identify ({}); they were skipped.",
-                                    names.join(", ")
-                                ));
-                            }
-                            if provider_saves.is_empty() {
-                                status = Some(
-                                    if found.registry_keys > 0 {
-                                        "The Ludusavi manifest only lists registry locations for this game. Registry saves are not archived yet; add a save path manually if the game also writes files."
-                                    } else if walk.skipped_filters > 0 {
-                                        "Every manifest entry for this game is filtered out on this machine (OS or store). Add a save path manually."
-                                    } else {
-                                        "No save files exist yet for this game. Launch it once so it creates them, then re-detect."
-                                    }
-                                    .to_string(),
-                                );
-                            }
-                        }
-                        ManifestMatch::NotFound => {
-                            status = Some("This game is not in the Ludusavi manifest. Add a save path manually, or re-detect after the manifest updates.".to_string());
-                        }
-                        ManifestMatch::Ambiguous => {
+        match load_manifest(path) {
+            Ok(loaded) => {
+                manifest_version = Some(loaded.version);
+                match loaded.manifest.find(game) {
+                    ManifestMatch::Found(found) => {
+                        let walk = walk_manifest(found, env, game, &roots, &mut detection.warnings);
+                        provider_saves = walk.saves;
+                        if !walk.missing_stores.is_empty() {
+                            let names: Vec<String> = walk.missing_stores.into_iter().collect();
                             detection.warnings.push(format!(
-                                "Several Ludusavi manifest entries match \"{}\"; Ludex did not guess.",
-                                game.title
+                                "Some manifest entries need a store Ludex could not identify ({}); they were skipped.",
+                                names.join(", ")
                             ));
-                            status = Some("Several manifest entries match this game, so no save folder was picked. Add a save path manually.".to_string());
+                        }
+                        if provider_saves.is_empty() {
+                            status = Some(
+                                if found.registry_keys > 0 {
+                                    "The Ludusavi manifest only lists registry locations for this game. Registry saves are not archived yet; add a save path manually if the game also writes files."
+                                } else if walk.skipped_filters > 0 {
+                                    "Every manifest entry for this game is filtered out on this machine (OS or store). Add a save path manually."
+                                } else {
+                                    "No save files exist yet for this game. Launch it once so it creates them, then re-detect."
+                                }
+                                .to_string(),
+                            );
                         }
                     }
+                    ManifestMatch::NotFound => {
+                        status = Some("This game is not in the Ludusavi manifest. Add a save path manually, or re-detect after the manifest updates.".to_string());
+                    }
+                    ManifestMatch::Ambiguous => {
+                        detection.warnings.push(format!(
+                            "Several Ludusavi manifest entries match \"{}\"; Ludex did not guess.",
+                            game.title
+                        ));
+                        status = Some("Several manifest entries match this game, so no save folder was picked. Add a save path manually.".to_string());
+                    }
                 }
-                Err(error) => {
-                    detection.warnings.push(error.clone());
-                    status = Some(format!("The Ludusavi manifest could not be read: {error}"));
-                }
-            },
-            Err(error) => {
+            }
+            Err(ManifestLoadError::TooLarge(bytes)) => {
+                detection.warnings.push(format!(
+                    "{} is {} ({} bytes), larger than the {} Ludex parses; it was not parsed.",
+                    path.display(),
+                    crate::util::human_bytes(bytes),
+                    bytes,
+                    crate::util::human_bytes(MAX_MANIFEST_BYTES)
+                ));
+                status = Some(format!(
+                    "The Ludusavi manifest is {} ({} bytes), larger than the {} Ludex parses safely. Update Ludex, or add a save path manually.",
+                    crate::util::human_bytes(bytes),
+                    bytes,
+                    crate::util::human_bytes(MAX_MANIFEST_BYTES)
+                ));
+            }
+            Err(ManifestLoadError::Parse(error)) => {
+                detection.warnings.push(error.clone());
+                status = Some(format!("The Ludusavi manifest could not be read: {error}"));
+            }
+            Err(ManifestLoadError::Read(error)) => {
                 detection
                     .warnings
                     .push(format!("Could not read {}: {error}", path.display()));
@@ -1855,26 +1882,174 @@ fn find_by_stripped_title<'a>(games: &'a [ManifestGame], key: &str) -> Option<Ma
     }
 }
 
-/// Parse a Ludusavi manifest. Both the normal `Title: {files: […]}` shape and a
-/// wrapping `games:` mapping are accepted. Nothing is executed.
-pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
-    let root: YamlValue = serde_yaml::from_str(text)
-        .map_err(|error| format!("Invalid Ludusavi manifest: {error}"))?;
-    let mapping = root
-        .as_mapping()
-        .ok_or_else(|| "Invalid Ludusavi manifest: the root is not a mapping.".to_string())?;
+/// Limits applied to one manifest parse. `Default` is the shipped policy; tests
+/// shrink single fields so a cap can be exercised without a huge fixture.
+#[derive(Debug, Clone, Copy)]
+struct ManifestLimits {
+    max_games: usize,
+    max_entry_bytes: usize,
+    max_nodes: usize,
+    max_aliases: usize,
+    chunk_games: usize,
+}
 
+impl Default for ManifestLimits {
+    fn default() -> Self {
+        Self {
+            max_games: MAX_MANIFEST_GAMES,
+            max_entry_bytes: MAX_MANIFEST_ENTRY_BYTES,
+            max_nodes: MAX_MANIFEST_NODES,
+            max_aliases: MAX_MANIFEST_ALIASES,
+            chunk_games: MANIFEST_CHUNK_GAMES,
+        }
+    }
+}
+
+/// Parse a Ludusavi manifest. Both the normal `Title: {files: …}` shape and a
+/// wrapping `games:` mapping are accepted. Nothing is executed.
+///
+/// The file is parsed in chunks of top-level entries so a 250k-game manifest
+/// stays bounded in memory: the official 2026-11-16 file (53,549 games,
+/// 17.8 MB) is about 14 chunks (#236).
+pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
+    parse_manifest_with(text, ManifestLimits::default())
+}
+
+fn parse_manifest_with(text: &str, limits: ManifestLimits) -> Result<Manifest, String> {
+    let bytes = text.len() as u64;
+    if bytes > MAX_MANIFEST_BYTES {
+        return Err(format!(
+            "The Ludusavi manifest is {} ({} bytes), larger than the {} Ludex parses safely. It was not parsed.",
+            crate::util::human_bytes(bytes),
+            bytes,
+            crate::util::human_bytes(MAX_MANIFEST_BYTES)
+        ));
+    }
+    let scan = scan_manifest(text);
+    if scan.aliases > limits.max_aliases {
+        return Err(format!(
+            "The Ludusavi manifest uses {} YAML anchor(s) or alias(es); Ludex accepts manifests without them because an alias bomb can exhaust memory. It was not parsed.",
+            scan.aliases
+        ));
+    }
+
+    let ranges = manifest_chunks(text, &scan.entries, &limits)?;
     let mut games = Vec::new();
-    let mut push_game = |name: &str, value: &YamlValue| {
+    let mut nodes = 0usize;
+    for (start, end) in ranges {
+        let root: YamlValue = serde_yaml::from_str(&text[start..end])
+            .map_err(|error| format!("Invalid Ludusavi manifest: {error}"))?;
+        nodes += count_yaml_nodes(&root);
+        if nodes > limits.max_nodes {
+            return Err(format!(
+                "The Ludusavi manifest has more than {} YAML nodes (Ludex accepts {}), so it is too dense to parse safely. It was not parsed.",
+                nodes, limits.max_nodes
+            ));
+        }
+        let mapping = root
+            .as_mapping()
+            .ok_or_else(|| "Invalid Ludusavi manifest: the root is not a mapping.".to_string())?;
+        collect_manifest_games(mapping, &mut games, limits.max_games)?;
+    }
+    Ok(Manifest { games })
+}
+
+/// Byte ranges of top-level entries, grouped so one `serde_yaml` document holds
+/// at most `chunk_games` entries and `MAX_MANIFEST_CHUNK_BYTES` of text.
+fn manifest_chunks(
+    text: &str,
+    entries: &[usize],
+    limits: &ManifestLimits,
+) -> Result<Vec<(usize, usize)>, String> {
+    if entries.is_empty() {
+        // Empty or indentation-only text: let the parser report it.
+        return Ok(vec![(0, text.len())]);
+    }
+    let mut starts = entries.to_vec();
+    if starts[0] > 0 {
+        starts[0] = 0; // keep a leading comment or `%YAML` directive
+    }
+
+    // A wrapping `games:` mapping hides every game one level down: its children
+    // are indented, so the whole file becomes one chunk. That compatibility
+    // shape stays bounded by `MAX_MANIFEST_BYTES` and `MAX_MANIFEST_NODES`.
+    let first_line_end = text[starts[0]..]
+        .find('\n')
+        .map(|index| starts[0] + index + 1)
+        .unwrap_or(text.len());
+    let wrapped = text[starts[0]..first_line_end]
+        .trim_end()
+        .trim_end_matches(':')
+        .trim_end()
+        == "games";
+    if !wrapped && starts.len() > limits.max_games {
+        return Err(format!(
+            "The Ludusavi manifest lists too many games ({} top-level entries, limit {}). It was not parsed.",
+            starts.len(),
+            limits.max_games
+        ));
+    }
+
+    for (index, start) in starts.iter().enumerate() {
+        let entry_end = starts.get(index + 1).copied().unwrap_or(text.len());
+        let entry_bytes = entry_end.saturating_sub(*start);
+        if entry_bytes > limits.max_entry_bytes {
+            return Err(format!(
+                "The Ludusavi manifest has a single entry of {} bytes, larger than the {} Ludex accepts per game. It was not parsed.",
+                entry_bytes, limits.max_entry_bytes
+            ));
+        }
+    }
+
+    let mut ranges = Vec::new();
+    let mut chunk_start = starts[0];
+    let mut chunk_entries = 0usize;
+    for start in &starts {
+        if chunk_entries == limits.chunk_games
+            || start.saturating_sub(chunk_start) >= MAX_MANIFEST_CHUNK_BYTES
+        {
+            ranges.push((chunk_start, *start));
+            chunk_start = *start;
+            chunk_entries = 0;
+        }
+        chunk_entries += 1;
+    }
+    ranges.push((chunk_start, text.len()));
+    Ok(ranges)
+}
+
+fn is_top_level_line(line: &str) -> bool {
+    let trimmed = line.trim_end_matches(['\r', '\n']);
+    if trimmed.is_empty() || trimmed.starts_with([' ', '\t', '#']) {
+        return false;
+    }
+    !matches!(trimmed, "---" | "...")
+}
+
+/// Append the games of one chunk. A `games:` wrapper is still accepted here for
+/// the compatibility shape.
+fn collect_manifest_games(
+    mapping: &serde_yaml::Mapping,
+    games: &mut Vec<ManifestGame>,
+    max_games: usize,
+) -> Result<(), String> {
+    let mut push_game = |name: &str, value: &YamlValue| -> Result<(), String> {
+        if games.len() >= max_games {
+            return Err(format!(
+                "The Ludusavi manifest lists too many games (limit {}). It was not parsed.",
+                max_games
+            ));
+        }
         if let Some(game) = parse_manifest_game(name, value) {
             games.push(game);
         }
+        Ok(())
     };
 
     if let Some(wrapped) = mapping_get(mapping, "games").and_then(YamlValue::as_mapping) {
         for (key, value) in wrapped {
             if let Some(name) = key.as_str() {
-                push_game(name, value);
+                push_game(name, value)?;
             }
         }
     } else {
@@ -1882,26 +2057,197 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
             let Some(name) = key.as_str() else {
                 continue;
             };
-            if name.starts_with('$') || name.eq_ignore_ascii_case("version") {
+            // Metadata keys (`$schema: "…"`, `version: 3`) are skipped, but a
+            // game may legitimately start with `$`: the official manifest ships
+            // `"$1 Ride"`. Only a reserved *name with a non-mapping value* is
+            // metadata; a mapping under that name is a game entry.
+            let reserved = name.starts_with('$') || name.eq_ignore_ascii_case("version");
+            if reserved && value.as_mapping().is_none() {
                 continue;
             }
-            push_game(name, value);
+            push_game(name, value)?;
         }
     }
+    Ok(())
+}
 
-    if games.len() > MAX_MANIFEST_GAMES {
-        return Err(format!(
-            "The Ludusavi manifest lists too many games to read safely ({} entries, limit {}). Update Ludex to a build with a higher limit, or add a save path manually.",
-            games.len(),
-            MAX_MANIFEST_GAMES
-        ));
+/// Count YAML nodes iteratively: pathological input must not recurse in our own
+/// code either.
+fn count_yaml_nodes(root: &YamlValue) -> usize {
+    let mut nodes = 0usize;
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        nodes += 1;
+        match node {
+            YamlValue::Sequence(items) => stack.extend(items.iter()),
+            YamlValue::Mapping(mapping) => {
+                for (key, value) in mapping {
+                    stack.push(key);
+                    stack.push(value);
+                }
+            }
+            _ => {}
+        }
     }
-    tracing::info!(
-        games = games.len(),
-        limit = MAX_MANIFEST_GAMES,
-        "parsed the Ludusavi manifest"
-    );
-    Ok(Manifest { games })
+    nodes
+}
+
+/// One structural pass over the manifest text.
+struct ManifestScan {
+    /// `&anchor` / `*alias` tokens outside quoted scalars, comments and block
+    /// scalars, where those characters are literal text.
+    aliases: usize,
+    /// Byte offsets of lines that start a top-level entry. A line inside a
+    /// multi-line flow collection is not a boundary, so a flow-style manifest
+    /// is never split mid-value.
+    entries: Vec<usize>,
+}
+
+/// Scan the text once for aliases and entry boundaries.
+///
+/// `&`/`*` count only where YAML expects a node, so `Tom & Jerry` and
+/// `<home>/saves/*/slot` are literal. A top-level entry is a non-blank,
+/// non-comment line in the first column at flow depth zero: YAML indents a
+/// value, so a chunk boundary there never splits a game.
+fn scan_manifest(text: &str) -> ManifestScan {
+    let mut scan = ManifestScan {
+        aliases: 0,
+        entries: Vec::new(),
+    };
+    let mut quote: Option<u8> = None;
+    let mut block_indent: Option<usize> = None;
+    let mut flow_depth = 0usize;
+    let mut offset = 0usize;
+
+    for line in text.split_inclusive('\n') {
+        let bytes = line.as_bytes();
+        let indent = bytes.iter().take_while(|byte| **byte == b' ').count();
+        if let Some(base) = block_indent {
+            if bytes.iter().all(u8::is_ascii_whitespace) || indent > base {
+                offset += line.len();
+                continue; // blank line or literal block-scalar content
+            }
+            block_indent = None;
+        }
+        if quote.is_none() && flow_depth == 0 && is_top_level_line(line) {
+            scan.entries.push(offset);
+        }
+        if quote.is_none() && line.trim_start().starts_with('#') {
+            offset += line.len();
+            continue;
+        }
+
+        // `at_node_start` is true where YAML expects a node: line start, after
+        // `: `, `- `, `? `, `[`, `{` or `,`.
+        let mut at_node_start = true;
+        let mut previous: Option<u8> = None;
+        let mut index = 0usize;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if let Some(open) = quote {
+                if byte == open {
+                    if open == b'\'' && bytes.get(index + 1) == Some(&b'\'') {
+                        index += 1; // `''` is an escaped quote
+                    } else if open != b'"' || !is_escaped(bytes, index) {
+                        quote = None;
+                    }
+                }
+                previous = Some(byte);
+                index += 1;
+                continue;
+            }
+            match byte {
+                b'"' | b'\'' if at_node_start => {
+                    quote = Some(byte);
+                    at_node_start = false;
+                }
+                b'#' if previous.is_none_or(|character| character.is_ascii_whitespace()) => break,
+                b'&' | b'*' if at_node_start => {
+                    scan.aliases += 1;
+                    index += 1;
+                    // Skip the name so its characters are not read as structure.
+                    while index < bytes.len()
+                        && !bytes[index].is_ascii_whitespace()
+                        && !matches!(bytes[index], b'[' | b']' | b'{' | b'}' | b',')
+                    {
+                        index += 1;
+                    }
+                    previous = Some(b'x');
+                    at_node_start = false;
+                    continue;
+                }
+                // Only a flow indicator where a node may start opens a
+                // collection: a brace in a plain scalar (`<base>/{slot}`) is
+                // literal text, not structure.
+                b'[' | b'{' if at_node_start => {
+                    flow_depth += 1;
+                    at_node_start = true;
+                }
+                b']' | b'}' if flow_depth > 0 => {
+                    flow_depth -= 1;
+                    at_node_start = false;
+                }
+                b',' if flow_depth > 0 => at_node_start = true,
+                b':' if bytes
+                    .get(index + 1)
+                    .is_some_and(|next| next.is_ascii_whitespace()) =>
+                {
+                    at_node_start = true;
+                }
+                b'-' | b'?'
+                    if previous.is_none_or(|character| character.is_ascii_whitespace())
+                        && bytes
+                            .get(index + 1)
+                            .is_some_and(|next| next.is_ascii_whitespace()) =>
+                {
+                    at_node_start = true;
+                }
+                other if other.is_ascii_whitespace() => {}
+                _ => at_node_start = false,
+            }
+            previous = Some(byte);
+            index += 1;
+        }
+
+        if quote.is_none() && is_block_scalar_line(line) {
+            block_indent = Some(indent);
+        }
+        offset += line.len();
+    }
+    scan
+}
+
+/// A double-quoted scalar closes on a quote that is not escaped, i.e. preceded
+/// by an odd number of backslashes. `\\"` ends the scalar, `\\\"` does not.
+fn is_escaped(bytes: &[u8], quote: usize) -> bool {
+    let mut backslashes = 0usize;
+    let mut cursor = quote;
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+    backslashes % 2 == 1
+}
+
+/// True for a line whose value is a literal or folded block scalar (`|`, `>-`,
+/// `|2+`, …). Its content is text, not YAML structure.
+fn is_block_scalar_line(line: &str) -> bool {
+    let without_comment = line.split(" #").next().unwrap_or(line).trim_end();
+    let token = without_comment
+        .rsplit(|character: char| character.is_whitespace())
+        .next()
+        .unwrap_or_default();
+    let mut chars = token.chars();
+    match chars.next() {
+        Some('|') | Some('>') => {}
+        _ => return false,
+    }
+    match chars.collect::<Vec<_>>().as_slice() {
+        [] => true,
+        [indicator] => matches!(indicator, '+' | '-' | '1'..='9'),
+        [digit, sign] => matches!(digit, '1'..='9') && matches!(sign, '+' | '-'),
+        _ => false,
+    }
 }
 
 fn parse_manifest_game(name: &str, value: &YamlValue) -> Option<ManifestGame> {
@@ -1911,12 +2257,8 @@ fn parse_manifest_game(name: &str, value: &YamlValue) -> Option<ManifestGame> {
         ..ManifestGame::default()
     };
 
-    if let Some(files) = mapping_get(mapping, "files").and_then(YamlValue::as_sequence) {
-        for item in files {
-            if let Some(file) = parse_manifest_file(item) {
-                game.files.push(file);
-            }
-        }
+    if let Some(files) = mapping_get(mapping, "files") {
+        parse_manifest_files(files, &mut game.files);
     }
     if let Some(steam) = mapping_get(mapping, "steam").and_then(YamlValue::as_mapping) {
         game.steam_id = mapping_get(steam, "id").and_then(yaml_u32);
@@ -1929,6 +2271,48 @@ fn parse_manifest_game(name: &str, value: &YamlValue) -> Option<ManifestGame> {
             .unwrap_or(0);
     }
     Some(game)
+}
+
+/// Files come in two shapes (#236):
+///
+/// ```yaml
+/// files:                      # official Ludusavi manifest
+///   "<winAppData>/Game/Saves":
+///     tags: [save]
+///     when:
+///       - os: windows
+/// ```
+///
+/// and the older `files: [{path: …, when: …}]` / `files: [<template>]` list,
+/// which stays supported. `tags` are ignored: a listed path is a path.
+fn parse_manifest_files(value: &YamlValue, files: &mut Vec<ManifestFile>) {
+    match value {
+        YamlValue::Sequence(items) => {
+            for item in items {
+                if let Some(file) = parse_manifest_file(item) {
+                    files.push(file);
+                }
+            }
+        }
+        YamlValue::Mapping(entries) => {
+            for (key, spec) in entries {
+                let Some(template) = key.as_str().map(str::trim).filter(|key| !key.is_empty())
+                else {
+                    continue;
+                };
+                let when = spec
+                    .as_mapping()
+                    .and_then(|mapping| mapping_get(mapping, "when"))
+                    .map(parse_when)
+                    .unwrap_or_default();
+                files.push(ManifestFile {
+                    template: template.to_string(),
+                    when,
+                });
+            }
+        }
+        _ => {}
+    }
 }
 
 fn parse_manifest_file(value: &YamlValue) -> Option<ManifestFile> {
@@ -2019,11 +2403,145 @@ fn yaml_string_list(value: &YamlValue) -> Vec<String> {
     }
 }
 
-fn manifest_version_for_text(text: &str) -> String {
+/// SHA-256 of the manifest bytes, lowercase hex. Doubles as the cache key and
+/// as the `manifest_version` reported by a detection.
+fn manifest_digest(text: &str) -> String {
     use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(text.as_bytes());
-    let encoded = hex::encode(digest);
-    format!("sha256:{}", &encoded[..12])
+    hex::encode(Sha256::digest(text.as_bytes()))
+}
+
+fn manifest_version_from_digest(digest: &str) -> String {
+    format!("sha256:{}", &digest[..12.min(digest.len())])
+}
+
+/// A manifest ready for detection.
+#[derive(Debug)]
+struct LoadedManifest {
+    manifest: Arc<Manifest>,
+    /// `sha256:<12 hex>` of the parsed bytes.
+    version: String,
+}
+
+/// Why a manifest could not be loaded. The caller turns this into the panel
+/// message and the warning list.
+#[derive(Debug)]
+enum ManifestLoadError {
+    Read(std::io::Error),
+    /// Bytes on disk and the cap they exceed.
+    TooLarge(u64),
+    Parse(String),
+}
+
+/// Parsed manifests, kept between detection runs. Detection runs once per game
+/// and again after each launch; the official manifest is 18 MB and takes
+/// seconds to parse, so re-parsing it per game is not an option.
+///
+/// Entries are keyed by path, so the explicit path, the managed copy and a
+/// user-installed copy never evict each other, and one changed file only
+/// replaces its own entry. At most [`MAX_CACHED_MANIFESTS`] paths are kept: a
+/// process that reads more distinct manifest files than that is pathological,
+/// and the cap stops it from holding parsed YAML forever.
+static MANIFEST_CACHE: OnceLock<Mutex<ManifestCache>> = OnceLock::new();
+
+/// Distinct manifest paths kept in memory. Real use is one to three.
+const MAX_CACHED_MANIFESTS: usize = 8;
+
+struct CachedManifest {
+    digest: String,
+    manifest: Arc<Manifest>,
+}
+
+#[derive(Default)]
+struct ManifestCache {
+    entries: std::collections::HashMap<PathBuf, CachedManifest>,
+}
+
+impl ManifestCache {
+    fn get(&self, path: &Path, digest: &str) -> Option<Arc<Manifest>> {
+        self.entries
+            .get(path)
+            .filter(|cached| cached.digest == digest)
+            .map(|cached| cached.manifest.clone())
+    }
+
+    fn put(&mut self, path: &Path, digest: &str, manifest: Arc<Manifest>) {
+        if self.entries.len() >= MAX_CACHED_MANIFESTS && !self.entries.contains_key(path) {
+            // Bounded memory: drop one arbitrary other path. A later detection
+            // that still wants it pays one parse, never a wrong result.
+            if let Some(evicted) = self.entries.keys().next().cloned() {
+                self.entries.remove(&evicted);
+            }
+        }
+        self.entries.insert(
+            path.to_path_buf(),
+            CachedManifest {
+                digest: digest.to_string(),
+                manifest,
+            },
+        );
+    }
+}
+
+fn manifest_cache() -> &'static Mutex<ManifestCache> {
+    MANIFEST_CACHE.get_or_init(|| Mutex::new(ManifestCache::default()))
+}
+
+fn lock_manifest_cache() -> std::sync::MutexGuard<'static, ManifestCache> {
+    match manifest_cache().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Remember an already-parsed manifest. The update path validates a download
+/// before writing it, so the next detection can skip the parse entirely.
+pub(crate) fn remember_manifest(path: &Path, digest: &str, manifest: Manifest) {
+    lock_manifest_cache().put(path, digest, Arc::new(manifest));
+}
+
+/// Read and parse the manifest at `path`, reusing the previous parse when the
+/// bytes are unchanged. The file is stat'ed before it is read so a 1 GB file is
+/// rejected without being loaded.
+fn load_manifest(path: &Path) -> Result<LoadedManifest, ManifestLoadError> {
+    load_manifest_with(path, manifest_cache())
+}
+
+/// [`load_manifest`] over an explicit cache, so a test can exercise the
+/// content key without the process-wide cache of the other tests.
+fn load_manifest_with(
+    path: &Path,
+    cache: &Mutex<ManifestCache>,
+) -> Result<LoadedManifest, ManifestLoadError> {
+    let metadata = fs::metadata(path).map_err(ManifestLoadError::Read)?;
+    if metadata.len() > MAX_MANIFEST_BYTES {
+        return Err(ManifestLoadError::TooLarge(metadata.len()));
+    }
+    let text = fs::read_to_string(path).map_err(ManifestLoadError::Read)?;
+    if text.len() as u64 > MAX_MANIFEST_BYTES {
+        return Err(ManifestLoadError::TooLarge(text.len() as u64));
+    }
+
+    let digest = manifest_digest(&text);
+    let version = manifest_version_from_digest(&digest);
+    let cached = match cache.lock() {
+        Ok(guard) => guard.get(path, &digest),
+        Err(poisoned) => poisoned.into_inner().get(path, &digest),
+    };
+    if let Some(manifest) = cached {
+        return Ok(LoadedManifest { manifest, version });
+    }
+    let manifest = parse_manifest(&text).map_err(ManifestLoadError::Parse)?;
+    tracing::info!(
+        games = manifest.games.len(),
+        path = %path.display(),
+        "parsed the Ludusavi save-path manifest"
+    );
+    let manifest = Arc::new(manifest);
+    match cache.lock() {
+        Ok(mut guard) => guard.put(path, &digest, manifest.clone()),
+        Err(poisoned) => poisoned.into_inner().put(path, &digest, manifest.clone()),
+    }
+    Ok(LoadedManifest { manifest, version })
 }
 
 // ---------------------------------------------------------------------------
@@ -2924,6 +3442,311 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .starts_with("sha256:"));
+    }
+
+    /// A compact manifest with `games` entries plus one real one at the end, so
+    /// a truncated or mis-chunked parse is caught by the final assertion (#236).
+    fn synthetic_manifest(games: usize) -> String {
+        let mut text = String::with_capacity(games * 32 + 128);
+        for index in 0..games {
+            text.push_str(&format!("\"Game {index}\": {{}}\n"));
+        }
+        text.push_str("\"Hades™\":\n  files:\n    \"<home>/.local/share/Hades\":\n      tags:\n        - save\n  steam:\n    id: 1145360\n");
+        text
+    }
+
+    #[test]
+    fn a_manifest_above_the_old_fifty_thousand_cap_parses_and_matches() {
+        // The official manifest had 53,549 games on 2026-11-16, past the old
+        // 50,000 cap that made every detection fail. 60,000 games in ~2 MB is
+        // the regression guard.
+        let manifest = parse_manifest(&synthetic_manifest(60_000)).unwrap();
+        assert_eq!(manifest.games.len(), 60_001);
+        assert_eq!(manifest.games.last().unwrap().name, "Hades™");
+
+        let by_id = GameContext {
+            title: "Something Else".to_string(),
+            install_dir: PathBuf::new(),
+            steam_app_id: Some(1145360),
+            store: None,
+        };
+        match manifest.find(&by_id) {
+            ManifestMatch::Found(found) => {
+                assert_eq!(found.name, "Hades™");
+                assert_eq!(found.files.len(), 1);
+                assert_eq!(found.files[0].template, "<home>/.local/share/Hades");
+            }
+            _ => panic!("the Steam id lookup failed"),
+        }
+
+        let by_title = GameContext {
+            title: "Hades".to_string(),
+            install_dir: PathBuf::new(),
+            steam_app_id: None,
+            store: None,
+        };
+        match manifest.find(&by_title) {
+            ManifestMatch::Found(found) => assert_eq!(found.steam_id, Some(1145360)),
+            _ => panic!("the title lookup failed"),
+        }
+    }
+
+    #[test]
+    fn the_official_files_mapping_shape_is_parsed() {
+        // The official manifest lists `files` as a mapping of template to
+        // `{tags, when}` (#236). The older sequence shape is covered by
+        // `HADES_MANIFEST` and `title_matching_falls_back_…`.
+        let text = r#"
+"Stardew Valley":
+  cloud:
+    steam: true
+  files:
+    "<winAppData>/StardewValley/Saves":
+      tags:
+        - save
+      when:
+        - os: windows
+    "<xdgConfig>/StardewValley/Saves":
+      tags:
+        - save
+      when:
+        - os: linux
+  steam:
+    id: 413150
+"#;
+        let manifest = parse_manifest(text).unwrap();
+        let game = &manifest.games[0];
+        assert_eq!(game.name, "Stardew Valley");
+        assert_eq!(game.steam_id, Some(413150));
+        assert_eq!(game.files.len(), 2, "{:?}", game.files);
+        assert_eq!(game.files[0].template, "<winAppData>/StardewValley/Saves");
+        assert_eq!(
+            game.files[0].when,
+            vec![WhenCondition::Os(vec!["windows".to_string()])]
+        );
+        assert_eq!(
+            game.files[1].when,
+            vec![WhenCondition::Os(vec!["linux".to_string()])]
+        );
+    }
+
+    #[test]
+    fn the_game_cap_reports_the_actual_count() {
+        let error = parse_manifest_with(
+            &synthetic_manifest(3),
+            ManifestLimits {
+                max_games: 2,
+                ..ManifestLimits::default()
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("too many games"), "{error}");
+        assert!(error.contains('4'), "the actual count is reported: {error}");
+        assert!(error.contains("limit 2"), "the cap is reported: {error}");
+    }
+
+    #[test]
+    fn one_oversized_entry_is_rejected() {
+        let text = "\"Hades\":\n  files:\n    - <home>/.local/share/Hades\n";
+        let error = parse_manifest_with(
+            text,
+            ManifestLimits {
+                max_entry_bytes: 8,
+                ..ManifestLimits::default()
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("single entry"), "{error}");
+        assert!(error.contains("bytes"), "{error}");
+    }
+
+    #[test]
+    fn yaml_aliases_are_rejected_but_literal_ampersands_are_not() {
+        let alias = "\"Hades\":\n  files:\n    - *reused\n";
+        let error = parse_manifest(alias).unwrap_err();
+        assert!(error.contains("1 YAML anchor(s) or alias(es)"), "{error}");
+
+        // `&`/`*` inside a quoted scalar, a comment, a block scalar or as part
+        // of a path are literal text: the official manifest is full of them.
+        let literal = r#"
+# Tom & Jerry: a comment with &anchor
+"Tom & Jerry":
+  files:
+    - "<home>/.local/share/Tom & Jerry/*/save"
+  note: |
+    &not-an-anchor and *not-an-alias
+"#;
+        assert_eq!(scan_manifest(literal).aliases, 0);
+        assert_eq!(
+            parse_manifest(literal).unwrap().games[0].files[0].template,
+            "<home>/.local/share/Tom & Jerry/*/save"
+        );
+    }
+
+    #[test]
+    fn escaped_backslashes_and_plain_braces_do_not_desync_the_scan() {
+        // The official manifest has keys like `"Indie-Dev\\BoxesWithGuns\\":`:
+        // the closing quote follows an *escaped* backslash, so it ends the key
+        // and the next line is a new entry. A braced plain scalar is literal
+        // text, not a flow collection (#236).
+        let text = r#""Indie-Dev\\BoxesWithGuns\\":
+  files:
+    "<home>/Game": {}
+"Hades":
+  files:
+    <base>/{slot}/save: {}
+"#;
+        let scan = scan_manifest(text);
+        assert_eq!(scan.entries.len(), 2);
+        assert_eq!(scan.aliases, 0);
+        let manifest = parse_manifest_with(
+            text,
+            ManifestLimits {
+                chunk_games: 1,
+                ..ManifestLimits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(manifest.games.len(), 2);
+        assert_eq!(manifest.games[1].files[0].template, "<base>/{slot}/save");
+    }
+
+    #[test]
+    fn deeply_nested_yaml_fails_without_crashing() {
+        let text = format!(
+            "\"Hades\":\n  files: {}x{}\n",
+            "[".repeat(300),
+            "]".repeat(300)
+        );
+        let error = parse_manifest(&text).unwrap_err();
+        assert!(error.starts_with("Invalid Ludusavi manifest"), "{error}");
+    }
+
+    #[test]
+    fn the_node_budget_is_enforced() {
+        let error = parse_manifest_with(
+            &synthetic_manifest(4),
+            ManifestLimits {
+                max_nodes: 5,
+                ..ManifestLimits::default()
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("YAML nodes"), "{error}");
+    }
+
+    #[test]
+    fn a_dollar_named_game_is_not_metadata() {
+        // The official manifest ships a game called "$1 Ride", so a blanket
+        // "skip keys starting with $" silently dropped it. Only a reserved name
+        // with a non-mapping value is metadata.
+        let text = "\"$schema\": \"https://example/manifest\"\n\
+                    version: 3\n\
+                    \"$1 Ride\":\n  files:\n    - <home>/.config/1Ride\n\
+                    Hades:\n  files:\n    - <home>/.config/Hades\n";
+        let manifest = parse_manifest(text).unwrap();
+        assert_eq!(
+            manifest
+                .games
+                .iter()
+                .map(|game| game.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["$1 Ride", "Hades"]
+        );
+        assert_eq!(manifest.games[0].files.len(), 1);
+    }
+
+    #[test]
+    fn a_wrapped_games_mapping_still_parses() {
+        let text = "games:\n  \"Hades\":\n    files:\n      - <home>/.config/Hades\n";
+        let manifest = parse_manifest(text).unwrap();
+        assert_eq!(manifest.games.len(), 1);
+        assert_eq!(manifest.games[0].name, "Hades");
+    }
+
+    #[test]
+    fn a_flow_style_manifest_is_not_split_at_a_closing_brace() {
+        // The closing brace of a flow mapping sits in the first column, which a
+        // naive line split would read as a new entry. Chunking must keep each
+        // flow-style game whole.
+        let mut text = String::new();
+        for index in 0..5 {
+            text.push_str(&format!(
+                "\"Game {index}\": {{\n  files: {{\"<home>/Game {index}\": {{}}}}\n}}\n"
+            ));
+        }
+        text.push_str("\"Hades\": {files: {\"<home>/Hades\": {}}}\n");
+        let manifest = parse_manifest_with(
+            &text,
+            ManifestLimits {
+                chunk_games: 2,
+                ..ManifestLimits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(manifest.games.len(), 6);
+    }
+
+    #[test]
+    fn the_parsed_manifest_is_cached_by_content() {
+        // A private cache: the process-wide one is shared with every other
+        // test in this binary, and a cache assertion must not race them.
+        let cache = Mutex::new(ManifestCache::default());
+        let root = temp_root("manifest-cache");
+        let path = root.join("manifest.yaml");
+        fs::write(&path, HADES_MANIFEST).unwrap();
+        let first = load_manifest_with(&path, &cache).unwrap();
+        let second = load_manifest_with(&path, &cache).unwrap();
+        assert!(Arc::ptr_eq(&first.manifest, &second.manifest));
+        assert_eq!(first.version, second.version);
+
+        // Same length, different bytes: the digest must invalidate the cache.
+        let replaced = HADES_MANIFEST.replace("Hades", "Hadet");
+        assert_eq!(replaced.len(), HADES_MANIFEST.len());
+        fs::write(&path, &replaced).unwrap();
+        let third = load_manifest_with(&path, &cache).unwrap();
+        assert!(!Arc::ptr_eq(&first.manifest, &third.manifest));
+        assert_eq!(third.manifest.games[0].name, "Hadet™");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_manifest_cache_keeps_one_entry_per_path() {
+        let mut cache = ManifestCache::default();
+        let alpha = Path::new("/manifests/extras/alpha.yaml");
+        let beta = Path::new("/manifests/extras/beta.yaml");
+        let parsed = Arc::new(Manifest {
+            games: vec![ManifestGame {
+                name: "Hades".to_string(),
+                ..ManifestGame::default()
+            }],
+        });
+        cache.put(alpha, "aaa", parsed.clone());
+        cache.put(beta, "bbb", parsed.clone());
+
+        assert!(Arc::ptr_eq(&cache.get(alpha, "aaa").unwrap(), &parsed));
+        assert!(Arc::ptr_eq(&cache.get(beta, "bbb").unwrap(), &parsed));
+        assert!(cache.get(alpha, "changed").is_none());
+        assert!(cache.get(Path::new("/elsewhere.yaml"), "aaa").is_none());
+
+        // A second write of the same path replaces its entry only.
+        let other = Arc::new(Manifest { games: Vec::new() });
+        cache.put(alpha, "ccc", other.clone());
+        assert!(Arc::ptr_eq(&cache.get(alpha, "ccc").unwrap(), &other));
+        assert!(Arc::ptr_eq(&cache.get(beta, "bbb").unwrap(), &parsed));
+    }
+
+    #[test]
+    fn an_oversized_manifest_file_is_rejected_with_its_size() {
+        let root = temp_root("manifest-oversize");
+        let path = root.join("manifest.yaml");
+        fs::write(&path, vec![b'#'; MAX_MANIFEST_BYTES as usize + 1]).unwrap();
+        let error = match load_manifest(&path) {
+            Err(ManifestLoadError::TooLarge(bytes)) => bytes,
+            _ => panic!("the size cap did not apply"),
+        };
+        assert_eq!(error, MAX_MANIFEST_BYTES + 1);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
