@@ -41,6 +41,7 @@ const EMPTY_OPTIONS: LaunchOptions = {
   steamAppId: null,
   workingDir: "",
   display: DEFAULT_DISPLAY_PROFILE,
+  audioSink: "",
 };
 
 /** One capability switch with the sentence explaining why it is disabled. */

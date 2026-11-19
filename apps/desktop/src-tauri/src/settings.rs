@@ -329,6 +329,10 @@ pub struct LocalSettings {
     pub compat_wine_path: String,
     /// Launch mode new games start with on Linux (#89).
     pub default_launch_mode: LaunchMode,
+    /// Global audio output override (#289). Empty follows the sound server's
+    /// default sink; a per-game sink always wins.
+    #[serde(default)]
+    pub audio_default_sink: String,
     /// Ludusavi manifest file used for save detection (#107). Empty means
     /// auto-discover the usual Ludusavi data folder; the manifest is never
     /// bundled with Ludex.
@@ -813,6 +817,7 @@ impl Default for LocalSettings {
             compat_proton_path: String::new(),
             compat_wine_path: String::new(),
             default_launch_mode: LaunchMode::Auto,
+            audio_default_sink: String::new(),
             ludusavi_manifest_path: String::new(),
             ludusavi_binary: String::new(),
             ludusavi_manifest_auto_update: default_ludusavi_manifest_auto_update(),
@@ -952,6 +957,9 @@ impl LocalSettings {
             .take()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        // #289: an empty override means "follow the system default"; the name
+        // is stored verbatim because pulse sink names are case-sensitive.
+        self.audio_default_sink = self.audio_default_sink.trim().to_string();
         self.archive_passwords = self
             .archive_passwords
             .drain(..)

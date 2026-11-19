@@ -1375,6 +1375,8 @@ export interface LocalSettings {
   compatWinePath: string;
   /** Launch mode new games start with on Linux (#89). */
   defaultLaunchMode: LaunchMode;
+  /** Global audio output override (#289); empty follows the system default. */
+  audioDefaultSink?: string;
   /** Explicit Ludusavi manifest file (#107). Empty = auto-managed copy, then a detected install. */
   ludusaviManifestPath: string;
   /** `ludusavi` binary override (#107). Empty = look for it on PATH. */
@@ -3089,6 +3091,59 @@ export interface LaunchOptions {
   workingDir: string;
   /** Per-game display profile through Gamescope (#287); desktop by default. */
   display: DisplayProfile;
+  /**
+   * Audio output sink for this game (#289). Empty follows the profile default:
+   * the Ludex global override, then the sound server's own default. A full
+   * PulseAudio/PipeWire sink name, local to this machine.
+   */
+  audioSink: string;
+}
+
+/** One output device discovered through `pactl` (#289). */
+export interface AudioSink {
+  /** PulseAudio/PipeWire sink index. */
+  index: number;
+  /** Full sink name used by `pactl move-sink-input`. */
+  name: string;
+  /** Human description; falls back to the name. */
+  description: string;
+  /** True for the sound server's current default. */
+  isDefault: boolean;
+}
+
+/** Result of probing the host audio stack (#289). */
+export interface AudioSinks {
+  sinks: AudioSink[];
+  /** The sound server's default sink name; empty when there is none. */
+  defaultSink: string;
+  /** Ludex's global override; empty follows the system default. */
+  globalDefault: string;
+  /** False when `pactl` is missing: routing is unavailable. */
+  pactl: boolean;
+  /** `pw-play` or `paplay`; null when neither is installed. */
+  player: string | null;
+}
+
+/** Live volume/mute state for the console OSD (#289). */
+export interface AudioVolumeState {
+  sink: string;
+  label: string;
+  percent: number;
+  muted: boolean;
+  /** False when no device, no `pactl`, or a failed read. */
+  available: boolean;
+  pactl: boolean;
+}
+
+/** Why a launch fell back to another output (#289). */
+export type AudioNoticeKind = "gameSinkMissing" | "defaultSinkMissing" | "noSink";
+
+/** `audio://notice` payload; the desktop fallback is translated by the UI. */
+export interface AudioNotice {
+  gameId: number;
+  kind: AudioNoticeKind;
+  requested: string;
+  used: string | null;
 }
 
 /** What an input device looks like to the player (#314). */

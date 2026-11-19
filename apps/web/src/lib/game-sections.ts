@@ -65,7 +65,7 @@ export const GAME_SECTIONS = [
     id: "launch",
     labelKey: "Launch",
     descriptionKey: "How the desktop app starts this game.",
-    panels: ["startup-command", "settings-tiers", "make-it-run", "linux-launch", "controller"],
+    panels: ["startup-command", "settings-tiers", "make-it-run", "linux-launch", "audio", "controller"],
   },
   {
     id: "settings",

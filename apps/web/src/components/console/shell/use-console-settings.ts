@@ -32,6 +32,7 @@ import {
 } from "@/theme/console-room";
 import type { ControllerProfile } from "@/lib/types";
 import type { ThemeSelection } from "@/theme/types";
+import type { ConsoleAudioModel } from "@/components/console/shell/use-console-audio";
 
 /**
  * The Console settings app's model (#267, #268).
@@ -67,6 +68,8 @@ export interface ConsoleSettingsInput {
   openProfiles: () => void;
   /** Leaves for the desktop remote-play page. */
   openRemotePlay: () => void;
+  /** Output device and volume (#289); the OSD lives in the shell. */
+  audio: ConsoleAudioModel;
 }
 
 export interface ConsoleSettingsModel {
@@ -103,6 +106,7 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
     pulse,
     openProfiles,
     openRemotePlay,
+    audio,
   } = input;
 
   const localeChoices = useMemo(() => selectableLocales(), []);
@@ -317,6 +321,49 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
         },
       ];
     }
+    if (section === "audio") {
+      const unsupported = t("Audio routing needs PipeWire or PulseAudio (pactl) on this Linux desktop.");
+      return [
+        {
+          id: "audio-device",
+          label: t("Output device"),
+          detail: audio.supported
+            ? t("Every game without its own device, and the console, play here.")
+            : unsupported,
+          value: audio.selectedLabel,
+          kind: "choice",
+          disabled: !audio.supported || audio.busy,
+          reason: unsupported,
+        },
+        {
+          id: "audio-volume",
+          label: t("Volume"),
+          detail: t("Steps by 5 %. The OSD shows the level the sound server reports."),
+          value: audio.muted ? t("Muted") : `${audio.volume}%`,
+          kind: "choice",
+          disabled: !audio.supported,
+          reason: unsupported,
+        },
+        {
+          id: "audio-mute",
+          label: t("Mute"),
+          detail: t("Silences the selected output until you unmute it."),
+          value: audio.muted ? t("On") : t("Off"),
+          kind: "toggle",
+          disabled: !audio.supported,
+          reason: unsupported,
+        },
+        {
+          id: "audio-test",
+          label: t("Test device"),
+          detail: t("Plays a short tone on the selected output."),
+          value: t("Play"),
+          kind: "action",
+          disabled: !audio.supported,
+          reason: unsupported,
+        },
+      ];
+    }
     return [
       {
         id: "remote-play",
@@ -432,6 +479,21 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
       case "haptics-test":
         pulse("confirm");
         return;
+      case "audio-device":
+        emit("confirm");
+        audio.cycleDevice(1);
+        return;
+      case "audio-volume":
+        emit("confirm");
+        audio.step(1);
+        return;
+      case "audio-mute":
+        emit("confirm");
+        audio.toggleMute();
+        return;
+      case "audio-test":
+        audio.test();
+        return;
       case "remote-play":
         emit("confirm");
         openRemotePlay();
@@ -503,6 +565,14 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
         setRoom({ ...room, haptics: cycleChoice(KNOB_VALUES.haptics, room.haptics, delta) });
         return;
       }
+      case "audio-device":
+        emit("move");
+        audio.cycleDevice(delta);
+        return;
+      case "audio-volume":
+        emit("move");
+        audio.step(delta);
+        return;
       default:
         return;
     }

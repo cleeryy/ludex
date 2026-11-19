@@ -35,6 +35,10 @@ export const SETTINGS_SECTION_META: Record<
     label: () => t("Controllers"),
     description: () => t("Pad setup, vibration and the console cues on this device."),
   },
+  audio: {
+    label: () => t("Audio"),
+    description: () => t("Output device, volume and mute for the console and every game without its own device."),
+  },
   streaming: {
     label: () => t("Streaming"),
     description: () =>

@@ -129,6 +129,46 @@ impl TreeTracker {
     }
 }
 
+/// Every PID in the subtree rooted at `root`, from one snapshot.
+///
+/// #289 uses this to tell which PipeWire/Pulse sink-inputs belong to a game:
+/// Proton wrappers, launchers and renderer subprocesses all sit below the
+/// spawned root, and the audio stream may be opened by any of them. The walk
+/// is breadth-first with a visited set, so a malformed snapshot with a cycle
+/// (`40 -> 41 -> 40`) terminates. A root that is absent from the snapshot has
+/// no subtree, which is what a wrapper that already exited looks like.
+pub fn subtree_pids(snapshot: &[ProcessInfo], root: u32) -> BTreeSet<u32> {
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut present: HashSet<u32> = HashSet::new();
+    for process in snapshot {
+        present.insert(process.pid);
+        if let Some(parent) = process.parent {
+            if parent != process.pid {
+                children.entry(parent).or_default().push(process.pid);
+            }
+        }
+    }
+    if !present.contains(&root) {
+        return BTreeSet::new();
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut queue = VecDeque::from([root]);
+    while let Some(pid) = queue.pop_front() {
+        if !seen.insert(pid) {
+            continue;
+        }
+        if let Some(kids) = children.get(&pid) {
+            for kid in kids {
+                if !seen.contains(kid) {
+                    queue.push_back(*kid);
+                }
+            }
+        }
+    }
+    seen
+}
+
 /// Samples the OS process list with sysinfo.
 ///
 /// A sampler is cheap to keep around: it reuses its internal [`sysinfo::System`]
@@ -297,6 +337,32 @@ mod tests {
         let status = tracker.step(&[process(50, Some(1)), process(52, Some(1))]);
         assert_eq!(status.processes, 2);
         assert_eq!(tracker.tracked(), vec![50, 52]);
+    }
+
+    /// #289: a game's audio stream can be opened by any process below the
+    /// spawned wrapper, so the router needs the whole subtree, not one PID.
+    #[test]
+    fn the_subtree_contains_every_descendant_once() {
+        let snapshot = [
+            process(100, Some(1)),
+            process(101, Some(100)),
+            process(102, Some(100)),
+            process(103, Some(101)),
+            process(200, Some(1)),
+        ];
+        let pids = subtree_pids(&snapshot, 100);
+        assert_eq!(
+            pids.into_iter().collect::<Vec<_>>(),
+            vec![100, 101, 102, 103]
+        );
+        assert!(subtree_pids(&snapshot, 999).is_empty());
+    }
+
+    #[test]
+    fn a_cyclic_snapshot_still_terminates() {
+        let snapshot = [process(1, Some(2)), process(2, Some(1))];
+        let pids = subtree_pids(&snapshot, 1);
+        assert_eq!(pids.into_iter().collect::<Vec<_>>(), vec![1, 2]);
     }
 
     #[test]
