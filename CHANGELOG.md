@@ -6,6 +6,27 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Game launches from the AppImage no longer inherit the bundle environment
+  (#278): `PYTHONHOME`, `PYTHONPATH`, `LD_LIBRARY_PATH`, `LD_PRELOAD` and the
+  GTK/GIO loader variables are removed for spawned compatibility tools and the
+  `/.mount_*` entries are dropped from `PATH`, so `umu-run` (a Python zipapp)
+  and its OpenSSL load the host libraries; host installs keep their
+  environment unchanged.
+- Proton launch mode runs the chosen Proton build through UMU when UMU is
+  installed (#279): the selection becomes a UMU launch with `PROTONPATH` set to
+  the chosen build, honouring a non-default preferred Proton; bare `proton run`
+  remains only as the fallback when UMU is absent.
+- Every compatibility launch now writes
+  `<appDataDir>/logs/launch-<game>-<session>.log` with the wrapper's
+  stdout/stderr (header with tool/prefix/exe/GAMEID, 512 KiB tail cap, five
+  files kept), and an immediate exit logs the file path plus a cause hint
+  (#280). `docs/LINUX-GAMING.md` covers the AppImage environment, the
+  Proton/UMU routing, exit codes (including 53/0x35), the ~30 s `noWindow`
+  budget and Unity + OnlineFix/StubDRM troubleshooting; game-emulator exits
+  remain outside Ludex's control.
+
 ### Added
 
 - Native `.rpm` bundles in releases (#281): the Linux desktop job builds
