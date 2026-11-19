@@ -3093,7 +3093,7 @@ export interface CompatScan {
 export type DisplayCapability = "supported" | "incapable" | "unknown";
 
 /** One connected output and what the DRM sysfs probe read (#292). */
-export interface DisplayOutput {
+export interface DisplayOutputCaps {
   /** Connector directory name, e.g. `card0-DP-1`. */
   connector: string;
   /** Raw `status` file (`connected`). */
@@ -3112,7 +3112,7 @@ export interface DisplayOutput {
 
 /** What one DRM probe learned (#292). */
 export interface DisplayCapabilities {
-  outputs: DisplayOutput[];
+  outputs: DisplayOutputCaps[];
   active: string | null;
 }
 

@@ -1,7 +1,7 @@
 import type {
   DisplayCapabilities,
   DisplayCapability,
-  DisplayOutput,
+  DisplayOutputCaps,
   DisplayProfile,
   GamescopeInfo,
 } from "@/lib/types";
@@ -70,7 +70,7 @@ export function availableFilters(gamescope: GamescopeInfo | null | undefined): s
 /** The active output, falling back to the first connected one (#292). */
 export function activeDisplayOutput(
   capabilities: DisplayCapabilities | null | undefined,
-): DisplayOutput | null {
+): DisplayOutputCaps | null {
   if (!capabilities) return null;
   return (
     capabilities.outputs.find((output) => output.connector === capabilities.active) ??
