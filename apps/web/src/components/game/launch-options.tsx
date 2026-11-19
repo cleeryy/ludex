@@ -18,6 +18,7 @@ import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { SectionHeader } from "@/components/page";
+import { ControllerPicker } from "@/components/game/controller-picker";
 import { cn } from "@/lib/cn";
 import { tr, t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
@@ -388,6 +389,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             <span className="text-[11px] text-ink-3">{t("One KEY=VALUE per line. PATH, HOME and LD_* are refused.")}</span>
           </div>
         </div>
+
+        <ControllerPicker gameId={gameId} />
 
         <div className="mt-6 border-t border-line pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-3">

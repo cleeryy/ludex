@@ -152,6 +152,9 @@ export const qk = {
   /** Suspend inhibitor (#288): live state, pushed on `inhibit://status`. */
   inhibitStatus: ["inhibit-status"] as const,
   launchOptions: (gameId: number) => key("launch-options", gameId),
+  /** Launch-time input devices and the per-game preferred controller (#314). */
+  controllerInventory: ["controller-inventory"] as const,
+  gameControllers: (gameId: number) => key("game-controllers", gameId),
   prefixInfo: (gameId: number) => key("prefix-info", gameId),
   makeItRun: (gameId: number) => key("make-it-run", gameId),
   virustotal: {

@@ -3055,6 +3055,57 @@ export interface LaunchOptions {
   display: DisplayProfile;
 }
 
+/** What an input device looks like to the player (#314). */
+export type ControllerRole = "wheel" | "gamepad" | "joystick" | "mouse" | "keyboard" | "unknown";
+
+/** One input device read from `/proc/bus/input/devices` (#314). */
+export interface InputDevice {
+  name: string;
+  /** Four lowercase hex digits, when the kernel exposes them. */
+  vendor: string | null;
+  product: string | null;
+  /** `vendor:product` (`046d:c260`); null when SDL cannot match it. */
+  deviceId: string | null;
+  /** `js` index, e.g. 2 for `/dev/input/js2`. */
+  jsIndex: number | null;
+  eventIndex: number | null;
+  jsPath: string | null;
+  eventPath: string | null;
+  /** The kernel node still exists; an unplugged device stays listed. */
+  connected: boolean;
+  role: ControllerRole;
+  /** SDL presents it as a joystick/game controller. */
+  isJoystick: boolean;
+}
+
+/** The launch-time device order (#314). */
+export interface ControllerInventory {
+  available: boolean;
+  source: string;
+  note: string | null;
+  devices: InputDevice[];
+}
+
+/** The preferred controller stored for one game (#314). */
+export interface ControllerPreference {
+  deviceId: string;
+  name: string;
+}
+
+/** What a launch would add to the game environment (#314). */
+export interface ControllerLaunch {
+  env: Record<string, string>;
+  summary: string | null;
+  warning: string | null;
+}
+
+/** Diagnostics, preference and effective environment of one game (#314). */
+export interface GameControllers {
+  inventory: ControllerInventory;
+  preferred: ControllerPreference | null;
+  launch: ControllerLaunch;
+}
+
 export interface CompatTool {
   id: string;
   name: string;

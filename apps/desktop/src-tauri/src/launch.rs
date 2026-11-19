@@ -639,6 +639,17 @@ fn linux_prepare_launch(
         other => other,
     };
 
+    // #314: the preference is resolved against the devices present *now*, not
+    // at save time. An unplugged pad therefore leaves the environment
+    // untouched and logs a warning instead of hiding the pads that remain.
+    let controllers = crate::controllers::resolve_for_launch(&settings.game_controllers, game_id);
+    if let Some(warning) = &controllers.warning {
+        tracing::warn!(game_id, warning, "preferred controller not applied");
+    }
+    if let Some(summary) = &controllers.summary {
+        tracing::info!(game_id, summary, "preferred controller applied");
+    }
+
     // #287: probe Gamescope only when the per-game profile asks for it, so an
     // ordinary launch pays nothing and never depends on the wrapper.
     let gamescope = if options.display.mode == DisplayMode::Gamescope {
@@ -661,7 +672,11 @@ fn linux_prepare_launch(
     // profile the command returned below is byte-identical to a build that
     // never had this feature.
     if mode == LaunchMode::Native {
-        let base = build_command(executable, working_dir, args)?;
+        let mut base = build_command(executable, working_dir, args)?;
+        // #314: native SDL games see the same enumeration as Proton.
+        if !controllers.is_empty() {
+            base.envs(controllers.env.iter());
+        }
         let program = PathBuf::from(base.get_program());
         let base_args: Vec<String> = base
             .get_args()
@@ -687,6 +702,9 @@ fn linux_prepare_launch(
             .current_dir(working_dir)
             .stdin(Stdio::null());
         apply_appimage_env(&mut command, appimage.as_ref());
+        if !controllers.is_empty() {
+            command.envs(controllers.env.iter());
+        }
 
         // #280/#287: the wrapper's stderr is the only evidence when gamescope
         // exits before the game, so a wrapped native launch gets a log too.
@@ -700,6 +718,7 @@ fn linux_prepare_launch(
             game_id_env: None,
             appimage: appimage.as_ref(),
             display: &resolved,
+            controllers: &controllers,
         });
         let launch_log = attach_launch_log(&mut command, log_path, &header);
         tracing::info!(
@@ -753,6 +772,11 @@ fn linux_prepare_launch(
     // Before `.envs(plan.env)`: the per-game plan never sets these (they are
     // reserved), but the order keeps the cleanup authoritative.
     apply_appimage_env(&mut command, appimage.as_ref());
+    // #314: before the per-game environment, so an explicit SDL_* override in
+    // the game options still wins over the generated ignore list.
+    if !controllers.is_empty() {
+        command.envs(controllers.env.iter());
+    }
     command.envs(plan.env.iter()).stdin(Stdio::null());
 
     // #280: keep what the wrapper prints; a silent `exit status: 53` is
@@ -767,6 +791,7 @@ fn linux_prepare_launch(
         game_id_env: plan.env.get("GAMEID").map(String::as_str),
         appimage: appimage.as_ref(),
         display: &resolved,
+        controllers: &controllers,
     });
     let launch_log = attach_launch_log(&mut command, log_path, &header);
 
@@ -842,6 +867,7 @@ struct LaunchLogContext<'a> {
     game_id_env: Option<&'a str>,
     appimage: Option<&'a crate::linux_gaming::AppImageEnv>,
     display: &'a crate::linux_gaming::ResolvedLaunch,
+    controllers: &'a crate::controllers::ControllerLaunch,
 }
 
 /// Header written before the wrapper takes over the launch log (#280).
@@ -903,6 +929,17 @@ fn launch_log_header(context: &LaunchLogContext<'_>) -> String {
             }
         }
         None => header.push_str("appimage env: none (host install, environment inherited)\n"),
+    }
+    // #314: the controller decision is the first thing to check when a game
+    // binds the wheel instead of the pad.
+    if let Some(summary) = &context.controllers.summary {
+        header.push_str(&format!("controller: {summary}\n"));
+        for (key, value) in &context.controllers.env {
+            header.push_str(&format!("controller env: {key}={value}\n"));
+        }
+    }
+    if let Some(warning) = &context.controllers.warning {
+        header.push_str(&format!("controller warning: {warning}\n"));
     }
     header.push_str("=== tool output ===\n");
     header
@@ -2505,6 +2542,7 @@ shift
             game_id_env: Some("0"),
             appimage: None,
             display: &resolved,
+            controllers: &crate::controllers::ControllerLaunch::default(),
         });
         assert!(
             header.contains("display: gamescope (hdr: false, adaptive sync: true, filter: fsr)")
@@ -2536,9 +2574,80 @@ shift
             game_id_env: None,
             appimage: None,
             display: &resolved,
+            controllers: &crate::controllers::ControllerLaunch::default(),
         });
         assert!(header.contains("display: desktop (no gamescope profile)"));
         assert!(!header.contains("gamescope command:"));
+    }
+
+    /// #314: the controller decision and its variables are in the header, so a
+    /// game that binds the wheel can be diagnosed from the log alone.
+    #[test]
+    fn a_preferred_controller_is_named_in_the_log_header() {
+        use crate::linux_gaming::{DisplayLaunch, ResolvedLaunch};
+
+        let resolved = ResolvedLaunch {
+            program: PathBuf::from("/usr/bin/umu-run"),
+            args: vec!["/games/Hades/Hades.exe".to_string()],
+            display: DisplayLaunch::Desktop,
+        };
+        let controllers = crate::controllers::ControllerLaunch {
+            env: std::collections::BTreeMap::from([
+                (
+                    "SDL_GAMECONTROLLER_IGNORE_DEVICES".to_string(),
+                    "0x046d/0xc260".to_string(),
+                ),
+                (
+                    "SDL_JOYSTICK_DEVICE".to_string(),
+                    "/dev/input/js2".to_string(),
+                ),
+            ]),
+            summary: Some(
+                "preferred Microsoft X-Box 360 pad (045e:028e, js2); ignoring Logitech G29"
+                    .to_string(),
+            ),
+            warning: None,
+        };
+        let header = launch_log_header(&LaunchLogContext {
+            game_id: 14,
+            executable: Path::new("/games/Hades/Hades.exe"),
+            working_dir: Path::new("/games/Hades"),
+            tool: "GE-Proton9-20",
+            program: Path::new("/usr/bin/umu-run"),
+            prefix: Some(Path::new("/games/Hades/.prefix")),
+            game_id_env: None,
+            appimage: None,
+            display: &resolved,
+            controllers: &controllers,
+        });
+        assert!(header.contains("controller: preferred Microsoft X-Box 360 pad"));
+        assert!(
+            header.contains("controller env: SDL_GAMECONTROLLER_IGNORE_DEVICES=0x046d/0xc260\n")
+        );
+        assert!(header.contains("controller env: SDL_JOYSTICK_DEVICE=/dev/input/js2\n"));
+        assert!(!header.contains("controller warning:"));
+
+        let missing = crate::controllers::ControllerLaunch {
+            env: std::collections::BTreeMap::new(),
+            summary: None,
+            warning: Some("The preferred controller X is not connected".to_string()),
+        };
+        let header = launch_log_header(&LaunchLogContext {
+            game_id: 14,
+            executable: Path::new("/games/Hades/Hades.exe"),
+            working_dir: Path::new("/games/Hades"),
+            tool: "GE-Proton9-20",
+            program: Path::new("/usr/bin/umu-run"),
+            prefix: Some(Path::new("/games/Hades/.prefix")),
+            game_id_env: None,
+            appimage: None,
+            display: &resolved,
+            controllers: &missing,
+        });
+        assert!(
+            header.contains("controller warning: The preferred controller X is not connected\n")
+        );
+        assert!(!header.contains("controller env:"));
     }
 
     /// #280: a huge Proton log keeps its tail (the error is at the end) on a

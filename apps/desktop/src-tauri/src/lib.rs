@@ -10,6 +10,7 @@ mod config_adapters;
 mod config_fields;
 mod console;
 mod console_session;
+mod controllers;
 mod crash_guard;
 mod db;
 mod diagnostics;
@@ -362,6 +363,9 @@ pub fn run() {
             commands::reorder_gamevault_roots,
             commands::detect_gamevault_roots,
             commands::compat_scan,
+            commands::controller_inventory,
+            commands::game_controllers,
+            commands::set_game_controller,
             host_preflight::host_preflight_report,
             host_preflight::host_preflight_plan,
             host_preflight::host_preflight_install,

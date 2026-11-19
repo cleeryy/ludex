@@ -24,6 +24,7 @@ import type {
   ConsoleSessionPlan,
   ConsoleSessionStatus,
   ConsoleStatus,
+  ControllerInventory,
   DeleteAdoptedPreview,
   DiagnosticsPreview,
   DiagnosticsSendOutcome,
@@ -33,6 +34,7 @@ import type {
   FirewallReport,
   ForceCloseGameResult,
   GameConfigListing,
+  GameControllers,
   GameExecutables,
   GameLaunchResult,
   GamePlaytime,
@@ -981,6 +983,23 @@ export const native = {
 
   async runWinetricks(gameId: number, verbs?: string[]): Promise<WinetricksReport> {
     return invoke<WinetricksReport>("run_winetricks", { gameId, verbs: verbs ?? null });
+  },
+
+  /* -------------------- launch-time controllers (#314) ------------------- */
+
+  /** Input devices the game will see. Read-only and Linux-only. */
+  async controllerInventory(): Promise<ControllerInventory> {
+    return invoke<ControllerInventory>("controller_inventory");
+  },
+
+  /** Device list, stored preference and the environment the next launch adds. */
+  async gameControllers(gameId: number): Promise<GameControllers> {
+    return invoke<GameControllers>("game_controllers", { gameId });
+  },
+
+  /** Store (`046d:c260`) or clear (`null`) the preferred controller of a game. */
+  async setGameController(gameId: number, deviceId: string | null): Promise<GameControllers> {
+    return invoke<GameControllers>("set_game_controller", { gameId, deviceId });
   },
 
   async protondbRating(gameId: number, appId?: number | null, refresh = false): Promise<ProtonDbRating> {
