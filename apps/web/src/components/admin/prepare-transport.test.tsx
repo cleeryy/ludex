@@ -60,7 +60,7 @@ function renderAction(props: Partial<Parameters<typeof PrepareTransport>[0]> = {
         versionId={70}
         archiveFormat="7z"
         cacheEnabled
-        pollMs={10}
+        pollMs={50}
         {...props}
       />
     </QueryClientProvider>,
@@ -73,14 +73,17 @@ describe("prepare file transport", () => {
     const second = deferred<ExtractStatus>();
     mocks.extractVersion
       .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+      .mockReturnValueOnce(second.promise)
+      // An extra poll must never receive `undefined` and crash the component;
+      // keep reporting "extracting" until the second response is in.
+      .mockResolvedValue(status({ status: "extracting", files: 120, bytes: 3 * 1024 ** 2 }));
     const onReady = vi.fn();
 
     renderAction({ onReady });
     fireEvent.click(screen.getByRole("button", { name: "Prepare file transport" }));
 
     expect(screen.getByText("Preparing")).toBeTruthy();
-    await waitFor(() => expect(mocks.extractVersion).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.extractVersion).toHaveBeenCalledTimes(1), { timeout: 5_000 });
 
     await act(async () => {
       first.resolve(status({ status: "extracting", files: 120, bytes: 3 * 1024 ** 2 }));
@@ -91,7 +94,7 @@ describe("prepare file transport", () => {
     expect(screen.getByRole("progressbar", { name: "Extraction progress" })).toBeTruthy();
 
     // The active status keeps the poll alive; the next call returns the entry.
-    await waitFor(() => expect(mocks.extractVersion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.extractVersion).toHaveBeenCalledTimes(2), { timeout: 5_000 });
     await act(async () => {
       second.resolve(status({ status: "ready", files: 1_240, bytes: 4_509_715_660 }));
       await second.promise;

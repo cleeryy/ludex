@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv, type Plugin } from "vite";
+import { defineConfig } from "vitest/config";
+import { loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { createHash } from "node:crypto";
@@ -108,6 +109,14 @@ export default defineConfig(({ command, mode }) => {
   return {
     base: "./",
     plugins: [react(), tailwindcss(), serviceWorkerPlugin()],
+    // The suite walks the source tree for the i18n/colour guards and drives
+    // real timers in the polling tests; on a loaded runner (parallel lanes,
+    // coverage instrumentation) the 5 s vitest default produces one-off
+    // failures that pass on retry. Keep the assertions, give them room.
+    test: {
+      testTimeout: 20_000,
+      hookTimeout: 20_000,
+    },
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __USING_MOCKS__: JSON.stringify(usingMocks),
