@@ -126,6 +126,9 @@ pub struct ProcessEntry {
     pub game_id: i64,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub started: std::time::Instant,
+    /// `<appDataDir>/logs/launch-*.log` capturing the wrapper's output (#280).
+    /// `None` for native launchers and URI launches.
+    pub launch_log: Option<PathBuf>,
 }
 
 /// OS network reachability reported by the web shell (#212).

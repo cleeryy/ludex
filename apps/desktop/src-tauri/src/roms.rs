@@ -319,6 +319,7 @@ pub fn launch_rom(
         game_id,
         started_at: started,
         started: std::time::Instant::now(),
+        launch_log: None,
     });
     {
         let mut processes = state

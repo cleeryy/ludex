@@ -23,7 +23,9 @@ pub enum LaunchMode {
     Auto,
     /// Run the file directly, no compatibility layer.
     Native,
-    /// Use a Proton installation (`proton run game.exe`).
+    /// Run a Proton build. `select_tool` routes it through UMU when `umu-run`
+    /// is installed (#279); the bare `proton run` script is only the fallback
+    /// for a machine without UMU.
     Proton,
     /// Use `umu-run` with a Proton build (or UMU's own Proton).
     Umu,
@@ -107,6 +109,114 @@ const RESERVED_ENV: [&str; 5] = [
 ];
 const MAX_ENV_VARS: usize = 64;
 const MAX_VERBS: usize = 32;
+
+/// Variables the AppImage runtime (`AppRun`) exports for the bundle itself.
+///
+/// They point inside the transient `/.mount_*` directory and must not reach a
+/// game's compatibility tool (#278):
+///
+/// - `PYTHONHOME`/`PYTHONPATH`/`PYTHONNOUSERSITE`: `umu-run` is a Python
+///   zipapp. With the bundle's stdlib path it dies on `Failed to import
+///   encodings` before any Proton code runs.
+/// - `LD_LIBRARY_PATH`/`LD_PRELOAD`: the bundle ships an older `libcrypto`, so
+///   the host Python loads the mount's OpenSSL 3.2 and fails on `OPENSSL_3.3.0`
+///   symbols. A preload also changes what every Wine binary links against.
+/// - `GTK_*`, `GDK_PIXBUF_MODULE_FILE`, `GSETTINGS_SCHEMA_DIR`,
+///   `GIO_*`: theme/loader caches of the bundle; Wine and Proton dialogs would
+///   load the wrong gtk modules and schema files.
+pub const APPIMAGE_BUNDLE_ENV: [&str; 12] = [
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PYTHONNOUSERSITE",
+    "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "GTK_PATH",
+    "GTK_EXE_PREFIX",
+    "GTK_DATA_PREFIX",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GSETTINGS_SCHEMA_DIR",
+    "GIO_EXTRA_MODULES",
+    "GIO_MODULE_DIR",
+];
+
+/// The child-environment changes an AppImage launch needs (#278).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppImageEnv {
+    /// Variables removed from the child environment. Removing an unset
+    /// variable is a no-op, so the list is always complete.
+    pub removed: Vec<&'static str>,
+    /// Replacement `PATH`; `None` when no entry pointed into the mount.
+    pub path: Option<String>,
+    /// How many `PATH` entries were dropped because they lived in `APPDIR`.
+    pub dropped_path_entries: usize,
+}
+
+/// Whether `path` is `root` or inside it, compared component by component so a
+/// trailing slash or a `..`-free variant still matches.
+fn path_is_under(path: &Path, root: &Path) -> bool {
+    if root.as_os_str().is_empty() {
+        return false;
+    }
+    let mut path = path.components();
+    root.components()
+        .all(|root_part| path.next() == Some(root_part))
+}
+
+/// Read the real process environment; see [`appimage_env_from`].
+pub fn appimage_env() -> Option<AppImageEnv> {
+    appimage_env_from(|key| std::env::var(key).ok())
+}
+
+/// Environment cleanup for a launch started from an AppImage (#278).
+///
+/// Returns `None` for a host install: a distro/Steam install keeps its own
+/// environment untouched. Inside an AppImage the compatibility tool is a
+/// *host* program (`umu-run`, the Proton scripts, `wine`), so it must not
+/// inherit the bundle's Python, loader or Gtk paths, and `PATH` must not keep
+/// the mount's `usr/bin`, which would shadow the host `python3`/`ldd`.
+///
+/// `lookup` is `std::env::var` in production and a map in tests.
+pub fn appimage_env_from(lookup: impl Fn(&str) -> Option<String>) -> Option<AppImageEnv> {
+    let value = |key: &str| {
+        lookup(key)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    if value("APPIMAGE").is_none() && value("APPDIR").is_none() {
+        return None;
+    }
+
+    let mut env = AppImageEnv {
+        removed: APPIMAGE_BUNDLE_ENV.to_vec(),
+        path: None,
+        dropped_path_entries: 0,
+    };
+
+    // Without APPDIR there is no mount to filter; the removals still apply.
+    let Some(appdir) = value("APPDIR") else {
+        return Some(env);
+    };
+    let Some(path) = lookup("PATH") else {
+        return Some(env);
+    };
+    let root = Path::new(&appdir);
+    let mut kept: Vec<&str> = Vec::new();
+    for entry in path.split(':') {
+        if !entry.is_empty() && path_is_under(Path::new(entry), root) {
+            env.dropped_path_entries += 1;
+            continue;
+        }
+        kept.push(entry);
+    }
+    // An AppImage mount is always prepended to the host PATH, so something
+    // remains in practice; never hand a child an empty PATH (it breaks every
+    // shell and dlopen lookup) if the mount was all there was.
+    if env.dropped_path_entries > 0 && !kept.is_empty() {
+        env.path = Some(kept.join(":"));
+    }
+
+    Some(env)
+}
 
 /// Validate and normalise user environment overrides.
 pub fn validate_env(env: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>, String> {
@@ -242,6 +352,12 @@ pub struct CompatSelection {
 
 /// Pick a tool. `preferred` is a scan id; when it is gone the next best tool is
 /// used instead of failing the launch.
+///
+/// #279: `LaunchMode::Proton` still picks the user's Proton build, but the
+/// launch goes through UMU when `umu-run` is installed. Running the `proton`
+/// script bare only works for Steam's own compatdata layout; UMU sets up the
+/// Steam Linux Runtime, the prefix layout and the emulator variables. Bare
+/// Proton is therefore only the fallback when UMU is absent.
 pub fn select_tool(
     tools: &[CompatTool],
     mode: LaunchMode,
@@ -300,14 +416,35 @@ pub fn select_tool(
         _ => tool.proton_path.clone(),
     };
 
-    Ok(CompatSelection {
+    let mut selection = CompatSelection {
         tool_id: tool.id.clone(),
         name: tool.name.clone(),
         kind: tool.kind,
         program: PathBuf::from(&tool.path),
         proton_path: proton_path.map(PathBuf::from),
         client_install_path: None,
-    })
+    };
+
+    // #279: keep the chosen Proton build (id, name and PROTONPATH) but run it
+    // through UMU. Only the missing UMU makes the bare script the fallback.
+    if mode == LaunchMode::Proton {
+        if let Some(umu) = tools
+            .iter()
+            .find(|candidate| candidate.kind == ToolKind::Umu)
+        {
+            // The scan always fills `proton_path`; the script's folder is the
+            // same directory for hand-made tools and fixtures.
+            let proton_dir = selection
+                .proton_path
+                .clone()
+                .or_else(|| selection.program.parent().map(Path::to_path_buf));
+            selection.kind = ToolKind::Umu;
+            selection.program = PathBuf::from(&umu.path);
+            selection.proton_path = proton_dir;
+        }
+    }
+
+    Ok(selection)
 }
 
 /// A fully built launch, ready to spawn.
@@ -335,7 +472,8 @@ impl LaunchPlan {
 /// - UMU: `umu-run <exe>` with `PROTONPATH`, `GAMEID`, `STEAM_COMPAT_DATA_PATH`,
 ///   `STEAM_COMPAT_CLIENT_INSTALL_PATH`, `WINEPREFIX` and `UMU_LOG`.
 /// - Proton: `<proton> run <exe>` with the Steam compatibility variables; the
-///   Wine prefix Proton creates is `<prefix>/pfx`.
+///   Wine prefix Proton creates is `<prefix>/pfx`. Fallback only: `select_tool`
+///   hands this kind to UMU whenever `umu-run` is installed (#279).
 /// - Wine: `wine <exe>` with `WINEPREFIX=<prefix>`.
 ///
 /// Per-game overrides are applied last and can replace any of these values.
@@ -541,10 +679,9 @@ mod tests {
     #[test]
     fn explicit_modes_pick_their_kind_and_preferred_ids_win() {
         let all = tools();
-        assert_eq!(
-            select_tool(&all, LaunchMode::Proton, "").unwrap().name,
-            "GE-Proton9-20"
-        );
+        let proton = select_tool(&all, LaunchMode::Proton, "").unwrap();
+        assert_eq!(proton.name, "GE-Proton9-20");
+        assert_eq!(proton.tool_id, all[1].id);
         let wine = select_tool(&all, LaunchMode::Auto, &all[2].id).unwrap();
         assert_eq!(wine.kind, ToolKind::Wine);
         // A preferred tool that no longer exists falls back instead of failing.
@@ -552,6 +689,79 @@ mod tests {
         assert_eq!(fallback.tool_id, all[0].id);
         let gone = select_tool(&all, LaunchMode::Auto, "proton:/gone").unwrap();
         assert_eq!(gone.kind, ToolKind::Umu);
+    }
+
+    /// #279: choosing a Proton build on a machine with UMU runs that build as
+    /// `PROTONPATH` through `umu-run`, while the UI keeps the Proton name.
+    #[test]
+    fn proton_mode_routes_the_chosen_build_through_umu() {
+        let all = tools();
+        let selection = select_tool(&all, LaunchMode::Proton, "").unwrap();
+        assert_eq!(selection.kind, ToolKind::Umu);
+        assert_eq!(selection.program, PathBuf::from("/usr/bin/umu-run"));
+        assert_eq!(selection.tool_id, all[1].id);
+        assert_eq!(selection.name, "GE-Proton9-20");
+        assert_eq!(
+            selection.proton_path,
+            Some(PathBuf::from("/games/GE-Proton9-20"))
+        );
+
+        let plan = build_launch(
+            &selection,
+            &exe(),
+            &[],
+            &prefix(),
+            &LaunchOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(plan.program, PathBuf::from("/usr/bin/umu-run"));
+        assert_eq!(plan.args, vec!["/games/hades/Hades.exe".to_string()]);
+        assert_eq!(plan.env["PROTONPATH"], "/games/GE-Proton9-20");
+        // UMU owns the prefix directly; no `pfx` subfolder.
+        assert_eq!(plan.env["WINEPREFIX"], "/games/hades/.prefix");
+        assert_eq!(plan.tool_name, "GE-Proton9-20");
+
+        // `umu` mode itself is unchanged: no Proton preference is invented.
+        let umu = select_tool(&all, LaunchMode::Umu, "").unwrap();
+        assert_eq!(umu.kind, ToolKind::Umu);
+        assert_eq!(umu.program, PathBuf::from("/usr/bin/umu-run"));
+    }
+
+    #[test]
+    fn proton_mode_keeps_a_non_default_preferred_build_under_umu() {
+        let all = vec![
+            tool(ToolKind::Umu, "umu-run", "/usr/bin/umu-run", None),
+            tool(
+                ToolKind::Proton,
+                "GE-Proton9-20",
+                "/games/GE-Proton9-20/proton",
+                Some("/games/GE-Proton9-20"),
+            ),
+            tool(
+                ToolKind::Proton,
+                "Proton - Experimental",
+                "/steam/Proton - Experimental/proton",
+                Some("/steam/Proton - Experimental"),
+            ),
+        ];
+        let selection = select_tool(&all, LaunchMode::Proton, &all[2].id).unwrap();
+        assert_eq!(selection.kind, ToolKind::Umu);
+        assert_eq!(selection.tool_id, all[2].id);
+        assert_eq!(selection.name, "Proton - Experimental");
+        assert_eq!(
+            selection.proton_path,
+            Some(PathBuf::from("/steam/Proton - Experimental"))
+        );
+
+        let plan = build_launch(
+            &selection,
+            &exe(),
+            &[],
+            &prefix(),
+            &LaunchOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(plan.env["PROTONPATH"], "/steam/Proton - Experimental");
     }
 
     #[test]
@@ -621,8 +831,15 @@ mod tests {
     }
 
     #[test]
-    fn proton_runs_through_the_proton_script_with_pfx_prefix() {
-        let selection = select_tool(&tools(), LaunchMode::Proton, "").unwrap();
+    fn proton_without_umu_falls_back_to_the_bare_proton_script() {
+        // #279: the direct `proton run` command is only for machines with no
+        // UMU at all.
+        let protons: Vec<CompatTool> = tools()
+            .into_iter()
+            .filter(|tool| tool.kind != ToolKind::Umu)
+            .collect();
+        let selection = select_tool(&protons, LaunchMode::Proton, "").unwrap();
+        assert_eq!(selection.kind, ToolKind::Proton);
         let plan = build_launch(
             &selection,
             &exe(),
@@ -664,9 +881,107 @@ mod tests {
         env.insert("LD_PRELOAD".to_string(), "/evil.so".into());
         assert!(validate_env(&env).unwrap_err().contains("LD_PRELOAD"));
 
+        // #278: the AppImage cleanup does not open these up to per-game values.
+        env.clear();
+        env.insert("PYTHONPATH".to_string(), "/tmp".into());
+        assert!(validate_env(&env).unwrap_err().contains("PYTHONPATH"));
+
         env.clear();
         env.insert("DXVK_STATE_CACHE".to_string(), "1".into());
         assert_eq!(validate_env(&env).unwrap().len(), 1);
+    }
+
+    fn appimage_lookup(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: BTreeMap<String, String> = pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect();
+        move |key: &str| map.get(key).cloned()
+    }
+
+    /// #278: a host install never touches the child environment; an AppImage
+    /// removes the bundle variables and drops the mount from `PATH`.
+    #[test]
+    fn appimage_environment_is_cleaned_only_inside_an_appimage() {
+        assert_eq!(
+            appimage_env_from(appimage_lookup(&[("PATH", "/usr/bin:/bin")])),
+            None
+        );
+
+        let cleanup = appimage_env_from(appimage_lookup(&[
+            ("APPIMAGE", "/home/player/Apps/Ludex.AppImage"),
+            ("APPDIR", "/tmp/.mount_Ludex_keDGlJ"),
+            (
+                "PATH",
+                "/tmp/.mount_Ludex_keDGlJ/usr/bin/:/usr/local/bin:/usr/bin:/bin",
+            ),
+            ("PYTHONHOME", "/tmp/.mount_Ludex_keDGlJ/usr/"),
+            ("LD_LIBRARY_PATH", "/tmp/.mount_Ludex_keDGlJ/usr/lib"),
+        ]))
+        .unwrap();
+        assert_eq!(cleanup.removed, APPIMAGE_BUNDLE_ENV.to_vec());
+        assert!(cleanup.removed.contains(&"PYTHONNOUSERSITE"));
+        assert!(cleanup.removed.contains(&"GIO_EXTRA_MODULES"));
+        assert_eq!(
+            cleanup.path.as_deref(),
+            Some("/usr/local/bin:/usr/bin:/bin")
+        );
+        assert_eq!(cleanup.dropped_path_entries, 1);
+    }
+
+    #[test]
+    fn appimage_path_entries_under_the_mount_are_dropped_wherever_they_appear() {
+        let cleanup = appimage_env_from(appimage_lookup(&[
+            ("APPDIR", "/tmp/.mount_Ludex_abc"),
+            (
+                "PATH",
+                "/usr/local/bin:/tmp/.mount_Ludex_abc/usr/sbin/:/tmp/.mount_Ludex_abc:/opt/bin",
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(cleanup.path.as_deref(), Some("/usr/local/bin:/opt/bin"));
+        assert_eq!(cleanup.dropped_path_entries, 2);
+
+        // A sibling mount or a lookalike prefix is kept: only the real mount
+        // goes.
+        let sibling = appimage_env_from(appimage_lookup(&[
+            ("APPDIR", "/tmp/.mount_Ludex_abc"),
+            ("PATH", "/tmp/.mount_Ludex_abc2/usr/bin:/usr/bin"),
+        ]))
+        .unwrap();
+        assert_eq!(sibling.path, None);
+        assert_eq!(sibling.dropped_path_entries, 0);
+    }
+
+    #[test]
+    fn appimage_cleanup_is_idempotent_and_survives_a_missing_appdir() {
+        let lookup = appimage_lookup(&[
+            ("APPIMAGE", "/Apps/Ludex.AppImage"),
+            ("APPDIR", "/tmp/.mount_Ludex_abc"),
+        ]);
+        let first = appimage_env_from(&lookup).unwrap();
+        assert_eq!(
+            first.removed,
+            APPIMAGE_BUNDLE_ENV.to_vec(),
+            "removals stay listed so env_remove is a no-op for unset values"
+        );
+
+        // A cleaned PATH produces no second rewrite.
+        let second = appimage_env_from(appimage_lookup(&[
+            ("APPIMAGE", "/Apps/Ludex.AppImage"),
+            ("APPDIR", "/tmp/.mount_Ludex_abc"),
+            ("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        ]))
+        .unwrap();
+        assert_eq!(second.path, None);
+        assert_eq!(second.dropped_path_entries, 0);
+        assert_eq!(second.removed.len(), 12);
+
+        // `APPIMAGE` alone (no mount) still removes the bundle variables.
+        let only_appimage =
+            appimage_env_from(appimage_lookup(&[("APPIMAGE", "/Apps/Ludex.AppImage")])).unwrap();
+        assert_eq!(only_appimage.path, None);
+        assert_eq!(only_appimage.removed, APPIMAGE_BUNDLE_ENV.to_vec());
     }
 
     #[test]

@@ -404,7 +404,7 @@ tested against fixture directory trees without Steam installed.
 |---|---|
 | `auto` (default) | Native files run directly; a Windows `.exe` goes through UMU, then the best GE-Proton/Proton build, then Wine |
 | `native` | Run the file as-is (`.sh` through `sh`, `.exe` through Wine when that was the explicit choice) |
-| `proton` | `<proton>/proton run game.exe` |
+| `proton` | The chosen Proton build through **UMU** when `umu-run` is installed (#279); bare `<proton>/proton run game.exe` is only the fallback for a machine without UMU |
 | `umu` | `umu-run game.exe` with a local Proton build when one is detected, else UMU's own `GE-Proton` |
 
 Tool order is UMU → GE-Proton → Proton Experimental → numbered Proton → Wine.
@@ -417,10 +417,22 @@ The environment built for each mode:
 - **UMU**: `PROTONPATH` (Proton folder or `GE-Proton`), `GAMEID` (the Steam app
   id, else `0`), `UMU_LOG=warn`, `STEAM_COMPAT_DATA_PATH`,
   `STEAM_COMPAT_CLIENT_INSTALL_PATH`, `WINEPREFIX`.
-- **Proton**: `STEAM_COMPAT_DATA_PATH=<prefix>`,
+- **Proton** (fallback only, no UMU): `STEAM_COMPAT_DATA_PATH=<prefix>`,
   `STEAM_COMPAT_CLIENT_INSTALL_PATH=<Steam root>`; Proton creates its Wine
-  prefix in `<prefix>/pfx` and `WINEPREFIX` points there.
+  prefix in `<prefix>/pfx` and `WINEPREFIX` points there. With UMU the Proton
+  build is passed as `PROTONPATH` and the UMU variables above apply, so the UI
+  keeps naming the Proton build the user picked.
 - **Wine**: `WINEPREFIX=<prefix>`.
+
+Starting from an **AppImage**, the compat child also drops the bundle's own
+environment (#278): `PYTHONHOME`, `PYTHONPATH`, `PYTHONNOUSERSITE`,
+`LD_LIBRARY_PATH`, `LD_PRELOAD`, the `GTK_*`/`GDK_PIXBUF_MODULE_FILE`/
+`GSETTINGS_SCHEMA_DIR`/`GIO_*` loader paths, and every `PATH` entry inside
+`APPDIR` — otherwise the mount's Python and OpenSSL break `umu-run`. A host
+install keeps its environment untouched. Every compat launch also writes its
+tool output to `<appDataDir>/logs/launch-<gameId>-<sessionId>.log` (last
+512 KiB, five newest files, #280). See [LINUX-GAMING.md](LINUX-GAMING.md) for
+the details, the exit-code table and the OnlineFix/StubDRM troubleshooting.
 
 Per-game environment overrides (`DXVK_HUD`, `PROTON_NO_ESYNC`,
 `WINEDLLOVERRIDES`…) are applied last. Names must match
