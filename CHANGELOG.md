@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.25] - 2026-11-19
+
 ### Added
 
 - Host preflight and runtime bootstrap (#285): probes GPU/driver, Vulkan (64/32-bit),
