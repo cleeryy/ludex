@@ -759,7 +759,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [rust, web, e2e]
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 40
+    # A cold cache with the full Tauri release build + linuxdeploy regularly
+    # lands around 30-35 min; 40 was tight enough that one slow runner hit the
+    # timeout and cancelled mid-bundle (2026-11-19). Keep the bound, give it room.
+    timeout-minutes: 60
     permissions:
       contents: write
     # One uploader per platform: two runs must never merge latest.json against
