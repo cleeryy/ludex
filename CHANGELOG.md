@@ -6,6 +6,42 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Libraries on removable and network mounts (#290): mount-aware roots with one
+  automount attempt, an offline state that keeps rows and resumes without a
+  full rescan when the mount identity is unchanged, a per-root free-space floor
+  (migration 0035) with the archive×1.1 preflight, a paused-not-corrupted
+  install when a drive disappears, and a journaled verified "move install to
+  another library" (desktop schema V25).
+- Streaming host prerequisites (#291): a "Stream to another device" wizard that
+  detects Sunshine, self-tests the capture stack with distinct messages, writes
+  only `output_name`/`stream_audio`/MTU-derived `packet_size` with a
+  byte-identical backup and revert, opens exactly the Sunshine port ranges
+  through ufw/firewalld/nftables, and pairs through the API (windowed fallback).
+- Capability-aware HDR and adaptive sync (#292): per-output DRM/EDID probing
+  (VRR, HDR, max refresh, colour depth) and two per-game switches applied only
+  through nested gamescope, with the exact reason shown when unavailable.
+
+### Fixed
+
+- A compressed ZIP entry can no longer hang a resumed stream install (#309):
+  the server refuses an expensive resume with `409 entry_resume_restart` +
+  `X-Ludex-Entry-Resume: restart`, the client restarts that entry once from 0
+  (`?restart=1`) and never loops or commits a short file; stored entries keep
+  their `206` range resume.
+- Reverse proxies no longer buffer the entry stream (#310): stream responses
+  carry `Cache-Control: … no-transform`, `X-Accel-Buffering: no` and
+  `Incremental: ?1`, and the documented Caddy matcher keeps `encode` off the
+  streaming routes for versions before 2.11.7.
+- A missing configured executable no longer discards a completed extraction
+  (#311): Ludex detects another `.exe` or commits with the executable unset and
+  a warning; the staging folder is kept and the job ends `done`.
+- The machine stays awake while Ludex is downloading, verifying, playing or
+  streaming (#288): one `systemd-inhibit` lock, released on the last job and
+  after the configurable grace window, with a dismissible banner and Console
+  notice.
+
 ## [0.4.25] - 2026-11-19
 
 ### Added
