@@ -12,6 +12,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { ElevationConfirm } from "@/components/ui/elevation-confirm";
 import { SettingsSwitchRow } from "@/components/settings/settings-section";
 import { RemotePlayPanel } from "@/components/settings/remote-play-panel";
+import { StreamHostPanel } from "@/components/settings/stream-host-panel";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 
@@ -42,6 +43,7 @@ export function StreamingPanel({
         </div>
       </div>
       <RemotePlayPanel />
+      {isNative() && <StreamHostPanel />}
       <div className="mt-8 grid gap-8 xl:grid-cols-2">
         <SunshinePanel draft={draft} update={update} />
         <MoonlightPanel draft={draft} update={update} />

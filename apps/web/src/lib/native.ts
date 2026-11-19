@@ -29,6 +29,8 @@ import type {
   DiagnosticsSendOutcome,
   DiagnosticsStatus,
   DiskUsage,
+  FirewallPlan,
+  FirewallReport,
   ForceCloseGameResult,
   GameConfigListing,
   GameExecutables,
@@ -97,7 +99,13 @@ import type {
   SteamImportReport,
   SteamPreview,
   StorageSuggestions,
+  StreamConfigApply,
+  StreamConfigPlan,
+  StreamConfigRevert,
+  StreamHostReport,
   StreamLaunch,
+  StreamPairingOutcome,
+  StreamSelfTestReport,
   StreamTarget,
   SunshineGrant,
   SunshinePreview,
@@ -1371,6 +1379,75 @@ export const native = {
   /** One-time UAC grant for a Sunshine install under Program Files (#182). */
   async grantSunshineWriteAccess(): Promise<SunshineGrant> {
     return invoke<SunshineGrant>("grant_sunshine_write_access");
+  },
+
+  /* --------------- Streaming host prerequisites (#291) ------------------ */
+
+  /** Detect Sunshine, its service, the capture path, outputs, MTU, encoder. */
+  async streamHostStatus(): Promise<StreamHostReport> {
+    return invoke<StreamHostReport>("stream_host_status");
+  },
+
+  /** Re-probe and return the distinct self-test findings. */
+  async streamHostSelfTest(): Promise<StreamSelfTestReport> {
+    return invoke<StreamSelfTestReport>("stream_host_self_test");
+  },
+
+  /** Dry-run: the exact sunshine.conf edits, files and commands. */
+  async streamHostConfigPlan(
+    output: string | null,
+    interfaceName: string | null,
+  ): Promise<StreamConfigPlan> {
+    return invoke<StreamConfigPlan>("stream_host_config_plan", { output, interface: interfaceName });
+  },
+
+  /** Write the plan after consent; a backup is always taken first. */
+  async streamHostConfigApply(args: {
+    output: string | null;
+    interfaceName: string | null;
+    consent: boolean;
+  }): Promise<StreamConfigApply> {
+    return invoke<StreamConfigApply>("stream_host_config_apply", {
+      output: args.output,
+      interface: args.interfaceName,
+      consent: args.consent,
+    });
+  },
+
+  async streamHostConfigRevert(): Promise<StreamConfigRevert> {
+    return invoke<StreamConfigRevert>("stream_host_config_revert");
+  },
+
+  async streamHostFirewallPlan(): Promise<FirewallPlan> {
+    return invoke<FirewallPlan>("stream_host_firewall_plan");
+  },
+
+  async streamHostFirewallApply(consent: boolean): Promise<FirewallReport> {
+    return invoke<FirewallReport>("stream_host_firewall_apply", { consent });
+  },
+
+  async streamHostFirewallRevert(): Promise<FirewallReport> {
+    return invoke<FirewallReport>("stream_host_firewall_revert");
+  },
+
+  /** Enter the PIN Moonlight shows; uses Sunshine's local API when possible. */
+  async streamHostPair(args: {
+    pin: string;
+    username?: string | null;
+    password?: string | null;
+    remember?: boolean;
+  }): Promise<StreamPairingOutcome> {
+    return invoke<StreamPairingOutcome>("stream_host_pair", {
+      pin: args.pin,
+      username: args.username ?? null,
+      password: args.password ?? null,
+      remember: args.remember ?? false,
+    });
+  },
+
+  /** Open Sunshine's own page in a Ludex window (fallback for pairing). */
+  async streamHostPairingPage(): Promise<StreamPairingOutcome> {
+    return invoke<StreamPairingOutcome>("stream_host_pairing_page");
   },
 
   /* --------------------- Moonlight client (#98) -------------------------- */

@@ -1,0 +1,207 @@
+# Streaming host prerequisites (#291)
+
+Ludex publishes its library to Sunshine and starts streams from Moonlight. This
+page covers the other half of a working stream: the Linux host itself. The
+Settings → Streaming wizard ("Stream to another device") detects the machine,
+runs a self-test, writes only the three `sunshine.conf` keys a Moonlight stream
+depends on, opens the exact firewall ports, and pairs Moonlight without sending
+you to `localhost:47990`.
+
+Everything is optional: a host that is already configured keeps working and the
+wizard reports it as ready.
+
+## Prerequisites
+
+| Piece | What Ludex expects |
+| --- | --- |
+| Sunshine | A `sunshine` binary on `PATH`. Version is reported but not enforced. |
+| Service | A `sunshine.service` unit (system or user). It should be enabled and active. |
+| Capture | KMS: at least one `/dev/dri/card*` node and a connected output in `/sys/class/drm`. |
+| Encoder | One of H.264/HEVC/AV1 through VA-API (`vainfo`), NVENC, AMF or QSV (`ffmpeg -encoders`). Software `libx264` counts but is reported as a warning. |
+| Elevation | `pkexec` (polkit) for a `/etc/sunshine/sunshine.conf` write and for firewall changes. |
+| Firewall | `ufw`, `firewalld` or `nftables`. The wizard never flushes your ruleset. |
+
+`sunshine.conf` is read from the first existing path, in this order:
+
+1. the `sunshineConfPath` override in Settings;
+2. `~/.config/sunshine/sunshine.conf`;
+3. `/etc/sunshine/sunshine.conf`.
+
+When none exists, the installed unit decides: a system unit writes
+`/etc/sunshine/sunshine.conf`, a user install writes the XDG path.
+
+## What the wizard reports
+
+Five rows, each with a stable status (`ok`, `warning`, `missing`, `broken`,
+`unknown`):
+
+| Row | What it means |
+| --- | --- |
+| Sunshine binary | Path and version, or "not on PATH". |
+| Sunshine service | Unit path, `is-enabled` and `is-active` (system and `--user`). |
+| Screen capture | `/dev/dri` cards plus the `loginctl` session type and active flag. |
+| Video encoder | Hardware encoders found by `vainfo`/`ffmpeg`, or software-only. |
+| Display output | Connected connectors, their mode and DPMS state. |
+
+The same probe fills the output list, the interface/MTU list and the current
+`output_name`, `stream_audio` and `packet_size` values.
+
+## What Ludex writes
+
+Only these three keys, and nothing else:
+
+```ini
+output_name = DP-1
+stream_audio = on
+packet_size = 1200
+```
+
+- **`output_name`** — the connected output you picked. This is the fix for the
+  "wrong monitor captured" failure. Values are kernel connector names
+  (`DP-1`, `HDMI-A-1`, `eDP-1`).
+- **`stream_audio`** — set to `on`.
+- **`packet_size`** — derived from the MTU of the stream interface:
+  `clamp(mtu - 80, 1024, 1420)` bytes. The 80 bytes cover IPv6, UDP and
+  Sunshine's RTP header, so a 1280-byte WireGuard/NetBird tunnel gets a
+  1200-byte payload and does not fragment.
+
+| MTU | Packet size |
+| --- | --- |
+| 1500 (Ethernet) | 1420 |
+| 1420 (WireGuard default) | 1340 |
+| 1400 | 1320 |
+| 1300 | 1220 |
+| 1280 (NetBird) | 1200 |
+| 1200 | 1120 |
+| 1100 | 1024 |
+| 576 | 1024 |
+
+The interface is chosen in this order: your explicit choice, then an up tunnel
+(`wg*`, `tailscale*`, `netbird*`, `zt*`, `tun*`, `utun*`, `nebula*`, `ipsec*`)
+with the lowest MTU, then the IPv4 default route, then the up interface with
+the lowest MTU. A tunnel MTU below 1280 raises a warning but is still used.
+
+Every other line — comments, ordering, spacing, unknown keys, `fps`,
+`min_fps_factor`, `dynamism` — is preserved byte for byte. A duplicate key is
+edited at its last occurrence, which is the one Sunshine's parser keeps.
+
+### Plan, backup, revert
+
+`Preview sunshine.conf changes` builds a dry-run first. It lists the edits with
+the old and new value, every file with its size and mode, and the commands
+(incl. `pkexec` when elevation is needed). Nothing is written until you click
+**Write with backup**.
+
+The write copies the current file to `sunshine.conf.ludex.bak` (content
+identical; a second apply keeps the pristine backup, it never overwrites it with
+an already-edited file), records the SHA-256 in
+`{appDataDir}/stream-host.json`, then replaces the file atomically. A
+byte-identical read-back check aborts on any mismatch.
+
+**Revert** restores the backup only when its SHA-256 still matches the recorded
+one. Reverting a file Ludex created deletes that file. The backup and the state
+entry are removed after a successful revert.
+
+Sunshine reads its config at startup: restart it (`systemctl restart sunshine`)
+after a write. Ludex does not restart it for you, because that would kill an
+active stream.
+
+## Firewall
+
+Ludex opens exactly these ranges (21 ports, all Sunshine):
+
+| Protocol | Ports | Used for |
+| --- | --- | --- |
+| TCP | 47984–47990 | HTTPS/NVHTTP, HTTP pairing, Web UI |
+| TCP | 48010 | RTSP control |
+| UDP | 47998–48010 | Video, control, audio, microphone, RTSP |
+
+The commands per tool, shown before the polkit prompt:
+
+```sh
+# ufw
+ufw allow 47984:47990/tcp
+ufw allow 48010/tcp
+ufw allow 47998:48010/udp
+```
+
+```sh
+# firewalld
+firewall-cmd --permanent --add-port=47984-47990/tcp
+firewall-cmd --permanent --add-port=48010/tcp
+firewall-cmd --permanent --add-port=47998-48010/udp
+firewall-cmd --reload
+```
+
+```sh
+# nftables — a table Ludex owns, never your ruleset
+nft add table inet ludex_stream
+nft 'add chain inet ludex_stream input { type filter hook input priority filter; policy accept; }'
+nft add rule inet ludex_stream input tcp dport { 47984-47990, 48010 } accept
+nft add rule inet ludex_stream input udp dport { 47998-48010 } accept
+```
+
+There is no "allow all" path and no caller-supplied port list. Before opening,
+Ludex queries the current rules as root (one `pkexec` prompt) and opens only the
+missing ones; the exact rule ids it added are recorded in `stream-host.json`.
+The revert removes only those recorded rules (or the `ludex_stream` table when
+Ludex created it) and refuses when the active firewall tool changed since.
+Deleting a rule that is already gone is ignored, so a reboot sweep or a manual
+cleanup does not turn the revert into an error. If an open command fails
+midway, Ludex closes the rules it had just targeted before reporting the error.
+If Sunshine uses a non-default `port` base, the wizard warns that only the
+standard ranges are opened.
+
+## Pairing
+
+The preferred path is Sunshine's local HTTP API, which serves the same endpoints
+as its Web UI (upstream `src/confighttp.cpp`: `savePin`, `getAppsPage`):
+
+- `POST /api/pin` with `{"pin":"1234","name":"Ludex"}` and HTTP Basic auth;
+- `GET /api/apps` to confirm the listener and count the published apps.
+
+The API listens on plain HTTP at `127.0.0.1:47989` (HTTPS is `47990`), so no
+self-signed certificate is involved. Enter Sunshine's admin username and
+password next to the PIN. With **Remember**, both are stored through the secret
+store (OS keychain, or Ludex's SQLite fallback) under
+`stream-host.sunshine-user` / `stream-host.sunshine-password`.
+
+Outcomes are distinct: `paired`, `pin-rejected`, `credentials-required`,
+`unreachable`, `invalid-pin`. A rejected PIN, wrong credentials or an
+unreachable API never blocks you: **Open the Sunshine page** opens
+`http://127.0.0.1:47990/` in a Ludex window (or the system browser) and explains
+why the API path was not used.
+
+Sunshine requires its admin account to exist. On a fresh install, open the
+Sunshine page once and create it; the wizard offers that button.
+
+## Self-test messages and fixes
+
+| Message | Meaning | Fix |
+| --- | --- | --- |
+| Sunshine is not installed | No binary and no unit were found. | Install Sunshine from your distribution or the official package. |
+| The Sunshine service is disabled or stopped | The unit exists but is not running/enabled. | `systemctl enable --now sunshine` (or `--user`). |
+| No capture device | `/dev/dri` has no card. | Install the GPU driver; KMS is required. |
+| No display output is connected | No connector reports `connected`. | Plug the monitor in or enable the virtual display. |
+| The display is blanked | Every connected output has DPMS off, or the session is inactive. | Wake the screen and disable blanking while streaming. |
+| The wrong output is captured | `output_name` is not in the connected list. | Pick a connected output; the wizard pins it. |
+| No usable video encoder | `vainfo` and `ffmpeg` list no H.264/HEVC/AV1 encoder. | Install the VA-API driver package and `vainfo`. |
+| The stream interface MTU is low | The stream interface MTU is below 1280. | Ludex lowers `packet_size`; expect lower quality on this path. |
+
+The self-test never captures a frame itself: it probes the same devices,
+session and encoder Sunshine will use, so it cannot disturb an active stream.
+"Encoder available" therefore means Sunshine's encoder backends are present,
+not that a specific frame encoded within a latency budget.
+
+## Limits
+
+- Linux only. Windows hosts keep the existing `apps.json` integration; macOS has
+  no Sunshine service model.
+- `sunshine.conf` must be readable by your user. A root-only file yields a
+  clear error instead of a partial write.
+- Sunshine's `output_name` must match a kernel connector. A display server
+  alias (e.g. a KDE output nickname) is not accepted.
+- Custom `port` bases are detected but not opened; the standard ranges are the
+  only ones Ludex manages.
+- The firewall revert refuses after a tool switch; close the rules with the new
+  tool manually.
