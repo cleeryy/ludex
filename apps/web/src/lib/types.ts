@@ -2817,6 +2817,11 @@ export interface DisplayProfile {
   refresh: number;
   /** `linear`, `nearest`, `fsr`, `nis`, `pixel`, `sgsr` or empty. */
   filter: string;
+  /**
+   * Only applied when the installed Gamescope advertises `--adaptive-sync` and
+   * the active output supports VRR (#292).
+   */
+  adaptiveSync: boolean;
   /** Only applied when the installed Gamescope advertises `--hdr-enabled`. */
   hdr: boolean;
 }
@@ -2874,6 +2879,35 @@ export interface CompatScan {
   warnings: string[];
   /** Optional display wrapper (#287); null when `gamescope` is not installed. */
   gamescope: GamescopeInfo | null;
+  /** Per-output VRR/HDR probe (#292); empty when no DRM connector is visible. */
+  displayCapabilities: DisplayCapabilities;
+}
+
+/** One output capability verdict (#292). */
+export type DisplayCapability = "supported" | "incapable" | "unknown";
+
+/** One connected output and what the DRM sysfs probe read (#292). */
+export interface DisplayOutput {
+  /** Connector directory name, e.g. `card0-DP-1`. */
+  connector: string;
+  /** Raw `status` file (`connected`). */
+  status: string;
+  /** `enabled` says enabled, or the only connected output. */
+  active: boolean;
+  /** `vrr_capable`: supported / incapable / unknown. */
+  vrr: DisplayCapability;
+  /** EDID HDR static metadata: supported / incapable / unknown. */
+  hdr: DisplayCapability;
+  /** Highest refresh the EDID describes, in Hz. */
+  maxRefresh: number | null;
+  /** Bits per channel from the EDID video input definition. */
+  colorDepth: number | null;
+}
+
+/** What one DRM probe learned (#292). */
+export interface DisplayCapabilities {
+  outputs: DisplayOutput[];
+  active: string | null;
 }
 
 /**
@@ -2886,6 +2920,8 @@ export interface GamescopeInfo {
   version: string | null;
   /** `--hdr-enabled` is supported. */
   hdr: boolean;
+  /** `--adaptive-sync` is supported (#292). */
+  adaptiveSync: boolean;
   /** Filters listed for `--filter`; empty when the flag is unsupported. */
   filters: string[];
 }

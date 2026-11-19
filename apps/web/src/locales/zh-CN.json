@@ -4067,5 +4067,13 @@
   "Nothing is holding the machine awake.": "目前没有任何任务使机器保持唤醒。",
   "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "休眠抑制需要 Linux 和 systemd-inhibit。这台机器保留自己的电源设置。",
   "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "休眠抑制只存在于桌面应用中。浏览器版本不会改动机器的电源设置。",
-  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "下载、游戏或串流运行期间，Ludex 会阻止休眠和屏幕熄灭。最后一个任务结束后，抑制会在此分钟数后释放；0 表示任务一结束就释放。范围 0..60。"
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "下载、游戏或串流运行期间，Ludex 会阻止休眠和屏幕熄灭。最后一个任务结束后，抑制会在此分钟数后释放；0 表示任务一结束就释放。范围 0..60。",
+  "Adaptive sync": "自适应同步",
+  "Matches the display refresh rate to the game through Gamescope.": "通过 Gamescope 让显示器刷新率与游戏帧率保持一致。",
+  "No gamescope is installed, so adaptive sync has nothing to apply it.": "未安装 Gamescope，自适应同步无法应用。",
+  "No gamescope is installed, so HDR has nothing to apply it.": "未安装 Gamescope，HDR 无法应用。",
+  "The installed gamescope build has no --adaptive-sync.": "已安装的 Gamescope 版本没有 --adaptive-sync。",
+  "The installed gamescope build has no --hdr-enabled.": "已安装的 Gamescope 版本没有 --hdr-enabled。",
+  "The output has no HDR metadata.": "该输出没有 HDR 元数据。",
+  "This output reports VRR as incompatible.": "该输出报告 VRR 不兼容。"
 }

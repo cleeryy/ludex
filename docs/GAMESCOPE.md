@@ -18,7 +18,7 @@ Verified against `gamescope --help` and the `usage[]` table in
 `ValveSoftware/gamescope`, `src/main.cpp` (2026-11-19). The command is:
 
 ```text
-gamescope -w <width> -h <height> [-r <hz>] [--hdr-enabled] [--filter <name>] -- <program> <args…>
+gamescope -w <width> -h <height> [-r <hz>] [--adaptive-sync] [--hdr-enabled] [--filter <name>] -- <program> <args…>
 ```
 
 | Flag | Meaning in `gamescope --help` | Rule |
@@ -27,7 +27,8 @@ gamescope -w <width> -h <height> [-r <hz>] [--hdr-enabled] [--filter <name>] -- 
 | `-h, --nested-height <px>` | game height | required by a profile |
 | `-r, --nested-refresh <hz>` | game refresh rate | omitted when the profile says `0` (desktop rate) |
 | `--filter <name>` | upscaler filter (`linear`, `nearest`, `fsr`, `nis`, `pixel`, `sgsr`) | only when the installed build lists that value in its help output |
-| `--hdr-enabled` | enable HDR output | only when the installed build advertises the flag |
+| `--adaptive-sync` | enable adaptive sync/VRR output | only when the build advertises the flag and the output supports VRR (#292, see [HDR-VRR.md](HDR-VRR.md)) |
+| `--hdr-enabled` | enable HDR output | only when the installed build advertises the flag and the output advertises HDR metadata (#292) |
 | `--` | end of Gamescope options | always; the resolved game command follows |
 
 The game command behind `--` is the one Ludex already resolved:

@@ -4067,5 +4067,13 @@
   "Nothing is holding the machine awake.": "현재 컴퓨터를 깨어 있게 유지하는 작업이 없습니다.",
   "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "절전 억제에는 Linux와 systemd-inhibit가 필요합니다. 이 컴퓨터는 자체 전원 설정을 유지합니다.",
   "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "절전 억제는 데스크톱 앱에만 있습니다. 브라우저 버전은 컴퓨터의 전원 설정을 건드리지 않습니다.",
-  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "다운로드, 게임 또는 스트리밍이 실행되는 동안 Ludex는 절전과 화면 꺼짐을 차단합니다. 억제는 지정한 분 후에 해제되며, 0이면 마지막 작업이 끝나는 즉시 해제됩니다. 범위는 0..60입니다."
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "다운로드, 게임 또는 스트리밍이 실행되는 동안 Ludex는 절전과 화면 꺼짐을 차단합니다. 억제는 지정한 분 후에 해제되며, 0이면 마지막 작업이 끝나는 즉시 해제됩니다. 범위는 0..60입니다.",
+  "Adaptive sync": "적응형 동기화",
+  "Matches the display refresh rate to the game through Gamescope.": "Gamescope를 통해 디스플레이 주사율을 게임에 맞춥니다.",
+  "No gamescope is installed, so adaptive sync has nothing to apply it.": "Gamescope가 설치되어 있지 않아 적응형 동기화를 적용할 수 없습니다.",
+  "No gamescope is installed, so HDR has nothing to apply it.": "Gamescope가 설치되어 있지 않아 HDR을 적용할 수 없습니다.",
+  "The installed gamescope build has no --adaptive-sync.": "설치된 Gamescope 빌드에 --adaptive-sync가 없습니다.",
+  "The installed gamescope build has no --hdr-enabled.": "설치된 Gamescope 빌드에 --hdr-enabled가 없습니다.",
+  "The output has no HDR metadata.": "이 출력에는 HDR 메타데이터가 없습니다.",
+  "This output reports VRR as incompatible.": "이 출력은 VRR을 호환되지 않는다고 보고합니다."
 }

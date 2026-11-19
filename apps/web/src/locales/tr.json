@@ -4067,5 +4067,13 @@
   "Nothing is holding the machine awake.": "Şu anda makineyi uyanık tutan bir şey yok.",
   "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "Uyku engellemesi Linux ve systemd-inhibit gerektirir. Bu makine kendi güç ayarlarını korur.",
   "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "Uyku engelleyici masaüstü uygulamasındadır. Tarayıcı sürümü makinenin güç ayarlarına dokunmaz.",
-  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "Bir indirme, oyun veya yayın çalışırken Ludex uykuyu ve ekranın kapanmasını engeller. Engelleyici bu dakika sayısından sonra serbest bırakılır; 0, son iş biter bitmez serbest bırakır. 0..60 aralığında."
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "Bir indirme, oyun veya yayın çalışırken Ludex uykuyu ve ekranın kapanmasını engeller. Engelleyici bu dakika sayısından sonra serbest bırakılır; 0, son iş biter bitmez serbest bırakır. 0..60 aralığında.",
+  "Adaptive sync": "Uyarlanabilir eşitleme",
+  "Matches the display refresh rate to the game through Gamescope.": "Gamescope üzerinden ekran yenileme hızını oyuna uyarlar.",
+  "No gamescope is installed, so adaptive sync has nothing to apply it.": "Gamescope yüklü değil, bu yüzden uyarlanabilir eşitleme uygulanamıyor.",
+  "No gamescope is installed, so HDR has nothing to apply it.": "Gamescope yüklü değil, bu yüzden HDR uygulanamıyor.",
+  "The installed gamescope build has no --adaptive-sync.": "Yüklü Gamescope sürümünde --adaptive-sync yok.",
+  "The installed gamescope build has no --hdr-enabled.": "Yüklü Gamescope sürümünde --hdr-enabled yok.",
+  "The output has no HDR metadata.": "Bu çıkışta HDR üst verisi yok.",
+  "This output reports VRR as incompatible.": "Bu çıkış VRR'ı uyumsuz olarak bildiriyor."
 }

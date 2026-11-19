@@ -4067,5 +4067,13 @@
   "Nothing is holding the machine awake.": "Rien ne maintient la machine éveillée.",
   "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "L'inhibition de la veille nécessite Linux avec systemd-inhibit. Cette machine conserve ses propres réglages d'alimentation.",
   "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "L'inhibiteur de veille réside dans l'application de bureau. Une version navigateur ne touche pas aux réglages d'alimentation de la machine.",
-  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "Pendant un téléchargement, un jeu ou un streaming, Ludex bloque la mise en veille et l'extinction de l'écran. L'inhibiteur est libéré après ce nombre de minutes ; 0 le libère dès la fin du dernier travail. Borné 0..60."
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "Pendant un téléchargement, un jeu ou un streaming, Ludex bloque la mise en veille et l'extinction de l'écran. L'inhibiteur est libéré après ce nombre de minutes ; 0 le libère dès la fin du dernier travail. Borné 0..60.",
+  "Adaptive sync": "Synchronisation adaptative",
+  "Matches the display refresh rate to the game through Gamescope.": "Aligne la fréquence de rafraîchissement de l'écran sur celle du jeu via Gamescope.",
+  "No gamescope is installed, so adaptive sync has nothing to apply it.": "Gamescope n'est pas installé : la synchronisation adaptative n'a rien pour l'appliquer.",
+  "No gamescope is installed, so HDR has nothing to apply it.": "Gamescope n'est pas installé : le HDR n'a rien pour l'appliquer.",
+  "The installed gamescope build has no --adaptive-sync.": "La version de Gamescope installée n'a pas --adaptive-sync.",
+  "The installed gamescope build has no --hdr-enabled.": "La version de Gamescope installée n'a pas --hdr-enabled.",
+  "The output has no HDR metadata.": "L'écran ne fournit aucune métadonnée HDR.",
+  "This output reports VRR as incompatible.": "Cet écran signale VRR comme incompatible."
 }

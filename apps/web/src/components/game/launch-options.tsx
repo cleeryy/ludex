@@ -8,6 +8,8 @@ import { formatBytes , formatDuration} from "@/lib/format";
 import {
   availableFilters,
   DEFAULT_DISPLAY_PROFILE,
+  displayCapabilityBlock,
+  displayCapabilityLine,
   displayProfileSummary,
   withDisplayMode,
 } from "@/lib/display-profile";
@@ -39,6 +41,40 @@ const EMPTY_OPTIONS: LaunchOptions = {
   workingDir: "",
   display: DEFAULT_DISPLAY_PROFILE,
 };
+
+/** One capability switch with the sentence explaining why it is disabled. */
+function DisplaySwitch({
+  label,
+  hint,
+  checked,
+  disabled,
+  reason,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  disabled: boolean;
+  reason: string | null;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-[12px] text-ink-2">{label}</p>
+        <p className="mt-0.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+          {disabled && reason ? reason : hint}
+        </p>
+      </div>
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+        label={label}
+      />
+    </div>
+  );
+}
 
 function envToText(env: Record<string, string>): string {
   return Object.entries(env)
@@ -113,6 +149,28 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
   const verbs = scan.data?.suggestedVerbs ?? [];
   const gamescope = scan.data?.gamescope ?? null;
   const filters = availableFilters(gamescope);
+  // #292: gating rules shared with the backend: no wrapper, no advertised
+  // flag, or an output that explicitly reports the capability as unavailable.
+  const capabilities = scan.data?.displayCapabilities ?? null;
+  const capabilityLine = displayCapabilityLine(capabilities);
+  const vrrBlock = displayCapabilityBlock("vrr", gamescope, capabilities);
+  const hdrBlock = displayCapabilityBlock("hdr", gamescope, capabilities);
+  const vrrReason =
+    vrrBlock === "output"
+      ? t("This output reports VRR as incompatible.")
+      : vrrBlock === "unsupportedBuild"
+        ? t("The installed gamescope build has no --adaptive-sync.")
+        : vrrBlock === "noGamescope"
+          ? t("No gamescope is installed, so adaptive sync has nothing to apply it.")
+          : null;
+  const hdrReason =
+    hdrBlock === "output"
+      ? t("The output has no HDR metadata.")
+      : hdrBlock === "unsupportedBuild"
+        ? t("The installed gamescope build has no --hdr-enabled.")
+        : hdrBlock === "noGamescope"
+          ? t("No gamescope is installed, so HDR has nothing to apply it.")
+          : null;
   const compatibleTools = useMemo(() => {
     if (draft.mode === "native") return [] as CompatTool[];
     if (draft.mode === "umu") return tools.filter((tool) => tool.kind === "umu");
@@ -347,6 +405,9 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               "Gamescope runs the game in its own nested window at this resolution. The desktop mode is never changed and the other displays are left alone; closing the game restores nothing because nothing moved.",
             )}
           </p>
+          {capabilityLine && (
+            <p className="mt-2 font-mono text-[10.5px] text-ink-3">{capabilityLine}</p>
+          )}
 
           <div className="mt-4 grid gap-5 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5">
@@ -457,22 +518,29 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                   />
                 </label>
               )}
+            </div>
+          )}
 
-              {gamescope?.hdr && (
-                <div className="flex items-center justify-between gap-3 sm:col-span-2">
-                  <div className="min-w-0">
-                    <p className="text-[12px] text-ink-2">{t("HDR output")}</p>
-                    <p className="mt-0.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
-                      {t("Only when the game and the display support it.")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={draft.display.hdr}
-                    onCheckedChange={(hdr) => update({ display: { ...draft.display, hdr } })}
-                    label={t("HDR output")}
-                  />
-                </div>
-              )}
+          {draft.display.mode === "gamescope" && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <DisplaySwitch
+                label={t("Adaptive sync")}
+                hint={t("Matches the display refresh rate to the game through Gamescope.")}
+                checked={draft.display.adaptiveSync}
+                disabled={vrrBlock !== null && !draft.display.adaptiveSync}
+                reason={vrrReason}
+                onChange={(adaptiveSync) =>
+                  update({ display: { ...draft.display, adaptiveSync } })
+                }
+              />
+              <DisplaySwitch
+                label={t("HDR output")}
+                hint={t("Only when the game and the display support it.")}
+                checked={draft.display.hdr}
+                disabled={hdrBlock !== null && !draft.display.hdr}
+                reason={hdrReason}
+                onChange={(hdr) => update({ display: { ...draft.display, hdr } })}
+              />
             </div>
           )}
 

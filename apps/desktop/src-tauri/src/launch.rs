@@ -641,6 +641,15 @@ fn linux_prepare_launch(
     } else {
         None
     };
+    // #292: the output probe only runs when a switch is on. It reads sysfs and
+    // the EDID; a failure is `unknown`, never an error.
+    let display_capabilities = if options.display.mode == DisplayMode::Gamescope
+        && (options.display.adaptive_sync || options.display.hdr)
+    {
+        Some(crate::display_caps::probe_default())
+    } else {
+        None
+    };
 
     // Native keeps the historical behaviour: `.sh` through `sh`, `.exe`
     // through Wine when the user explicitly asked for it. Without a display
@@ -653,9 +662,10 @@ fn linux_prepare_launch(
             .get_args()
             .map(|argument| argument.to_string_lossy().to_string())
             .collect();
-        let resolved = linux_gaming::resolve_display(
+        let resolved = linux_gaming::resolve_display_with_caps(
             &options.display,
             gamescope.as_ref(),
+            display_capabilities.as_ref(),
             &program,
             &base_args,
         );
@@ -719,9 +729,10 @@ fn linux_prepare_launch(
     let plan = linux_gaming::build_launch(&selection, executable, &extra, prefix, options)?;
     // #287: the wrapper sits outside the resolved tool: `gamescope … -- umu-run
     // <exe>` for UMU and Proton-through-UMU, `-- wine <exe>` for Wine.
-    let resolved = linux_gaming::resolve_display(
+    let resolved = linux_gaming::resolve_display_with_caps(
         &options.display,
         scan.gamescope.as_ref(),
+        display_capabilities.as_ref(),
         &plan.program,
         &plan.args,
     );
@@ -857,8 +868,9 @@ fn launch_log_header(context: &LaunchLogContext<'_>) -> String {
         }
         DisplayLaunch::Gamescope(command) => {
             header.push_str(&format!(
-                "display: gamescope (hdr: {}, filter: {})\n",
+                "display: gamescope (hdr: {}, adaptive sync: {}, filter: {})\n",
                 command.hdr,
+                command.adaptive_sync,
                 command.filter.as_deref().unwrap_or("default")
             ));
             header.push_str(&format!(
@@ -2473,6 +2485,7 @@ shift
             ],
             display: DisplayLaunch::Gamescope(GamescopeCommand {
                 hdr: false,
+                adaptive_sync: true,
                 filter: Some("fsr".to_string()),
                 warnings: Vec::new(),
             }),
@@ -2488,7 +2501,9 @@ shift
             appimage: None,
             display: &resolved,
         });
-        assert!(header.contains("display: gamescope (hdr: false, filter: fsr)"));
+        assert!(
+            header.contains("display: gamescope (hdr: false, adaptive sync: true, filter: fsr)")
+        );
         assert!(header.contains(
             "gamescope command: /usr/bin/gamescope -w 1920 -h 1080 -r 60 --filter fsr -- /usr/bin/umu-run /games/Hades/Hades.exe"
         ));
