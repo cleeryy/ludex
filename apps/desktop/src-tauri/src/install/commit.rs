@@ -179,11 +179,37 @@ impl PreparedSource {
     }
 }
 
-/// What [`commit`] produced: the final folder, plus the setup payload found
-/// when no game executable could be recorded (#214).
+/// What [`commit`] produced: the final folder, the setup payload found when no
+/// game executable could be recorded (#214), and the executable warning of a
+/// completed install whose configured path was stale (#311).
 pub(crate) struct ExecutedInstall {
     pub(crate) install_path: PathBuf,
     pub(crate) pending_setup: Option<crate::installer::RepackLayout>,
+    /// Set when the configured executable was not in the extracted tree: the
+    /// install is still complete, and this text explains what was chosen (or
+    /// how to pick one). The job stays `done`.
+    pub(crate) warning: Option<String>,
+}
+
+impl ExecutedInstall {
+    /// Message of the finished job.
+    ///
+    /// A repack archive wins (#214: the user must run its setup), then the
+    /// executable warning of #311, then the plain "Installed" text. Every case
+    /// is a `done` job: none of them is an error and the extracted tree is
+    /// always kept.
+    pub(crate) fn done_message(&self) -> String {
+        if let Some(repack) = &self.pending_setup {
+            return format!(
+                "Installed. This archive contains a setup program: run {} to finish installing.",
+                repack.setup
+            );
+        }
+        if let Some(warning) = &self.warning {
+            return warning.clone();
+        }
+        "Installed".to_string()
+    }
 }
 
 /// Run one job from its source to an indexed install folder.
@@ -372,7 +398,24 @@ pub(crate) async fn commit(
     // install this is the folder it adopted from the previous attempt (#225).
     move_into_place(app, entry, &staging, &layout.final_path).await?;
 
-    let executable_path = relative_executable.map(|relative| layout.final_path.join(relative));
+    if let Some(warning) = relative_executable.warning.as_deref() {
+        let detected = relative_executable
+            .relative
+            .as_deref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string());
+        tracing::warn!(
+            game_id = params.game_id,
+            version_id = params.version_id,
+            configured = params.executable.as_deref().unwrap_or("none"),
+            detected = %detected,
+            warning,
+            "the configured executable was not in the extracted tree; the install still completed"
+        );
+    }
+    let executable_path = relative_executable
+        .relative
+        .map(|relative| layout.final_path.join(relative));
 
     // 6. Record the file manifest so the install can be verified and repaired
     // later. #240: the digests come from the transport; only a legacy or repair
@@ -419,6 +462,7 @@ pub(crate) async fn commit(
     Ok(ExecutedInstall {
         install_path: layout.final_path,
         pending_setup,
+        warning: relative_executable.warning,
     })
 }
 
@@ -804,7 +848,7 @@ async fn prepare_tree(
     staging: &Path,
     source: &mut PreparedSource,
     stops: &CancelSet,
-) -> Result<Option<PathBuf>, Failure> {
+) -> Result<ExecutableChoice, Failure> {
     if source.streamed || source.files_installed {
         let snapshot = entry.snapshot();
         set_progress(
@@ -850,7 +894,10 @@ async fn prepare_tree(
         if let Some(part) = source.downloaded.as_deref() {
             cleanup_archive(part, settings.keep_archives, &file_name).await;
         }
-        return Ok(Some(PathBuf::from(file_name)));
+        return Ok(ExecutableChoice {
+            relative: Some(PathBuf::from(file_name)),
+            warning: None,
+        });
     }
 
     let archive_name = format!("{}-{}.archive", layout.slug, layout.version_label);
@@ -935,7 +982,7 @@ async fn extract_archive(
     archive_name: &str,
     source: &mut PreparedSource,
     stops: &CancelSet,
-) -> Result<Option<PathBuf>, Failure> {
+) -> Result<ExecutableChoice, Failure> {
     let archive_size = std::fs::metadata(archive)
         .map(|metadata| metadata.len())
         .ok();
@@ -1052,8 +1099,8 @@ async fn extract_archive(
     stops.check_cancelled()?;
 
     // 4. Locate the executable inside the staging folder. A missing executable
-    // is not fatal: the install still completes with `executable: null` and the
-    // UI can open the folder.
+    // is not fatal: a stale configured path falls back to detection and, when
+    // that finds nothing, the install completes with `executable: null` (#311).
     set_progress(
         app,
         entry,
@@ -1389,14 +1436,39 @@ fn single_file_name(source: &Path, slug: &str) -> String {
     format!("{slug}.{}", detect_single_file_extension(source))
 }
 
+/// Outcome of locating the game executable in a staged tree (#311).
+#[derive(Debug)]
+struct ExecutableChoice {
+    /// Path relative to the install folder; `None` when nothing was found.
+    relative: Option<PathBuf>,
+    /// Set when the configured path was missing: the install still completes
+    /// and the job shows this text instead of failing.
+    warning: Option<String>,
+}
+
+/// Warning of a completed install whose configured executable was not in the
+/// extracted tree and whose detection found nothing either (#311).
+const NO_EXECUTABLE_WARNING: &str =
+    "The game installed but Ludex could not find an executable; pick one from the game's Launch options.";
+
 /// Resolve the executable to launch from an extracted tree, as a path relative
-/// to the install folder. `Ok(None)` means no executable was found; the
+/// to the install folder. `relative: None` means no executable was found; the
 /// install still succeeds with `executable: null`.
+///
+/// #311: a configured path that is not in the extracted tree is a warning, not
+/// a failure. A completed extraction is never discarded because the metadata
+/// named a file the archive does not contain (GameVault-style
+/// `Versions/<label>/Installation/<game>/<exe>` paths, for instance). The
+/// existing detector runs over the extracted files instead; when it finds
+/// nothing the install still completes with no executable and the user picks
+/// one from the game's Launch options. Only a path that **exists** but escapes
+/// the game folder is still an error: that is a broken manifest, not a stale
+/// one.
 fn resolve_executable(
     root: &Path,
     requested: Option<&str>,
     title: &str,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<ExecutableChoice, String> {
     let root_canonical = root
         .canonicalize()
         .map_err(|e| format!("Could not inspect the extracted files: {e}"))?;
@@ -1409,9 +1481,12 @@ fn resolve_executable(
             root.join(candidate)
         };
         if !full.exists() {
-            return Err(format!(
-                "The configured executable does not exist after extraction: {}",
-                full.display()
+            return Ok(missing_configured_executable(
+                root,
+                &root_canonical,
+                &full,
+                requested,
+                title,
             ));
         }
         let canonical = full
@@ -1432,23 +1507,69 @@ fn resolve_executable(
                 )
             })?
             .to_path_buf();
-        return Ok(Some(relative));
+        return Ok(ExecutableChoice {
+            relative: Some(relative),
+            warning: None,
+        });
     }
 
-    Ok(
-        crate::bridge::pick_executable(root, title).and_then(|path| {
-            let absolute = if path.is_absolute() {
-                path
-            } else {
-                root.join(path)
-            };
-            let canonical = absolute.canonicalize().ok()?;
-            canonical
-                .strip_prefix(&root_canonical)
-                .ok()
-                .map(Path::to_path_buf)
-        }),
-    )
+    Ok(ExecutableChoice {
+        relative: detect_executable(root, &root_canonical, title),
+        warning: None,
+    })
+}
+
+/// The configured executable is gone: detect one, or finish without one.
+fn missing_configured_executable(
+    root: &Path,
+    root_canonical: &Path,
+    full: &Path,
+    requested: &str,
+    title: &str,
+) -> ExecutableChoice {
+    match detect_executable(root, root_canonical, title) {
+        Some(relative) => ExecutableChoice {
+            warning: Some(format!(
+                "The configured executable does not exist after extraction ({}); using the detected {} instead. You can change it in the game's Launch options.",
+                requested,
+                relative.display()
+            )),
+            relative: Some(relative),
+        },
+        None => ExecutableChoice {
+            relative: None,
+            warning: Some(format!(
+                "{} The configured executable was {}; it is not in the extracted files.",
+                NO_EXECUTABLE_WARNING,
+                full.display()
+            )),
+        },
+    }
+}
+
+/// Run the existing detector over the extracted tree and return its choice as a
+/// path relative to the install folder.
+///
+/// `crate::bridge::pick_executable` is the same ranking the install already used
+/// when no path was configured: it prefers a file whose name matches the game
+/// title (or the game folder that wraps it), prefers shallow and larger
+/// binaries, and skips installers, uninstallers, redistributables and crash
+/// handlers (`setup*`, `unins*`, `vcredist*`, `UnityCrashHandler*`, `Redist/`,
+/// `_CommonRedist/`, `Support/`, …). The result is canonicalised so a link that
+/// escapes the game folder is never recorded.
+fn detect_executable(root: &Path, root_canonical: &Path, title: &str) -> Option<PathBuf> {
+    crate::bridge::pick_executable(root, title).and_then(|path| {
+        let absolute = if path.is_absolute() {
+            path
+        } else {
+            root.join(path)
+        };
+        let canonical = absolute.canonicalize().ok()?;
+        canonical
+            .strip_prefix(root_canonical)
+            .ok()
+            .map(Path::to_path_buf)
+    })
 }
 
 #[cfg(test)]
@@ -1634,5 +1755,158 @@ mod tests {
         assert_eq!(walked.total_bytes, 300_013);
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Build a throwaway tree for the executable-resolution tests (#311) and
+    /// return `(base, staging, final_path)`.
+    fn executable_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let base = std::env::temp_dir().join(format!(
+            "ludex-exe-{label}-{}",
+            crate::util::short_id(&uuid::Uuid::new_v4().to_string())
+        ));
+        let staging = base.join(".game.staging-1");
+        std::fs::create_dir_all(&staging).unwrap();
+        let final_path = base.join("game/1");
+        (base, staging, final_path)
+    }
+
+    /// #311: the UNCHARTED case. A GameVault-style configured path points at a
+    /// folder the archive never creates; the completed extraction must survive.
+    /// Detection stores the game binary it finds and the warning names it.
+    #[test]
+    fn a_stale_configured_executable_falls_back_to_detection_and_keeps_the_extraction() {
+        let (base, staging, final_path) = executable_fixture("stale");
+        let game = staging.join("Uncharted Legacy of Thieves Collection");
+        std::fs::create_dir_all(game.join("crs")).unwrap();
+        std::fs::write(game.join("u4.exe"), b"MZ-u4").unwrap();
+        std::fs::write(game.join("u4-l.exe"), b"MZ-u4-l").unwrap();
+        std::fs::write(game.join("crs/crs-handler.exe"), b"MZ-crs").unwrap();
+        // A helper the existing detector already ignores: it must never win.
+        std::fs::write(game.join("unins000.exe"), b"MZ-unins").unwrap();
+
+        let choice = resolve_executable(
+            &staging,
+            Some("Versions/Unspecified/Installation/Uncharted Legacy of Thieves Collection/u4.exe"),
+            "UNCHARTED Legacy of Thieves Collection",
+        )
+        .expect("a stale configured path is a warning, not an install failure");
+
+        let relative = choice
+            .relative
+            .expect("the detector still finds the game binary");
+        let stored = relative.to_string_lossy().replace('\\', "/");
+        assert!(
+            stored.starts_with("Uncharted Legacy of Thieves Collection/"),
+            "detection must stay inside the game folder: {stored}"
+        );
+        assert!(stored.ends_with(".exe"), "{stored}");
+        assert!(
+            !stored.to_ascii_lowercase().contains("unins"),
+            "an uninstaller must never be recorded: {stored}"
+        );
+        let warning = choice.warning.expect("the job must carry a warning");
+        assert!(
+            warning.contains("does not exist after extraction"),
+            "{warning}"
+        );
+        assert!(
+            warning.contains(&stored),
+            "the warning must name what was chosen: {warning}"
+        );
+
+        // Nothing is discarded: the commit moves this tree into place.
+        crate::paths::move_dir(&staging, &final_path, |_, _| {}).expect("move into place");
+        assert!(
+            !staging.exists(),
+            "the staging folder must be moved, not left"
+        );
+        assert!(
+            final_path.join(&relative).is_file(),
+            "the game binary moved"
+        );
+        assert!(
+            final_path
+                .join("Uncharted Legacy of Thieves Collection/unins000.exe")
+                .is_file(),
+            "every extracted file moved"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// #311: when detection finds nothing either, the install still completes
+    /// with no executable. The job message carries the warning (a `done` job,
+    /// never `error`) and the extracted files are kept.
+    #[test]
+    fn a_stale_configured_executable_with_no_candidate_still_completes() {
+        let (base, staging, final_path) = executable_fixture("no-candidate");
+        std::fs::write(staging.join("ReadMe.txt"), b"readme").unwrap();
+        std::fs::create_dir_all(staging.join("_CommonRedist")).unwrap();
+        std::fs::write(staging.join("_CommonRedist/vcredist_x64.exe"), b"MZ").unwrap();
+        std::fs::write(staging.join("unins000.exe"), b"MZ").unwrap();
+
+        let choice = resolve_executable(&staging, Some("Game/Game.exe"), "Some Game")
+            .expect("no executable is not an install failure");
+        assert!(
+            choice.relative.is_none(),
+            "a redistributable or uninstaller is not a game binary"
+        );
+        let warning = choice.warning.expect("the job must carry a warning");
+        assert!(warning.contains(NO_EXECUTABLE_WARNING), "{warning}");
+        assert!(
+            warning.contains("Launch options"),
+            "the warning names the manual fix: {warning}"
+        );
+
+        // The scheduler maps this warning onto `done`: the install completed.
+        let outcome = ExecutedInstall {
+            install_path: final_path.clone(),
+            pending_setup: None,
+            warning: Some(warning.clone()),
+        };
+        assert_eq!(outcome.done_message(), warning);
+
+        crate::paths::move_dir(&staging, &final_path, |_, _| {}).expect("move into place");
+        assert!(!staging.exists());
+        assert!(final_path.join("ReadMe.txt").is_file());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A configured executable that is in the extracted tree is stored exactly
+    /// as before (#311 touches only the missing case).
+    #[test]
+    fn a_configured_executable_that_exists_is_used_unchanged() {
+        let (base, staging, _final_path) = executable_fixture("present");
+        std::fs::create_dir_all(staging.join("bin")).unwrap();
+        std::fs::write(staging.join("bin/game.exe"), b"MZ").unwrap();
+
+        let choice = resolve_executable(&staging, Some("bin/game.exe"), "Game").unwrap();
+        assert_eq!(choice.relative, Some(PathBuf::from("bin/game.exe")));
+        assert!(choice.warning.is_none());
+
+        // The absolute form of the same file resolves to the same relative path.
+        let absolute = staging.join("bin/game.exe");
+        let choice =
+            resolve_executable(&staging, Some(&absolute.to_string_lossy()), "Game").unwrap();
+        assert_eq!(choice.relative, Some(PathBuf::from("bin/game.exe")));
+        assert!(choice.warning.is_none());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Only a path that exists but escapes the game folder is still a hard
+    /// failure: that is a broken manifest, not a stale one (#311).
+    #[test]
+    fn an_executable_that_exists_outside_the_extracted_tree_is_still_an_error() {
+        let (base, staging, _final_path) = executable_fixture("outside");
+        let outside = base.join("outside.exe");
+        std::fs::write(&outside, b"MZ").unwrap();
+
+        let error = resolve_executable(&staging, Some(&outside.to_string_lossy()), "Game")
+            .expect_err("an existing path outside the folder must not be recorded");
+        assert!(error.contains("outside the game folder"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

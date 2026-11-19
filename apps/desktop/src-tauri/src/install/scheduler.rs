@@ -1353,6 +1353,7 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
 
     match result {
         Ok(outcome) => {
+            let done_message = outcome.done_message();
             let install_path = outcome.install_path;
             // The staging folder was moved into place: the per-entry and
             // per-file checkpoints are no longer needed.
@@ -1373,14 +1374,9 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
                 job.bytes_done = job.bytes_total.unwrap_or(job.bytes_done);
                 // #214: a setup-only archive finishes with no executable. The
                 // guided flow in the Installer panel runs the setup and records
-                // the game binary it produces.
-                job.message = Some(match &outcome.pending_setup {
-                    Some(repack) => format!(
-                        "Installed. This archive contains a setup program: run {} to finish installing.",
-                        repack.setup
-                    ),
-                    None => "Installed".to_string(),
-                });
+                // the game binary it produces. #311: a stale configured
+                // executable is a warning, and the install is still `done`.
+                job.message = Some(done_message);
                 job.install_path = Some(install_path.to_string_lossy().to_string());
                 job.resumable = false;
                 // #202: a finished job leaves the queue without a gap.
@@ -1600,7 +1596,10 @@ pub(crate) fn persist(app: &AppHandle, entry: &JobEntry) {
         part_path,
         install_path,
         staging_path,
-        error: if job.phase == InstallPhase::Error {
+        error: if matches!(job.phase, InstallPhase::Error | InstallPhase::Done) {
+            // #311: a finished install can carry a warning in `message` (the
+            // configured executable was missing). It stays a `done` row; the
+            // column is only the job's message text, as `from_record` reads it.
             job.message.clone()
         } else {
             None

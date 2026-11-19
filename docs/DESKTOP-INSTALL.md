@@ -44,7 +44,9 @@ Dependency direction: `job` ← `plan` ← `scheduler` ← `source`/`download`/
    2. `install_from_files` (policy `files`/`automatic`), then the local library
       shortcut, then `install_from_stream`, then `install_from_archive` run in
       that order and fill `PreparedSource`.
-   3. `prepare_tree` copies a single-file game or extracts the archive.
+   3. `prepare_tree` copies a single-file game or extracts the archive, then
+      resolves the executable (a stale configured path falls back to detection
+      and is only a warning, #311).
    4. `move_into_place` renames staging to the final folder.
    5. `record_manifest` writes the #240 file manifest, `index_install` upserts
       the installed row, `remove_previous` deletes an update's old folder.
@@ -71,6 +73,40 @@ Dependency direction: `job` ← `plan` ← `scheduler` ← `source`/`download`/
 - **The command surface is unchanged.** `install/mod.rs` re-exports the exact
   names `commands.rs` used before (`begin`, `list`, `pause`, `resume_with_mode`,
   `reorder`, `check_space`, `space_ledger`, `QueueMove`, `ResumeMode`, …).
+
+## Executable resolution after extraction (#311)
+
+The archive is already on disk and verified when the commit stage looks for the
+game binary. A configured executable (`install_game`'s `executable`, usually the
+server/GameVault launch path) that is **not** in the extracted tree is therefore
+a warning, never an error: the extraction is kept, staging is moved into place
+and the job finishes `done`.
+
+Resolution order for a relative or absolute configured path:
+
+1. the path as written, resolved inside the extracted tree;
+2. when it does not exist, the existing detector over the extracted files
+   (`crate::bridge::pick_executable`): it prefers a program whose name matches
+   the game title or the game folder that wraps it, prefers shallower and larger
+   binaries, and skips installers, uninstallers, redistributables and crash
+   handlers (`setup*`, `unins*`, `vcredist*`, `UnityCrashHandler*`, `Redist/`,
+   `_CommonRedist/`, `Support/`, `Tools/`, …). The detected file becomes the
+   recorded executable and the job message names it;
+3. when detection finds nothing, the install still completes with no executable
+   and the message says: *“The game installed but Ludex could not find an
+   executable; pick one from the game's Launch options.”*
+
+The only hard failure left in this step is a configured path that **exists**
+but resolves outside the game folder: that is a broken manifest, not a stale
+one. Digest mismatches, missing files and disk errors keep failing the job as
+before; this rule applies only to executable resolution after a successful
+extraction.
+
+Manual fix: open the game page → **Launch options** → *Choose executable*
+(`choose_executable`/`set_executable`, or `list_game_executables` for the ranked
+list), which writes the pick back to the game. Launching with no executable
+already shows the same "choose an executable" error instead of starting
+anything.
 
 ## Retry, progress, cancel
 
