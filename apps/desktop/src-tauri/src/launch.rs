@@ -117,6 +117,108 @@ pub(crate) fn immediate_exit_code(elapsed: Duration, code: Option<i32>) -> Optio
     code.map(|code| code as u32)
 }
 
+/// A short, honest explanation for the exit code of an immediate exit (#280).
+///
+/// Ludex only sees the wrapper's status: it cannot tell a missing DLL from a
+/// broken emulator, so the hint names the layer that most likely failed and
+/// points at the launch log rather than promising a cause.
+pub(crate) fn immediate_exit_hint(code: u32) -> &'static str {
+    match code {
+        0 => "the compatibility tool exited cleanly before the game started; check the launch log",
+        1 => "the environment or the compatibility tool failed before the game started; check the launch log",
+        // 0x35 is 53 decimal: umu-run/Proton do not define it, so it is the
+        // game or its Steam emulator (OnlineFix/StubDRM) bailing out early.
+        53 => "the game or its Steam emulator aborted before the first frame; check GAMEID, the prefix and the repack notes",
+        // NTSTATUS STATUS_STACK_BUFFER_OVERRUN: a Windows fail-fast crash.
+        0xC0000409 => "the game crashed (Windows fail-fast / stack buffer overrun); check the launch log",
+        _ => "the game exited before reaching its first frame; check the launch log",
+    }
+}
+
+/// Largest `launch-*.log` kept after a compat session (#280).
+const LAUNCH_LOG_MAX_BYTES: u64 = 512 * 1024;
+/// How many `launch-*.log` files are kept; the run in progress is the newest.
+const LAUNCH_LOG_KEEP: usize = 5;
+/// File name prefix of a per-launch compatibility log (#280).
+const LAUNCH_LOG_PREFIX: &str = "launch-";
+
+/// `<appDataDir>/logs/launch-<game_id>-<session_id>.log` (#280).
+///
+/// Only the Linux compat spawn calls this today; the attribute keeps a
+/// Windows/macOS build free of dead-code warnings.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+fn launch_log_path(app_data: &Path, game_id: i64, session_id: &str) -> PathBuf {
+    app_data
+        .join(crate::logging::LOG_SUBDIR)
+        .join(format!("{LAUNCH_LOG_PREFIX}{game_id}-{session_id}.log"))
+}
+
+/// Keep the newest [`LAUNCH_LOG_KEEP`] launch logs and delete the rest (#280).
+///
+/// A pile of multi-megabyte Proton logs would fill the app data folder; the
+/// five newest cover the last few launches a report needs. Failures are silent
+/// by design: housekeeping must never fail a session.
+fn prune_launch_logs(path: &Path) {
+    let Some(dir) = path.parent() else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut logs: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                return false;
+            };
+            name.starts_with(LAUNCH_LOG_PREFIX) && name.ends_with(".log")
+        })
+        .filter_map(|entry| {
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, entry.path()))
+        })
+        .collect();
+    logs.sort_by_key(|left| std::cmp::Reverse(left.0));
+    for (_, stale) in logs.into_iter().skip(LAUNCH_LOG_KEEP) {
+        let _ = std::fs::remove_file(stale);
+    }
+}
+
+/// Truncate a finished launch log to its last [`LAUNCH_LOG_MAX_BYTES`] (#280).
+///
+/// Called after the process tree exited, so no writer can append while the
+/// tail is copied. The kept tail starts on a line boundary and carries a
+/// marker naming the truncation.
+fn trim_launch_log(path: &Path) {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return;
+    };
+    if metadata.len() <= LAUNCH_LOG_MAX_BYTES {
+        return;
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    let start = bytes.len().saturating_sub(LAUNCH_LOG_MAX_BYTES as usize);
+    let tail = String::from_utf8_lossy(&bytes[start..]);
+    let tail = match tail.find('\n') {
+        Some(index) => &tail[index + 1..],
+        None => &*tail,
+    };
+    let marker = format!(
+        "[ludex: log truncated, kept the last {} KiB]\n",
+        LAUNCH_LOG_MAX_BYTES / 1024
+    );
+    if let Err(error) = std::fs::write(path, format!("{marker}{tail}")) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %error,
+            "could not truncate the launch log"
+        );
+    }
+}
+
 static SYNCING: AtomicBool = AtomicBool::new(false);
 
 struct SyncFlag;
@@ -253,8 +355,13 @@ pub async fn launch(
         ),
     }
 
-    let (mut command, tool) = prepare_launch(
+    // #280: the session id names the compatibility log, so it exists before
+    // the process is built.
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let (mut command, tool, launch_log) = prepare_launch(
         app,
+        game_id,
+        &session_id,
         &installed,
         executable_path.as_deref(),
         working_dir.as_deref(),
@@ -324,6 +431,7 @@ pub async fn launch(
         game_id,
         started_at,
         started: std::time::Instant::now(),
+        launch_log,
     });
 
     {
@@ -410,10 +518,15 @@ fn apply_config_sync(app: &AppHandle, game_id: i64, install_path: &Path) {
 
 /// Build the process for a launch: URI handler, native executable, or a Linux
 /// compatibility tool around a Windows executable (#89).
+///
+/// The third value is the per-launch compatibility log (#280): `Some` only for
+/// a Linux compat spawn, which redirects the wrapper's stdout/stderr there.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[allow(clippy::too_many_arguments)]
 fn prepare_launch(
     app: &AppHandle,
+    game_id: i64,
+    session_id: &str,
     installed: &db::InstalledGame,
     executable: Option<&Path>,
     working_dir: Option<&Path>,
@@ -421,14 +534,14 @@ fn prepare_launch(
     prefix: &Path,
     args: Option<&str>,
     options: &crate::linux_gaming::LaunchOptions,
-) -> Result<(Command, Option<String>), String> {
+) -> Result<(Command, Option<String>, Option<PathBuf>), String> {
     if let Some(uri) = installed
         .launch_uri
         .as_deref()
         .map(str::trim)
         .filter(|uri| !uri.is_empty())
     {
-        return Ok((build_uri_command(uri)?, None));
+        return Ok((build_uri_command(uri)?, None, None));
     }
 
     let executable =
@@ -436,7 +549,17 @@ fn prepare_launch(
     let working_dir = working_dir.unwrap_or(install_path);
     let state = app.state::<AppState>();
     let settings = state.settings_snapshot();
-    linux_prepare_launch(executable, working_dir, prefix, args, options, &settings)
+    let log_path = launch_log_path(&state.app_data, game_id, session_id);
+    linux_prepare_launch(
+        executable,
+        working_dir,
+        prefix,
+        args,
+        options,
+        &settings,
+        game_id,
+        &log_path,
+    )
 }
 
 /// Windows and macOS: no compatibility layer.
@@ -444,6 +567,8 @@ fn prepare_launch(
 #[allow(clippy::too_many_arguments)]
 fn prepare_launch(
     _app: &AppHandle,
+    _game_id: i64,
+    _session_id: &str,
     installed: &db::InstalledGame,
     executable: Option<&Path>,
     working_dir: Option<&Path>,
@@ -451,20 +576,20 @@ fn prepare_launch(
     _prefix: &Path,
     args: Option<&str>,
     _options: &crate::linux_gaming::LaunchOptions,
-) -> Result<(Command, Option<String>), String> {
+) -> Result<(Command, Option<String>, Option<PathBuf>), String> {
     if let Some(uri) = installed
         .launch_uri
         .as_deref()
         .map(str::trim)
         .filter(|uri| !uri.is_empty())
     {
-        return Ok((build_uri_command(uri)?, None));
+        return Ok((build_uri_command(uri)?, None, None));
     }
 
     let executable =
         executable.ok_or_else(|| "No executable was found for this game.".to_string())?;
     let working_dir = working_dir.unwrap_or(install_path);
-    Ok((build_command(executable, working_dir, args)?, None))
+    Ok((build_command(executable, working_dir, args)?, None, None))
 }
 
 /// Linux: run a Windows executable through the selected compatibility tool.
@@ -472,7 +597,12 @@ fn prepare_launch(
 /// The runner receives the resolved executable path in its arguments and the
 /// same working directory as a native launch (#160), so a nested adopted
 /// executable is found from the Wine/UMU side too.
+///
+/// #278: inside an AppImage the child environment drops the bundle's Python,
+/// loader and Gtk variables and the mount entries in `PATH`. #280: the
+/// wrapper's stdout/stderr go to `log_path` instead of `/dev/null`.
 #[cfg(all(unix, not(target_os = "macos")))]
+#[allow(clippy::too_many_arguments)]
 fn linux_prepare_launch(
     executable: &Path,
     working_dir: &Path,
@@ -480,7 +610,9 @@ fn linux_prepare_launch(
     args: Option<&str>,
     options: &crate::linux_gaming::LaunchOptions,
     settings: &crate::settings::LocalSettings,
-) -> Result<(Command, Option<String>), String> {
+    game_id: i64,
+    log_path: &Path,
+) -> Result<(Command, Option<String>, Option<PathBuf>), String> {
     use crate::compat;
     use crate::linux_gaming::{self, LaunchMode};
 
@@ -504,7 +636,7 @@ fn linux_prepare_launch(
     // Native keeps the historical behaviour: `.sh` through `sh`, `.exe`
     // through Wine when the user explicitly asked for it.
     if mode == LaunchMode::Native {
-        return Ok((build_command(executable, working_dir, args)?, None));
+        return Ok((build_command(executable, working_dir, args)?, None, None));
     }
 
     if !is_windows_exe {
@@ -528,23 +660,112 @@ fn linux_prepare_launch(
     let extra = args.map(paths::split_args).unwrap_or_default();
     let plan = linux_gaming::build_launch(&selection, executable, &extra, prefix, options)?;
 
+    // #278: the tool is a host program even when Ludex is an AppImage.
+    let appimage = linux_gaming::appimage_env();
+
     let mut command = Command::new(&plan.program);
     // #181 user-visible: the game (here through Wine/Proton) keeps its own
     // window; only internal probes are hidden.
-    command
-        .args(&plan.args)
-        .current_dir(working_dir)
-        .envs(plan.env.iter())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.args(&plan.args).current_dir(working_dir);
+    // Before `.envs(plan.env)`: the per-game plan never sets these (they are
+    // reserved), but the order keeps the cleanup authoritative.
+    if let Some(appimage) = &appimage {
+        for key in &appimage.removed {
+            command.env_remove(key);
+        }
+        if let Some(path) = &appimage.path {
+            command.env("PATH", path);
+        }
+    }
+    command.envs(plan.env.iter()).stdin(Stdio::null());
+
+    // #280: keep what the wrapper prints; a silent `exit status: 53` is
+    // undebuggable otherwise. A log that cannot be created is not fatal.
+    let header = launch_log_header(game_id, executable, working_dir, &plan, appimage.as_ref());
+    let launch_log = match open_launch_log(log_path, &header) {
+        Ok((stdout, stderr)) => {
+            command.stdout(stdout).stderr(stderr);
+            Some(log_path.to_path_buf())
+        }
+        Err(error) => {
+            tracing::warn!(
+                path = %log_path.display(),
+                error = %error,
+                "could not open the launch log; the tool output stays discarded"
+            );
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+            None
+        }
+    };
+
     tracing::info!(
         tool = %plan.tool_name,
         prefix = %plan.prefix.display(),
         working_dir = %working_dir.display(),
+        log = %log_path.display(),
         "launching a Windows game through a compatibility tool"
     );
-    Ok((command, Some(plan.tool_name)))
+    Ok((command, Some(plan.tool_name), launch_log))
+}
+
+/// Header written before the wrapper takes over the launch log (#280).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn launch_log_header(
+    game_id: i64,
+    executable: &Path,
+    working_dir: &Path,
+    plan: &crate::linux_gaming::LaunchPlan,
+    appimage: Option<&crate::linux_gaming::AppImageEnv>,
+) -> String {
+    let mut header = String::new();
+    header.push_str("=== Ludex compatibility launch ===\n");
+    header.push_str(&format!("started: {}\n", now_rfc3339()));
+    header.push_str(&format!("game: {game_id}\n"));
+    header.push_str(&format!("tool: {}\n", plan.tool_name));
+    header.push_str(&format!("program: {}\n", plan.program.display()));
+    header.push_str(&format!("prefix: {}\n", plan.prefix.display()));
+    header.push_str(&format!("executable: {}\n", executable.display()));
+    header.push_str(&format!("working_dir: {}\n", working_dir.display()));
+    if let Some(game_id) = plan.env.get("GAMEID") {
+        header.push_str(&format!("GAMEID: {game_id}\n"));
+    }
+    match appimage {
+        Some(appimage) => {
+            header.push_str(&format!(
+                "appimage env: removed {}\n",
+                appimage.removed.join(", ")
+            ));
+            match &appimage.path {
+                Some(path) => header.push_str(&format!(
+                    "appimage PATH: {} mount entries dropped -> {path}\n",
+                    appimage.dropped_path_entries
+                )),
+                None => header.push_str("appimage PATH: unchanged (no mount entry found)\n"),
+            }
+        }
+        None => header.push_str("appimage env: none (host install, environment inherited)\n"),
+    }
+    header.push_str("=== tool output ===\n");
+    header
+}
+
+/// Create the launch log, write `header` and return two append handles (#280).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_launch_log(path: &Path, header: &str) -> std::io::Result<(Stdio, Stdio)> {
+    use std::io::Write;
+
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)?;
+    file.write_all(header.as_bytes())?;
+    file.flush()?;
+    let stderr = file.try_clone()?;
+    Ok((Stdio::from(file), Stdio::from(stderr)))
 }
 
 fn record_launch(
@@ -1195,11 +1416,19 @@ fn spawn_watcher(
         let exit_code = exit_status.and_then(|status| status.code());
         let immediate_exit = immediate_exit_code(entry.started.elapsed(), exit_code);
         if let Some(code) = immediate_exit {
+            // #280: name the log and what the code usually means; the wrapper's
+            // own output is the only real evidence.
             tracing::warn!(
                 game_id,
                 status = ?exit_description,
                 exit_code = %exit_code_hex(code),
                 seconds,
+                hint = immediate_exit_hint(code),
+                log = %entry
+                    .launch_log
+                    .as_deref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
                 "the game exited immediately"
             );
         } else {
@@ -1210,6 +1439,12 @@ fn spawn_watcher(
                 seconds,
                 "game process tree exited"
             );
+        }
+
+        // #280: bound the logs once nothing can write to them any more.
+        if let Some(log) = entry.launch_log.as_deref() {
+            trim_launch_log(log);
+            prune_launch_logs(log);
         }
 
         let state = app.state::<AppState>();
@@ -2036,6 +2271,106 @@ shift
         );
         assert!(recorded.contains("arg=--windowed"), "{recorded}");
         assert!(recorded.contains("arg=save slot"), "{recorded}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #280: the immediate-exit log names the likely layer for the known codes
+    /// and never claims a cause for the unknown ones.
+    #[test]
+    fn immediate_exit_hints_name_the_known_codes() {
+        assert!(immediate_exit_hint(1).contains("environment"));
+        assert!(immediate_exit_hint(53).contains("Steam emulator"));
+        assert!(immediate_exit_hint(0xC0000409).contains("crashed"));
+        assert!(immediate_exit_hint(127).contains("launch log"));
+        // 0x35 is 53: one hint covers both spellings.
+        assert_eq!(immediate_exit_hint(0x35), immediate_exit_hint(53));
+    }
+
+    /// #280: the log name carries the game and session so a report can match
+    /// the file with the session in `ludex.log`.
+    #[test]
+    fn launch_log_path_carries_the_game_and_session() {
+        let path = launch_log_path(Path::new("/data/ludex"), 14, "0f8fad5b-uuid");
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("launch-14-0f8fad5b-uuid.log")
+        );
+        assert_eq!(
+            path.parent().and_then(|dir| dir.file_name()),
+            Some(std::ffi::OsStr::new("logs"))
+        );
+    }
+
+    /// #280: a huge Proton log keeps its tail (the error is at the end) on a
+    /// line boundary and gains a truncation marker.
+    #[test]
+    fn a_launch_log_is_truncated_to_its_last_kibibytes() {
+        let root = temp_root("log-trim");
+        let log = root.join("launch-14-session.log");
+        let line = format!("{}-0123456789abcdef\n", "x".repeat(80));
+        let mut body = String::from("header\n");
+        while body.len() < (LAUNCH_LOG_MAX_BYTES as usize) + 64 * 1024 {
+            body.push_str(&line);
+        }
+        body.push_str("final error line\n");
+        std::fs::write(&log, &body).unwrap();
+
+        trim_launch_log(&log);
+
+        let after = std::fs::read_to_string(&log).unwrap();
+        assert!(after.len() as u64 <= LAUNCH_LOG_MAX_BYTES + 128);
+        assert!(after.starts_with("[ludex: log truncated"));
+        assert!(after.contains("final error line"));
+        assert!(!after.contains("header"));
+        // Every kept line is complete: the tail starts after a newline.
+        for line in after.lines().skip(1) {
+            if line == "final error line" {
+                continue;
+            }
+            assert_eq!(line.len(), 97);
+        }
+
+        // A small log is left byte-for-byte alone.
+        std::fs::write(&log, b"short log\n").unwrap();
+        trim_launch_log(&log);
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "short log\n");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #280: only the five newest `launch-*.log` survive; unrelated files in
+    /// the logs folder are never touched.
+    #[test]
+    fn launch_logs_are_pruned_to_the_five_newest() {
+        let root = temp_root("log-prune");
+        // A dedicated folder: the real logs folder may hold other files.
+        let dir = root.join("logs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let newest = dir.join("launch-14-newest.log");
+        for index in 0..7 {
+            let path = dir.join(format!("launch-1-{index}.log"));
+            std::fs::write(&path, b"x").unwrap();
+            // Deterministic order: newer index, newer mtime.
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::fs::write(&newest, b"x").unwrap();
+        std::fs::write(dir.join("ludex.log"), b"keep").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"keep").unwrap();
+
+        prune_launch_logs(&newest);
+
+        let mut remaining: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.starts_with(LAUNCH_LOG_PREFIX))
+            .collect();
+        remaining.sort();
+        assert_eq!(remaining.len(), LAUNCH_LOG_KEEP);
+        assert!(remaining.contains(&"launch-14-newest.log".to_string()));
+        assert!(dir.join("ludex.log").is_file());
+        assert!(dir.join("notes.txt").is_file());
 
         let _ = std::fs::remove_dir_all(&root);
     }

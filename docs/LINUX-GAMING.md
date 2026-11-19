@@ -1,0 +1,185 @@
+# Linux gaming: AppImage, Proton, UMU and launch logs
+
+How Ludex starts a Windows game on Linux, what it cleans from the environment,
+where the tool output goes and how to read it when a game dies immediately.
+
+Related: [INTEGRATIONS.md](INTEGRATIONS.md) (compat detection, prefixes,
+winetricks, ProtonDB), [DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage
+install) and [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Launch modes
+
+| Mode | What Ludex runs |
+|---|---|
+| `auto` (default) | Native files directly; a Windows `.exe` through UMU, then a Proton build, then Wine |
+| `native` | The file as-is (`.sh` through `sh`, `.exe` through Wine when that was the explicit choice) |
+| `proton` | The chosen Proton build **through UMU** when `umu-run` is installed; bare `<proton> run` only when UMU is absent |
+| `umu` | `umu-run game.exe`, with the best local Proton build as `PROTONPATH` when one is detected |
+
+### Why `proton` goes through UMU (#279)
+
+A Proton build is not a standalone launcher: the `proton` script expects
+Steam's compatdata layout, the Steam Linux Runtime and the emulator variables
+Steam sets. On a non-Steam prefix created by UMU (`pfx` is a symlink there), the
+bare script exits with status 1 within a second and the game never starts.
+
+UMU is the supported path: it sets up the runtime, the prefix layout and the
+variables, and accepts any Proton folder as `PROTONPATH`. So when UMU is
+installed, selecting a Proton build in Launch Options keeps that build as
+`PROTONPATH` and runs it through `umu-run`; the UI and the log still name the
+Proton build the user chose. The bare script remains only as the fallback for a
+machine with no `umu-run` at all (for example, Windows is not affected: only
+Linux uses these modes).
+
+## AppImage environment (#278)
+
+An AppImage is a read-only SquashFS mounted at a random `/.mount_*` path and
+run through its own `AppRun`. AppRun exports variables so the bundled
+application finds its own libraries, Python and Gtk inside the mount:
+
+| Variable | Why the child must not inherit it |
+|---|---|
+| `PYTHONHOME`, `PYTHONPATH`, `PYTHONNOUSERSITE` | `umu-run` is a Python zipapp. With the bundle's stdlib it dies on `Fatal Python error: Failed to import encodings module` before any Proton code runs. |
+| `LD_LIBRARY_PATH`, `LD_PRELOAD` | The bundle ships its own `libcrypto`/`libssl`. The host Python then loads the mount's OpenSSL and fails on `OPENSSL_3.3.0` symbols; a preload also changes what every Wine binary links against. |
+| `GTK_PATH`, `GTK_EXE_PREFIX`, `GTK_DATA_PREFIX`, `GDK_PIXBUF_MODULE_FILE`, `GSETTINGS_SCHEMA_DIR`, `GIO_EXTRA_MODULES`, `GIO_MODULE_DIR` | Gtk/GIO loader and schema caches of the bundle: Wine and Proton dialogs would load modules compiled for the bundle instead of the host. |
+
+`PATH` also starts with `<mount>/usr/bin`, which shadows the host `python3`,
+`ldd` and friends. Ludex therefore, **only when it runs from an AppImage**
+(`APPIMAGE` or `APPDIR` set):
+
+- removes the twelve variables above from the child environment;
+- drops every `PATH` entry that resolves inside `APPDIR`, keeping the rest;
+- does nothing at all for a distro package, Flatpak or source build: the host
+  environment is inherited untouched.
+
+The cleanup is applied where the compat command is built, before the per-game
+environment, so a game cannot re-introduce a leaked variable by accident. The
+launch log's header records the removed list and whether `PATH` was filtered.
+`PATH`, `HOME`, `LD_PRELOAD`, `LD_LIBRARY_PATH` and `PYTHONPATH` remain refused
+as per-game overrides in Settings → Launch options.
+
+If a wrapper script of your own starts the game, unset the same variables
+(`env -u PYTHONHOME -u PYTHONPATH -u PYTHONNOUSERSITE -u LD_LIBRARY_PATH -u LD_PRELOAD …`)
+before calling `umu-run`; Ludex already does this for its own spawns.
+
+## Launch logs (#280)
+
+Every Linux compat launch redirects the tool's stdout and stderr to
+
+```
+<appDataDir>/logs/launch-<gameId>-<sessionId>.log
+```
+
+`<appDataDir>` is the Tauri app data folder (`~/.local/share/cloud.cleeryy.ludex`
+on Linux, or the `cloud.cleeryy.ludex` folder inside `~/.var/app` for the
+Flatpak). The file starts with a header:
+
+```
+=== Ludex compatibility launch ===
+started: 2026-11-19T08:02:34+00:00
+game: 14
+tool: GE-Proton11-12
+program: /usr/bin/umu-run
+prefix: /home/player/Games/outer-wilds/default/.prefix
+executable: /home/player/Games/outer-wilds/default/Outer Wilds/OuterWilds.exe
+working_dir: /home/player/Games/outer-wilds/default
+GAMEID: 0
+appimage env: removed PYTHONHOME, PYTHONPATH, …
+appimage PATH: 1 mount entries dropped -> /usr/local/bin:/usr/bin:/bin
+=== tool output ===
+INFO: umu-launcher version 1.4.4
+…
+```
+
+Then everything UMU, Proton, Wine and the game itself print on stdout/stderr.
+Retention is bounded: after the process tree exits the file is truncated to its
+**last 512 KiB** (the newest error is at the end) and only the **five newest**
+`launch-*.log` files are kept. `ludex.log` in the same folder is separate: it is
+the application log (launches, exit codes, warnings).
+
+Reading a log:
+
+1. Find the session id in `ludex.log` (`launching a Windows game through a
+   compatibility tool` followed by `the game exited immediately`).
+2. Open `launch-<gameId>-<sessionId>.log`.
+3. Look at the last 50 lines first — the failing import, DLL, prefix or
+   emulator message is there.
+4. Check the header `tool:`/`GAMEID:`/`prefix:` lines against what you meant to
+   run before editing anything.
+
+## Exit codes
+
+Ludex reports the exit code as an unsigned 32-bit value and logs the hex form.
+The **5 s immediate-exit window** exists because a game that got a working
+window in under five seconds is, in practice, a game that started (the focus
+watch waits up to 30 s separately). The window keeps "stopped by the user" and
+"crashed on start" apart: an exit inside it is reported as a failed launch and
+the session is not recorded as a zero-minute play session.
+
+| Code | Usual meaning | First check |
+|---|---|---|
+| `0` | The tool exited cleanly before the game started | `umu-run`/Proton line in the launch log |
+| `1` | Generic failure: a shell error, missing runtime, or the Proton script refusing the prefix | launch log tail; `protontricks`/UMU version |
+| `53` / `0x35` | UMU and Proton define no exit 53: the value comes back from the game or its Steam emulator, ~3 s after the spawn, before the first frame | GAMEID, prefix, repack notes (see below) |
+| `0xC0000409` | Windows fail-fast (`STATUS_STACK_BUFFER_OVERRUN`): the game or a DLL crashed | launch log, `WINEDEBUG=+seh` trace |
+| `127` | Command not found: a stored tool path is stale | Settings → Compatibility scan |
+| signal (`SIGKILL`, `SIGSEGV`) | Killed by the force close, the OOM killer or a real crash; there is no exit code | `dmesg`, memory, launch log |
+
+## Focus and `noWindow`
+
+After a launch Ludex waits up to **30 s** for the game's first top-level window
+and brings it forward, then hides its own window. A window that never maps is
+reported as `noWindow` and the game page keeps **Resume** and **Force close**;
+the launch itself stays successful. Ludex does **not** auto-retry a launch,
+because a retry would start a second process tree against the same Wine prefix
+(two `wineserver`s, two game instances, corrupted saves) and because a launcher
+that opens no window can still be working. Close the game yourself and press
+Play again when you want a fresh attempt.
+
+Wayland compositors own focus: Ludex can find the window but may be refused the
+focus request. That is a report, not a failure.
+
+## Troubleshooting Unity + OnlineFix/StubDRM repacks
+
+Symptoms: the game never reaches a frame; UMU exits `53`/`0x35` after ~3 s,
+or a process stays alive with no window (`noWindow`), or the wrapper prints
+
+```
+Proton: Error: unable to use parent for game drive, path /home
+```
+
+That `Proton: Error` line is **not fatal**: it also appears in games that run
+fine, and the game still starts. Treat it as noise.
+
+What usually matters, in order:
+
+1. **GAMEID.** Set the real Steam app id in Launch options (Outer Wilds is
+   `753640`). `GAMEID=0` is fine for many games; for a Steam emulator
+   (OnlineFix/StubDRM, `OnlineFix.ini` with `RealAppId=…`/`FakeAppId=480`) the
+   emulator may abort when it cannot resolve what it expects. Try the real app
+   id, then `0`, and compare the launch log.
+2. **A fresh prefix.** A prefix created by a bare Proton run, by a different
+   Proton major version or by a failed install can poison every later attempt:
+   reset the prefix from the game page and launch once with the default
+   `auto`/`umu` mode.
+3. **DXVK / vkd3d.** The repack may ship its own old DXVK DLLs in the game
+   folder. Renaming them (or forcing `WINEDLLOVERRIDES=d3d11,d3d10core,dxgi=n`)
+   separates a DXVK mismatch from an emulator abort. The launch log shows the
+   DXVK version that loaded.
+4. **The emulator itself.** `OnlineFix64.dll`, `StubDRM64.dll` and `winmm.dll`
+   hook the process and talk to Steam/Steam APIs at a point where UMU has no
+   Steam client. Many repacks work; some do not, and the exit happens inside
+   the emulator before Unity renders anything.
+
+What Ludex can control: the tool it runs, the environment (`PROTONPATH`,
+`GAMEID`, the AppImage cleanup), the prefix location, the launch log and the
+window/focus report. What it cannot control: the game's DRM/Steam-emulator
+hooks, Proton's own compatibility with a given repack, or an emulator that
+decides to abort. Ludex does not patch, wrap or retry game binaries, so there
+is no "make OnlineFix work" switch to flip — the honest outcome is the launch
+log plus the exit code, and a fix, when one exists, comes from the emulator or
+Proton side.
+
+When reporting a problem, include the `launch-<gameId>-<sessionId>.log`, the
+matching lines from `ludex.log`, the Ludex version (AppImage or package), the
+Proton/UMU versions and the launch mode you used.
