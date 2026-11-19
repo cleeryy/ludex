@@ -1661,6 +1661,7 @@ mod tests {
             proton: None,
             wine: None,
             winetricks: None,
+            gamescope: None,
             protonfixes: None,
             default_mode: LaunchMode::Auto,
             steam_client_path: None,
