@@ -234,14 +234,46 @@ pub(crate) async fn download_file(
     tuning: RetryPolicy<'_>,
     sink: impl FnMut(DownloadProgress) + Send,
 ) -> Result<DownloadReport, Failure> {
+    download_file_with_floor(
+        client,
+        url,
+        token,
+        part,
+        title,
+        cancel,
+        pause,
+        bandwidth_kib,
+        0,
+        tuning,
+        sink,
+    )
+    .await
+}
+
+/// [`download_file`] with the destination library's free-space floor (#290).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn download_file_with_floor(
+    client: &reqwest::Client,
+    url: &str,
+    token: Option<&str>,
+    part: &Path,
+    title: &str,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+    bandwidth_kib: u64,
+    floor_bytes: u64,
+    tuning: RetryPolicy<'_>,
+    sink: impl FnMut(DownloadProgress) + Send,
+) -> Result<DownloadReport, Failure> {
     let mut transport = HttpTransport { client, url, token };
-    download_into(
+    download_into_with_floor(
         &mut transport,
         part,
         title,
         cancel,
         pause,
         bandwidth_kib,
+        floor_bytes,
         tuning,
         sink,
     )
@@ -314,6 +346,10 @@ fn restart_message(next_retry_at: Option<&str>, done: u64, total: Option<u64>) -
 
 /// The resumable transfer core, generic over the transport so tests can inject
 /// stalls, resets and a changed archive deterministically (#195).
+///
+/// No free-space floor: production calls [`download_into_with_floor`], which
+/// carries the library's floor (#290).
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn download_into<T: DownloadTransport>(
     transport: &mut T,
@@ -322,6 +358,35 @@ pub(crate) async fn download_into<T: DownloadTransport>(
     cancel: &CancellationToken,
     pause: &CancellationToken,
     bandwidth_kib: u64,
+    tuning: RetryPolicy<'_>,
+    progress: impl FnMut(DownloadProgress) + Send,
+) -> Result<DownloadReport, Failure> {
+    download_into_with_floor(
+        transport,
+        part,
+        title,
+        cancel,
+        pause,
+        bandwidth_kib,
+        0,
+        tuning,
+        progress,
+    )
+    .await
+}
+
+/// [`download_into`] with the library's free-space floor (#290): the archive
+/// plus its 10 % extraction overhead, plus `floor_bytes`, must fit before the
+/// first byte is written.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn download_into_with_floor<T: DownloadTransport>(
+    transport: &mut T,
+    part: &Path,
+    title: &str,
+    cancel: &CancellationToken,
+    pause: &CancellationToken,
+    bandwidth_kib: u64,
+    floor_bytes: u64,
     tuning: RetryPolicy<'_>,
     mut progress: impl FnMut(DownloadProgress) + Send,
 ) -> Result<DownloadReport, Failure> {
@@ -332,6 +397,13 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 parent.display()
             ))
         })?;
+        // #290: writing into an unmounted mount point silently fills the root
+        // disk and loses the files when the real mount comes back.
+        if let Some(message) = crate::mounts::offline_reason(parent) {
+            return Err(Failure::Offline(crate::mounts::offline_pause_message(
+                parent, &message,
+            )));
+        }
     }
 
     let mut existing = tokio::fs::metadata(part)
@@ -623,14 +695,26 @@ pub(crate) async fn download_into<T: DownloadTransport>(
 
         if !preflight_done {
             preflight_done = true;
-            // Disk preflight: never start a download that cannot fit.
-            // Extraction size is unknown, so only the archive is required.
+            // Disk preflight (#222/#290): the archive plus its extraction
+            // overhead, plus the library floor, must fit before the first byte.
             let needed = total.unwrap_or(0).saturating_sub(done);
             if needed > 0 {
                 if let Some(directory) = part.parent() {
                     match fs2::available_space(directory) {
                         Ok(free) => {
-                            if let Err(message) = ensure_download_space(needed, free, directory) {
+                            // Resume-aware estimate: the bytes still to write
+                            // plus the extraction/staging overhead of the whole
+                            // archive (10 %), never the archive again.
+                            let overhead = total
+                                .map(|bytes| {
+                                    crate::bridge::mount::preflight_requirement(bytes)
+                                        .saturating_sub(bytes)
+                                })
+                                .unwrap_or(0);
+                            let required = needed.saturating_add(overhead);
+                            if let Err(message) =
+                                crate::locations::guard_free_space_with(required, free, floor_bytes)
+                            {
                                 return Err(Failure::Failed(message));
                             }
                         }
@@ -657,19 +741,23 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                 .append(true)
                 .open(part)
                 .await
-                .map_err(|e| {
-                    Failure::Failed(format!(
+                .map_err(|e| match crate::mounts::offline_failure(part, &e) {
+                    Some(message) => Failure::Offline(message),
+                    None => Failure::Failed(format!(
                         "Could not open the partial download {}: {e}",
                         part.display()
-                    ))
+                    )),
                 })?
         } else {
-            tokio::fs::File::create(part).await.map_err(|e| {
-                Failure::Failed(format!(
-                    "Could not create the download file {}: {e}",
-                    part.display()
-                ))
-            })?
+            tokio::fs::File::create(part).await.map_err(
+                |e| match crate::mounts::offline_failure(part, &e) {
+                    Some(message) => Failure::Offline(message),
+                    None => Failure::Failed(format!(
+                        "Could not create the download file {}: {e}",
+                        part.display()
+                    )),
+                },
+            )?
         };
 
         let mut writer = tokio::io::BufWriter::with_capacity(1024 * 1024, file);
@@ -706,7 +794,7 @@ pub(crate) async fn download_into<T: DownloadTransport>(
                     writer
                         .write_all(&bytes)
                         .await
-                        .map_err(|e| Failure::Failed(download_write_failure(part, &e)))?;
+                        .map_err(|e| write_failure(part, &e))?;
                     if let Some(hasher) = hasher.as_mut() {
                         hasher.update(&bytes);
                     }
@@ -839,12 +927,16 @@ async fn flush_before_resume(
     writer: &mut tokio::io::BufWriter<tokio::fs::File>,
     part: &Path,
 ) -> Result<(), Failure> {
-    writer.flush().await.map_err(|error| {
-        Failure::Failed(format!(
-            "Could not flush the download to {}: {error}",
-            part.display()
-        ))
-    })
+    writer
+        .flush()
+        .await
+        .map_err(|error| match crate::mounts::offline_failure(part, &error) {
+            Some(message) => Failure::Offline(message),
+            None => Failure::Failed(format!(
+                "Could not flush the download to {}: {error}",
+                part.display()
+            )),
+        })
 }
 
 /// Fetch the archive of one job into `part`, mapping every update onto the job
@@ -888,7 +980,12 @@ pub(super) async fn download(
         entry: job_entry,
     };
 
-    download_file(
+    let floor = part
+        .parent()
+        .map(|directory| settings.floor_for_path(directory))
+        .unwrap_or(crate::settings::DEFAULT_MIN_FREE_BYTES);
+
+    download_file_with_floor(
         &client,
         &url,
         non_empty(params.token.as_deref()),
@@ -897,6 +994,7 @@ pub(super) async fn download(
         &cancel,
         &pause,
         bandwidth_kib,
+        floor,
         tuning,
         |update| sink.progress(update),
     )
@@ -955,6 +1053,7 @@ pub(super) async fn cleanup_archive(part: &Path, keep: bool, name: &str) {
     }
 }
 
+#[cfg(test)]
 fn ensure_download_space(needed: u64, free: u64, directory: &Path) -> Result<(), String> {
     if needed > 0 && free < needed {
         Err(format!(
@@ -981,6 +1080,15 @@ pub(crate) fn is_out_of_space(error: &std::io::Error) -> bool {
 
 /// Message for a failed write: a full volume names the volume and keeps the
 /// checkpoint, everything else keeps the OS detail (#222).
+/// Maps a write failure onto the failure enum: an absent mount pauses the job
+/// with an explicit message instead of corrupting staging (#290).
+pub(crate) fn write_failure(part: &Path, error: &std::io::Error) -> Failure {
+    match crate::mounts::offline_failure(part, error) {
+        Some(message) => Failure::Offline(message),
+        None => Failure::Failed(download_write_failure(part, error)),
+    }
+}
+
 pub(crate) fn download_write_failure(part: &Path, error: &std::io::Error) -> String {
     if is_out_of_space(error) {
         let volume = part

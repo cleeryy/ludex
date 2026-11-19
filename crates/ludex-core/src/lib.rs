@@ -27,6 +27,7 @@ pub mod exe;
 pub mod fingerprint;
 pub mod gamepad;
 pub mod models;
+pub mod mount;
 pub mod naming;
 pub mod redact;
 pub mod rom;

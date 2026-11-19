@@ -942,7 +942,8 @@ async fn extract_archive(
     // #222: the ledger reserved the peak at admission, but the disk may have
     // been filled by something else since: fail before unpacking and keep the
     // archive so the job resumes after freeing space.
-    ensure_extraction_space(install_root, archive_size)?;
+    let floor = settings.floor_for_path(install_root);
+    ensure_extraction_space(install_root, archive_size, floor)?;
     set_progress(
         app,
         entry,
@@ -1019,6 +1020,13 @@ async fn extract_archive(
             // archive. It wins over the error message so the job reports
             // "cancelled" and keeps the staging.
             stops.check_cancelled()?;
+            // #290: a mount that disappeared mid-extraction pauses the job
+            // instead of blaming the archive.
+            if let Some(message) = crate::mounts::offline_reason(staging) {
+                return Err(Failure::Offline(crate::mounts::offline_pause_message(
+                    staging, &message,
+                )));
+            }
             return Err(Failure::Failed(extraction_failure(staging, error)));
         }
     };

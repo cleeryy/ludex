@@ -276,6 +276,12 @@ pub struct Config {
     pub webhooks_backoff_ms: u64,
     /// Interval between automatic library scans. Zero disables periodic scans.
     pub scan_interval: Duration,
+    /// Global override of the per-library free-space floor (#290), in bytes
+    /// (`LUDEX_MIN_FREE_BYTES`). `None` keeps each root's own
+    /// `min_free_bytes`; `Some(0)` disables the server-side floor. The
+    /// embedded local server defaults to `Some(0)`: the desktop already
+    /// enforces the operator's per-location floor before uploading.
+    pub disk_floor_bytes: Option<u64>,
     /// Ordered library roots. The first entry is the ingest target
     /// (`LUDEX_GAMES_DIR`); the rest come from `LUDEX_LIBRARY_ROOTS`.
     pub library_roots: Vec<PathBuf>,
@@ -645,6 +651,14 @@ impl Config {
             }
             None => DEFAULT_UPLOAD_MAX_BYTES,
         };
+        let disk_floor_bytes = match env_opt("LUDEX_MIN_FREE_BYTES") {
+            Some(value) => Some(
+                value
+                    .parse::<u64>()
+                    .context("LUDEX_MIN_FREE_BYTES must be an integer")?,
+            ),
+            None => None,
+        };
         let upload_ttl_hours = match env_opt("LUDEX_UPLOAD_TTL_HOURS") {
             Some(value) => value
                 .parse::<u64>()
@@ -785,6 +799,7 @@ impl Config {
             mfa_attempt_limit,
             upload_chunk_bytes,
             upload_max_bytes,
+            disk_floor_bytes,
             upload_ttl: Duration::from_secs(upload_ttl_hours * 3_600),
             openapi_docs: bool_env("LUDEX_OPENAPI_DOCS"),
             oidc_issuer: env_opt("LUDEX_OIDC_ISSUER"),
@@ -904,6 +919,9 @@ impl Config {
             mfa_attempt_limit: DEFAULT_MFA_ATTEMPT_LIMIT,
             upload_chunk_bytes: DEFAULT_UPLOAD_CHUNK_BYTES,
             upload_max_bytes: DEFAULT_UPLOAD_MAX_BYTES,
+            // The desktop enforces its own per-location floor before asking
+            // the embedded server to accept an upload (#290).
+            disk_floor_bytes: Some(0),
             upload_ttl: Duration::from_secs(DEFAULT_UPLOAD_TTL_HOURS * 3_600),
             openapi_docs: false,
             oidc_issuer: None,

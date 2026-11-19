@@ -10,7 +10,9 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::settings::{DownloadStaging, LocalSettings, Location, LocationKind};
+use crate::settings::{
+    DownloadStaging, LocalSettings, Location, LocationKind, DEFAULT_MIN_FREE_BYTES,
+};
 use crate::util::human_bytes;
 
 /// Space kept free on an install/download volume. Extraction needs roughly the
@@ -39,6 +41,14 @@ pub struct LocationStatus {
     /// Set by `check_location` when the caller asked about a download size.
     pub required_bytes: Option<u64>,
     pub free_space_ok: Option<bool>,
+    /// Free space kept free on this library (#290), in bytes.
+    pub min_free_bytes: u64,
+    /// Mount point serving the folder, when a mount is mounted.
+    pub mount_point: Option<String>,
+    /// Set when the folder's mount is absent (#290): the drive is unplugged or
+    /// the share is not mounted. The library is not deleted; it comes back
+    /// when the mount does.
+    pub offline: Option<String>,
 }
 
 /// Resolved paths for one install job.
@@ -107,21 +117,34 @@ pub(crate) fn probe_writable(directory: &Path) -> bool {
     }
 }
 
-/// Probe a location without creating it.
+/// Probe a location without creating it or triggering an automount.
 pub fn probe(location: &Location) -> LocationStatus {
     let path = PathBuf::from(location.path.trim());
+    let mount = crate::mounts::status(&path);
+    let mount_point = mount.mount_point().map(str::to_string);
+    let offline = mount.message().map(str::to_string);
     let exists = path.is_dir();
-    let writable = probe_writable(&path);
+    // An unmounted mount point is a folder on the root filesystem: claiming it
+    // is writable would let a job write into the root disk by mistake.
+    let writable = offline.is_none() && probe_writable(&path);
     let existing = crate::paths::nearest_existing(&path);
-    let free_bytes = existing
-        .as_deref()
-        .and_then(|dir| fs2::available_space(dir).ok());
-    let total_bytes = existing
-        .as_deref()
-        .and_then(|dir| fs2::total_space(dir).ok());
+    let (free_bytes, total_bytes) = if offline.is_some() {
+        (None, None)
+    } else {
+        (
+            existing
+                .as_deref()
+                .and_then(|dir| fs2::available_space(dir).ok()),
+            existing
+                .as_deref()
+                .and_then(|dir| fs2::total_space(dir).ok()),
+        )
+    };
 
     let note = if location.path.trim().is_empty() {
         Some("No folder is set for this location.".to_string())
+    } else if let Some(message) = offline.clone() {
+        Some(message)
     } else if !exists && writable {
         Some("The folder will be created when it is first used.".to_string())
     } else if !exists {
@@ -148,6 +171,9 @@ pub fn probe(location: &Location) -> LocationStatus {
         note,
         required_bytes: None,
         free_space_ok: None,
+        min_free_bytes: location.min_free_bytes,
+        mount_point,
+        offline,
     }
 }
 
@@ -158,15 +184,37 @@ pub fn list(settings: &LocalSettings) -> Vec<LocationStatus> {
 }
 
 /// Probe one path (the Settings manager's "Check" button).
+#[cfg(test)]
 pub fn probe_path(path: &str) -> Result<LocationStatus, String> {
+    probe_path_with(path, DEFAULT_MIN_FREE_BYTES, false)
+}
+
+/// Probe a path and, when `trigger` is set, try its automount once (#290).
+pub fn probe_path_with(
+    path: &str,
+    min_free_bytes: u64,
+    trigger: bool,
+) -> Result<LocationStatus, String> {
     validate("Location", path)?;
-    Ok(probe(&Location {
+    let location = Location {
         id: String::new(),
         label: "Location".to_string(),
         path: path.trim().to_string(),
         kind: LocationKind::Install,
         default: false,
-    }))
+        min_free_bytes,
+    };
+    if trigger {
+        // Start the `.automount` (or mount the `_netdev` entry) before the
+        // caller decides the location is missing.
+        let _ = crate::mounts::ensure(Path::new(&location.path));
+    }
+    Ok(probe(&location))
+}
+
+/// Check a path for an install: tries the automount, then reports state.
+pub fn ensure_path(path: &Path) -> Result<LocationStatus, String> {
+    probe_path_with(&path.to_string_lossy(), DEFAULT_MIN_FREE_BYTES, true)
 }
 
 /// Picker order: the default for the requested kind first, then writable
@@ -201,14 +249,30 @@ pub fn picker_order(mut statuses: Vec<LocationStatus>) -> Vec<LocationStatus> {
 ///
 /// `free` is what the filesystem reports now. The caller adds the archive size
 /// when the archive and the extracted game share the volume.
+#[cfg(test)]
 pub fn guard_free_space(required_bytes: u64, free_bytes: u64) -> Result<(), String> {
-    let needed = required_bytes.saturating_add(FREE_SPACE_RESERVE_BYTES);
+    guard_free_space_with(required_bytes, free_bytes, FREE_SPACE_RESERVE_BYTES)
+}
+
+/// [`guard_free_space`] with the library's own floor (#290).
+///
+/// The floor is at least the historical 256 MiB reserve, so a location whose
+/// floor is disabled still keeps the OS room to breathe.
+pub fn guard_free_space_with(
+    required_bytes: u64,
+    free_bytes: u64,
+    min_free_bytes: u64,
+) -> Result<(), String> {
+    let floor = min_free_bytes.max(FREE_SPACE_RESERVE_BYTES);
+    let needed = required_bytes.saturating_add(floor);
     if free_bytes < needed {
+        let missing = needed - free_bytes;
         return Err(format!(
-            "Not enough free space: {required} needed plus a {reserve} reserve, only {free} available on this location.",
+            "Not enough free space: {required} needed plus a {floor} free-space floor, only {free} available on this location — {missing} short. Free space or move the library, then resume.",
             required = human_bytes(required_bytes),
-            reserve = human_bytes(FREE_SPACE_RESERVE_BYTES),
+            floor = human_bytes(floor),
             free = human_bytes(free_bytes),
+            missing = human_bytes(missing),
         ));
     }
     Ok(())
@@ -338,6 +402,7 @@ mod tests {
             path: path.to_string(),
             kind,
             default,
+            min_free_bytes: crate::settings::DEFAULT_MIN_FREE_BYTES,
         }
     }
 
@@ -368,6 +433,9 @@ mod tests {
                 note: None,
                 required_bytes: None,
                 free_space_ok: None,
+                min_free_bytes: crate::settings::DEFAULT_MIN_FREE_BYTES,
+                mount_point: None,
+                offline: None,
             },
             LocationStatus {
                 id: "small".into(),
@@ -382,6 +450,9 @@ mod tests {
                 note: None,
                 required_bytes: None,
                 free_space_ok: None,
+                min_free_bytes: crate::settings::DEFAULT_MIN_FREE_BYTES,
+                mount_point: None,
+                offline: None,
             },
             LocationStatus {
                 id: "default".into(),
@@ -396,6 +467,9 @@ mod tests {
                 note: None,
                 required_bytes: None,
                 free_space_ok: None,
+                min_free_bytes: crate::settings::DEFAULT_MIN_FREE_BYTES,
+                mount_point: None,
+                offline: None,
             },
             LocationStatus {
                 id: "big".into(),
@@ -410,6 +484,9 @@ mod tests {
                 note: None,
                 required_bytes: None,
                 free_space_ok: None,
+                min_free_bytes: crate::settings::DEFAULT_MIN_FREE_BYTES,
+                mount_point: None,
+                offline: None,
             },
             LocationStatus {
                 id: "ro".into(),
@@ -424,6 +501,9 @@ mod tests {
                 note: None,
                 required_bytes: None,
                 free_space_ok: None,
+                min_free_bytes: crate::settings::DEFAULT_MIN_FREE_BYTES,
+                mount_point: None,
+                offline: None,
             },
         ];
 

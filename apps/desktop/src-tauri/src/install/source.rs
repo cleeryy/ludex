@@ -124,6 +124,7 @@ pub(super) async fn stream_with_retry<A: StreamAttempt>(
             Ok(outcome) => return Ok(outcome),
             Err(Failure::Cancelled) => return Err(Failure::Cancelled),
             Err(Failure::Paused) => return Err(Failure::Paused),
+            Err(Failure::Offline(message)) => return Err(Failure::Offline(message)),
             Err(Failure::StreamUnavailable(message)) => {
                 return Err(Failure::StreamUnavailable(message))
             }

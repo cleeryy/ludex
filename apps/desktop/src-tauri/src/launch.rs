@@ -280,6 +280,11 @@ pub async fn launch(
             )
         });
     }
+    // #290: the first launch of a freshly moved install verifies its files
+    // before the game starts. A damaged copy stops here, with Repair offered.
+    if external_uri.is_none() && install_path.is_dir() {
+        crate::maintenance::verify_moved_install(app, game_id, &installed, &install_path).await?;
+    }
     let prefix = match external_uri {
         Some(_) => PathBuf::new(),
         None => crate::linux_gaming::prefix_for(&install_path, &options.prefix_path)?,

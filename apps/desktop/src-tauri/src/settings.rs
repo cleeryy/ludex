@@ -162,6 +162,11 @@ pub struct Location {
     pub kind: LocationKind,
     /// The default folder for this kind. At most one per kind after normalize.
     pub default: bool,
+    /// Free space kept free on this library (#290), in bytes. Installs refuse
+    /// to start, and refuse extraction, when they would dip below it. `0`
+    /// disables the floor for this location.
+    #[serde(default = "default_min_free_bytes")]
+    pub min_free_bytes: u64,
 }
 
 impl Default for Location {
@@ -172,8 +177,16 @@ impl Default for Location {
             path: String::new(),
             kind: LocationKind::Install,
             default: false,
+            min_free_bytes: default_min_free_bytes(),
         }
     }
+}
+
+/// Default per-library free-space floor: 5 GiB.
+pub const DEFAULT_MIN_FREE_BYTES: u64 = crate::bridge::mount::DEFAULT_MIN_FREE_BYTES;
+
+fn default_min_free_bytes() -> u64 {
+    DEFAULT_MIN_FREE_BYTES
 }
 
 /// Mirrors `LocalSettings` from `docs/CONTRACT.md`.
@@ -1141,6 +1154,8 @@ impl LocalSettings {
             location.id = location.id.trim().to_string();
             location.label = location.label.trim().chars().take(60).collect();
             location.path = location.path.trim().to_string();
+            // #290: a hand-edited or absurd floor would refuse every install.
+            location.min_free_bytes = location.min_free_bytes.min(1024 * 1024 * 1024 * 1024);
         }
         self.locations.retain(|location| !location.path.is_empty());
 
@@ -1179,6 +1194,7 @@ impl LocalSettings {
                 path: install_path,
                 kind: LocationKind::Install,
                 default: true,
+                min_free_bytes: default_min_free_bytes(),
             });
             if !self.download_dir.trim().is_empty() {
                 self.locations.push(Location {
@@ -1187,6 +1203,7 @@ impl LocalSettings {
                     path: self.download_dir.trim().to_string(),
                     kind: LocationKind::Download,
                     default: true,
+                    min_free_bytes: default_min_free_bytes(),
                 });
             }
         }
@@ -1270,6 +1287,33 @@ impl LocalSettings {
             }
             LocationKind::Temp => Ok(std::env::temp_dir().join("ludex")),
         }
+    }
+
+    /// Free-space floor that applies to a folder (#290).
+    ///
+    /// The deepest configured location containing the path wins, so the floor
+    /// follows a NAS library even when the archive stages elsewhere. With no
+    /// match the default install location's floor applies, then the global
+    /// 5 GiB default.
+    pub fn floor_for_path(&self, path: &Path) -> u64 {
+        let needle = path.to_string_lossy().replace('\\', "/");
+        self.locations
+            .iter()
+            .filter(|location| {
+                let root = location.path.trim().replace('\\', "/");
+                !root.is_empty()
+                    && (needle == root
+                        || needle
+                            .strip_prefix(&root)
+                            .is_some_and(|rest| rest.starts_with('/')))
+            })
+            .max_by_key(|location| location.path.trim().len())
+            .map(|location| location.min_free_bytes)
+            .or_else(|| {
+                self.default_location(LocationKind::Install)
+                    .map(|location| location.min_free_bytes)
+            })
+            .unwrap_or(DEFAULT_MIN_FREE_BYTES)
     }
 
     pub fn install_path(&self) -> PathBuf {
@@ -2396,6 +2440,55 @@ mod tests {
     }
 
     #[test]
+    fn the_floor_follows_the_deepest_location() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.locations = vec![
+            Location {
+                id: "games".into(),
+                label: "Games".into(),
+                path: "/games".into(),
+                kind: LocationKind::Install,
+                default: true,
+                min_free_bytes: 5 << 30,
+            },
+            Location {
+                id: "nas".into(),
+                label: "NAS".into(),
+                path: "/mnt/nas".into(),
+                kind: LocationKind::Install,
+                default: false,
+                min_free_bytes: 20 << 30,
+            },
+            Location {
+                id: "zero".into(),
+                label: "Scratch".into(),
+                path: "/mnt/scratch".into(),
+                kind: LocationKind::Temp,
+                default: true,
+                min_free_bytes: 0,
+            },
+        ];
+        // The deepest containing location wins, on component boundaries.
+        assert_eq!(
+            settings.floor_for_path(Path::new("/mnt/nas/games")),
+            20 << 30
+        );
+        assert_eq!(settings.floor_for_path(Path::new("/mnt/scratch/x")), 0);
+        assert_eq!(settings.floor_for_path(Path::new("/games/doom")), 5 << 30);
+        // `/mnt/nas2` is not inside `/mnt/nas`: the default install floor applies.
+        assert_eq!(settings.floor_for_path(Path::new("/mnt/nas2/x")), 5 << 30);
+        // No locations at all still answers the global default.
+        let bare = LocalSettings {
+            locations: Vec::new(),
+            ..LocalSettings::default()
+        };
+        assert_eq!(
+            bare.floor_for_path(Path::new("/anything")),
+            DEFAULT_MIN_FREE_BYTES
+        );
+    }
+
+    #[test]
     fn migration_keeps_one_default_per_kind() {
         let mut settings = LocalSettings::for_app_data(Path::new("/data"));
         settings.locations = vec![
@@ -2405,6 +2498,7 @@ mod tests {
                 path: "/a".into(),
                 kind: LocationKind::Install,
                 default: true,
+                min_free_bytes: DEFAULT_MIN_FREE_BYTES,
             },
             Location {
                 id: "b".into(),
@@ -2412,6 +2506,7 @@ mod tests {
                 path: "/b".into(),
                 kind: LocationKind::Install,
                 default: true,
+                min_free_bytes: DEFAULT_MIN_FREE_BYTES,
             },
             Location {
                 id: "c".into(),
@@ -2419,6 +2514,7 @@ mod tests {
                 path: "/c".into(),
                 kind: LocationKind::Temp,
                 default: false,
+                min_free_bytes: DEFAULT_MIN_FREE_BYTES,
             },
             Location {
                 id: "a".into(),
@@ -2426,6 +2522,7 @@ mod tests {
                 path: "/d".into(),
                 kind: LocationKind::Install,
                 default: false,
+                min_free_bytes: DEFAULT_MIN_FREE_BYTES,
             },
         ];
         settings.normalize(Path::new("/data"));

@@ -282,6 +282,7 @@ pub(super) fn hash_failure(failure: crate::archive_verify::HashFailure) -> Failu
 pub(super) fn ensure_extraction_space(
     install_root: &Path,
     archive_bytes: Option<u64>,
+    min_free_bytes: u64,
 ) -> Result<(), Failure> {
     let Some(archive) = archive_bytes.filter(|bytes| *bytes > 0) else {
         return Ok(());
@@ -291,16 +292,15 @@ pub(super) fn ensure_extraction_space(
         return Ok(());
     };
     let required = space::with_margin(needed);
-    if free < required {
-        return Err(Failure::Failed(format!(
-            "Not enough free space to unpack into {}: {} needed for the extracted files (archive {} × 1.5 plus a safety margin), {} available. The archive was kept; free space on that volume and resume the install.",
-            install_root.display(),
-            human_bytes(required),
-            human_bytes(archive),
-            human_bytes(free)
-        )));
+    // #290: the library's free-space floor applies to the unpack too, so an
+    // extraction never fills the volume down to the last byte.
+    match crate::bridge::mount::check_free_space(free, required, min_free_bytes) {
+        Ok(()) => Ok(()),
+        Err(shortfall) => Err(Failure::Failed(format!(
+            "{} The archive was kept; free space on that volume and resume the install.",
+            shortfall.message(install_root)
+        ))),
     }
-    Ok(())
 }
 
 #[cfg(test)]

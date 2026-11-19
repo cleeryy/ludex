@@ -30,6 +30,7 @@ mod locations;
 mod logging;
 mod maintenance;
 mod manifest;
+mod mounts;
 mod net;
 mod oidc_login;
 mod overlay;
@@ -248,6 +249,9 @@ pub fn run() {
                     install::sweep_stale_staging(&sweep_handle);
                 })
                 .await;
+                // #290: finish a move the previous run interrupted. The source
+                // is still indexed until the verified staging copy is swapped.
+                maintenance::resume_moves(&handle).await;
                 launch::sync_pending(handle.clone()).await;
                 // Playtime outbox: finished sessions are already local rows;
                 // the worker retries failed deliveries with bounded backoff

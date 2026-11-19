@@ -3794,16 +3794,24 @@ pub fn check_location(
             let location = settings.location(id).ok_or_else(|| {
                 format!("The location {id} no longer exists. Refresh Settings → Locations.")
             })?;
+            // #290: "Check" is the explicit moment to try the automount, so a
+            // user who just plugged the drive in does not have to restart.
+            let _ = crate::mounts::ensure(Path::new(location.path.trim()));
             locations::probe(location)
         }
-        (None, Some(path)) => locations::probe_path(path)?,
+        (None, Some(path)) => {
+            locations::probe_path_with(path, settings.floor_for_path(Path::new(path.trim())), true)?
+        }
         (None, None) => return Err("Choose a location to check.".to_string()),
     };
     if let Some(required) = required_bytes.filter(|value| *value > 0) {
         status.required_bytes = Some(required);
+        let required = crate::bridge::mount::preflight_requirement(required);
         match status.free_bytes {
             Some(free) => {
-                if let Err(error) = locations::guard_free_space(required, free) {
+                if let Err(error) =
+                    locations::guard_free_space_with(required, free, status.min_free_bytes)
+                {
                     status.free_space_ok = Some(false);
                     status.note = Some(match status.note.take() {
                         Some(note) => format!("{note} {error}"),
