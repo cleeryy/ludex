@@ -286,7 +286,7 @@ pub(crate) const DOCS: &[RouteDoc] = &[
         HttpMethod::Get,
         "/games/{id}/versions/{version_id}/stream/entries/{index}",
         "Games",
-        "Raw content of one archive entry (single Range supported)",
+        "Raw content of one archive entry (single Range; ?restart=1 restarts a compressed entry)",
         Auth::Public,
         Payload::Binary,
     ),

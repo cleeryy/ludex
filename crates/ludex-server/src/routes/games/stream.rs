@@ -40,7 +40,9 @@ pub(super) async fn stream_manifest(
 /// `GET /api/games/{id}/versions/{versionId}/stream/entries/{index}`
 ///
 /// Raw content of one ZIP entry, with single-Range support so an interrupted
-/// entry resumes at its byte offset.
+/// entry resumes at its byte offset. A compressed entry past the server's
+/// decompression budget answers `409 entry_resume_restart`; `?restart=1`
+/// streams it from byte 0 (#309).
 pub(super) async fn stream_entry(
     State(state): State<AppState>,
     ApiPath((game_id, version_id, index)): ApiPath<(i64, i64, usize)>,
@@ -56,5 +58,13 @@ pub(super) async fn stream_entry(
         query.token.as_deref(),
     )
     .await?;
-    zip::entry(&state, game_id, &version, index, &headers).await
+    zip::entry(
+        &state,
+        game_id,
+        &version,
+        index,
+        &headers,
+        query.restart_requested(),
+    )
+    .await
 }

@@ -138,6 +138,9 @@ Caddy's defaults already do what the tuning block below sets explicitly: no
 proxy read/write deadline, and a flush of each write (no buffering). Adding the
 block is therefore safe but **not** what production runs — keep the two in sync
 or document the difference, and measure before assuming either one matters.
+This vhost lacks the `encode` exclusion for the archive streams: Caddy holds
+the response head until the first body byte, so `/stream/entries` needs a
+`handle` without `encode` (see [REMOTE-ACCESS.md](REMOTE-ACCESS.md), #310).
 The starting point, adjusted to the deployment, is:
 
 ```caddyfile

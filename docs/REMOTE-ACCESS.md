@@ -37,6 +37,80 @@ Checklist:
 - keep the server updated, and revoke sessions from **Settings → Account** if a
   phone is lost.
 
+### Caddy `encode` and the archive streams (#310)
+
+With `encode zstd gzip` on the vhost, Caddy delays the response head until it
+has the first body byte, because it needs that byte to choose an encoding
+(`minimum_length` buffers 512 B by default). On
+`/api/games/{id}/versions/{id}/stream/entries/{index}` the first byte can be
+minutes away while the server decompresses a compressed ZIP entry, so the
+desktop client hits its 20 s first-byte budget although the server answered in
+milliseconds.
+
+The server sends `Cache-Control: private, no-store, no-transform`,
+`X-Accel-Buffering: no` and `Incremental: ?1` (RFC 10036) on the entry stream,
+the tar stream and the extracted-cache file route. On **Caddy ≥ 2.11.7** those
+headers alone are enough: `responseWriter.WriteHeader` writes the head
+immediately when the response carries `Incremental: ?1`, and `init()` skips the
+encoder when `Cache-Control` contains `no-transform`
+(`modules/caddyhttp/encode/encode.go` and `modules/caddyhttp/incremental.go` in
+the Caddy tree). Caddy 2.11.0 and older have no `Incremental` support and still
+hold the head until the first `Write`, so keep the matcher below: it works on
+every Caddy version and on other proxies.
+
+```caddyfile
+ludex.example.com {
+    # Per-entry stream, tar stream and extracted-cache files: no encode, no
+    # buffering.
+    @ludex_stream path /api/games/*/versions/*/stream/* /api/versions/*/files/*
+    handle @ludex_stream {
+        reverse_proxy 127.0.0.1:8080 {
+            flush_interval -1
+            transport http {
+                read_timeout 0
+                write_timeout 0
+            }
+        }
+    }
+
+    handle {
+        encode zstd gzip
+        reverse_proxy 127.0.0.1:8080
+    }
+}
+```
+
+Before/after with the same request, direct and through the proxy:
+
+```bash
+# Direct: the server answers at once. On a current build a compressed entry
+# past 1 MiB answers 409 entry_resume_restart (#309) instead of a silent 206;
+# on the build from the issue it answers 206 and then sends no body byte.
+curl -sS -o /dev/null -r 1500000000- \
+  -w 'direct  status=%{http_code} ttfb=%{time_starttransfer}s\n' \
+  'http://127.0.0.1:8080/api/games/30/versions/30/stream/entries/496'
+
+# Through Caddy before the matcher: no head, no byte, curl gives up.
+curl -sS --max-time 40 -o /dev/null -r 1500000000- \
+  -w 'proxied status=%{http_code} ttfb=%{time_starttransfer}s\n' \
+  'https://ludex.example.tld/api/games/30/versions/30/stream/entries/496'
+# curl: (28) Operation timed out after 40002 milliseconds with 0 bytes received
+
+# After the matcher: the same 409 (or a 206 for a stored entry) arrives in
+# milliseconds, and `content-encoding` is absent when the client offers zstd.
+curl -sS -o /dev/null -r 1500000000- -H 'Accept-Encoding: zstd' \
+  -w 'proxied status=%{http_code} ttfb=%{time_starttransfer}s\n' \
+  'https://ludex.example.tld/api/games/30/versions/30/stream/entries/496'
+```
+
+If `curl -sSI -H 'Accept-Encoding: zstd'` on a streaming route returns
+`content-encoding: zstd`, `encode` still wraps that route: the matcher is
+missing or does not match the path.
+
+nginx in front needs the same treatment: `proxy_buffering off` (see
+`docs/DEPLOY.md`) and `gzip off` if gzip is enabled globally, because nginx
+does not honour `Incremental`.
+
 ## 3. A public tunnel (OpenTunnel, Cloudflare Tunnel, ngrok, ...)
 
 A tunnel can be convenient, but it changes the threat model.

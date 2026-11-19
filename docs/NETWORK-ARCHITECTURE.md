@@ -460,7 +460,11 @@ Rules:
    c. only then parallel ranges (≥1.5×) or BBR (measured loss, WAN only);
    d. h3 only if the path is lossy and UDP 443 works.
 5. **Do not enable compression on archives.** Caddy's `encode` skips
-   already-compressed types; never force it on `/api/games/*/download`.
+   already-compressed types; never force it on `/api/games/*/download`. It also
+   withholds the response head until the first body byte, which stalls the
+   per-entry stream (#310): exclude `/api/games/*/versions/*/stream/*` and
+   `/api/versions/*/files/*` from `encode` (see
+   [REMOTE-ACCESS.md](REMOTE-ACCESS.md)).
 6. **Do not add a second proxy hop** (Cloudflare proxying, another tunnel) in
    front of large downloads unless it is measured; buffering proxies are a
    common cause of stalls.

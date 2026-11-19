@@ -2124,6 +2124,34 @@ fn write_test_zip(path: &Path) {
     archive.finish().expect("finish");
 }
 
+/// A ZIP whose main entry is Deflated and larger than the server's compressed
+/// resume threshold (#309). Returns the uncompressed bytes of `Resume/big.bin`.
+fn write_compressed_resume_zip(path: &Path) -> Vec<u8> {
+    use zip::write::SimpleFileOptions;
+
+    let mut big = vec![0_u8; 2 * 1024 * 1024 + 123];
+    rand::thread_rng().fill_bytes(&mut big);
+
+    let file = std::fs::File::create(path).expect("zip file");
+    let mut archive = zip::ZipWriter::new(file);
+    archive
+        .add_directory("Resume/", SimpleFileOptions::default())
+        .expect("directory");
+    archive
+        .start_file(
+            "Resume/big.bin",
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .expect("deflated entry");
+    archive.write_all(&big).expect("write big");
+    archive
+        .start_file("Resume/pad.bin", zip_options())
+        .expect("stored entry");
+    archive.write_all(b"stored resume pad").expect("write pad");
+    archive.finish().expect("finish zip");
+    big
+}
+
 fn write_manifest_zip(path: &Path) {
     use zip::write::SimpleFileOptions;
 
@@ -2321,7 +2349,8 @@ async fn stream_install_zip_as_tar() {
             .headers()
             .get(CACHE_CONTROL)
             .and_then(|value| value.to_str().ok()),
-        Some("private, no-store")
+        Some("private, no-store, no-transform"),
+        "the tar stream must opt out of proxy re-encoding"
     );
     assert_eq!(
         response
@@ -2330,6 +2359,14 @@ async fn stream_install_zip_as_tar() {
             .and_then(|value| value.to_str().ok()),
         Some("no"),
         "a reverse proxy must not buffer the stream"
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("incremental")
+            .and_then(|value| value.to_str().ok()),
+        Some("?1"),
+        "an intermediary must forward the response head before the body"
     );
     let content_length: u64 = response
         .headers()
@@ -2533,6 +2570,24 @@ async fn stream_manifest_and_entry_ranges() {
             .and_then(|value| value.to_str().ok()),
         Some("no"),
         "a reverse proxy must not buffer an entry"
+    );
+    // #310: Caddy's `encode` must not re-encode the body and must forward the
+    // head before the first body byte (RFC 10036 `Incremental`).
+    assert!(
+        response
+            .headers()
+            .get(CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("no-transform")),
+        "the entry must opt out of proxy re-encoding"
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("incremental")
+            .and_then(|value| value.to_str().ok()),
+        Some("?1"),
+        "an intermediary must forward the response head before the body"
     );
     assert_eq!(
         response.bytes().await.expect("body").as_ref(),
@@ -2747,6 +2802,163 @@ async fn stream_manifest_rejects_path_traversal() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(error["error"]["code"], "stream_failed");
+
+    server.stop().await;
+}
+
+/// #309: a compressed entry cannot resume at a large offset without
+/// decompressing the whole prefix. The server answers `409
+/// entry_resume_restart` immediately and `?restart=1` streams the entry from
+/// byte 0; stored entries keep their range behaviour.
+#[tokio::test]
+async fn stream_compressed_entry_refuses_an_expensive_resume() {
+    let server = TestServer::start().await;
+    let (token, _) = server.setup().await;
+
+    let zip_path = server.games_dir.join("Resume Signal (2023).zip");
+    let expected = write_compressed_resume_zip(&zip_path);
+    run_scan(&server, &token).await;
+
+    let (_, list) = server.get("/api/games?limit=10", Some(&token)).await;
+    let game_id = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["title"] == "Resume Signal")
+        .and_then(|item| item["id"].as_i64())
+        .expect("game id");
+    let (_, detail) = server
+        .get(&format!("/api/games/{game_id}"), Some(&token))
+        .await;
+    let version_id = detail["versions"][0]["id"].as_i64().expect("version id");
+
+    let (status, manifest) = server
+        .get(
+            &format!("/api/games/{game_id}/versions/{version_id}/stream/manifest"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{manifest}");
+    let entries = manifest["entries"].as_array().expect("entries");
+    let big = entries
+        .iter()
+        .find(|entry| entry["path"] == "Resume/big.bin")
+        .expect("big entry");
+    let big_index = big["index"].as_u64().expect("big index");
+    let big_size = big["size"].as_u64().expect("big size");
+    assert_eq!(big_size, expected.len() as u64);
+    let pad_index = entries
+        .iter()
+        .find(|entry| entry["path"] == "Resume/pad.bin")
+        .expect("pad entry")["index"]
+        .as_u64()
+        .expect("pad index");
+    let entry_url = |index: u64| {
+        format!(
+            "{}/api/games/{game_id}/versions/{version_id}/stream/entries/{index}",
+            server.url
+        )
+    };
+
+    // A small offset is still served by walking the decompressor.
+    let response = server
+        .client
+        .get(entry_url(big_index))
+        .bearer_auth(&token)
+        .header(RANGE, "bytes=1024-")
+        .send()
+        .await
+        .expect("small range");
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        response.bytes().await.expect("small body").as_ref(),
+        &expected[1024..]
+    );
+
+    // Past the threshold the server refuses instead of going silent for
+    // minutes: 409 + X-Ludex-Entry-Resume + a stable error code.
+    let offset = 1_500_000_u64;
+    let response = server
+        .client
+        .get(entry_url(big_index))
+        .bearer_auth(&token)
+        .header(RANGE, format!("bytes={offset}-"))
+        .send()
+        .await
+        .expect("refused resume");
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response
+            .headers()
+            .get("x-ludex-entry-resume")
+            .and_then(|value| value.to_str().ok()),
+        Some("restart")
+    );
+    let error: Value = response.json().await.expect("signal body");
+    assert_eq!(error["error"]["code"], "entry_resume_restart");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("restart=1"),
+        "{error}"
+    );
+
+    // `?restart=1` ignores the Range header and streams the whole entry with
+    // the normal headers, so one request restarts the entry.
+    let response = server
+        .client
+        .get(format!("{}?restart=1", entry_url(big_index)))
+        .bearer_auth(&token)
+        .header(RANGE, format!("bytes={offset}-"))
+        .send()
+        .await
+        .expect("restarted entry");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok()),
+        Some(big_size.to_string().as_str())
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("incremental")
+            .and_then(|value| value.to_str().ok()),
+        Some("?1")
+    );
+    assert!(response
+        .headers()
+        .get(CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("no-transform")));
+    let body = response.bytes().await.expect("restart body");
+    assert_eq!(body.as_ref(), expected.as_slice());
+
+    // Stored entries keep today's behaviour: a direct seek, no signal.
+    let pad = b"stored resume pad";
+    let response = server
+        .client
+        .get(entry_url(pad_index))
+        .bearer_auth(&token)
+        .header(RANGE, "bytes=7-")
+        .send()
+        .await
+        .expect("stored range");
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes 7-16/17")
+    );
+    assert_eq!(
+        response.bytes().await.expect("stored body").as_ref(),
+        &pad[7..]
+    );
 
     server.stop().await;
 }

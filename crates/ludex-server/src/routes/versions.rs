@@ -203,10 +203,23 @@ async fn file(
         .header(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"))
         .header(
             header::CACHE_CONTROL,
-            HeaderValue::from_static("private, no-store"),
+            // `no-transform` keeps a proxy (Caddy `encode`, nginx `gzip`)
+            // from re-encoding the body (#310).
+            HeaderValue::from_static("private, no-store, no-transform"),
         )
         .header(header::CONTENT_LENGTH, range.length)
         .header(header::ETAG, etag)
+        // A buffering proxy turns a slow cached file into a 504 that looks
+        // like a network drop (#204); Caddy ignores `X-Accel-Buffering` and
+        // honours RFC 10036 `Incremental` instead (#310).
+        .header(
+            HeaderName::from_static("x-accel-buffering"),
+            HeaderValue::from_static("no"),
+        )
+        .header(
+            HeaderName::from_static("incremental"),
+            HeaderValue::from_static("?1"),
+        )
         .header(
             HeaderName::from_static(FILE_SHA256_HEADER),
             entry.sha256.clone(),
