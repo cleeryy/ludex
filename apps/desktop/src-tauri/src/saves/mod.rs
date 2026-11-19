@@ -2,6 +2,7 @@
 //! automatic sync and the Ludusavi manifest updater.
 
 pub(crate) mod detect;
+pub(crate) mod identity;
 pub(crate) mod manifest;
 pub(crate) mod registry;
 pub(crate) mod sync;

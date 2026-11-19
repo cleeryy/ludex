@@ -207,6 +207,40 @@ export interface CloudSavePath {
   files: number;
   sizeBytes: number;
   lastModified: string | null;
+  /**
+   * Logical identity (#294): game + root kind + relative path. Never an
+   * absolute host path. `null` when the folder is outside every known root.
+   */
+  identity: string | null;
+  rootKind: string | null;
+  relativePath: string | null;
+  /** `windows`, `proton`, `linux`, `macos` or `unknown`. */
+  originPlatform: string;
+  /**
+   * `present`, `translated` (found at another local root), `pending_mapping`
+   * (several plausible folders, a choice is required), `other_platform` (the
+   * root only exists on the other OS) or `missing`.
+   */
+  availability: CloudSaveAvailability;
+  /** Validated local folder for `translated`; `null` otherwise. */
+  resolvedPath: string | null;
+}
+
+export type CloudSaveAvailability =
+  | "present"
+  | "translated"
+  | "pending_mapping"
+  | "other_platform"
+  | "missing";
+
+/** One identity that needs an explicit choice on this machine (#294). */
+export interface CloudSavePendingMapping {
+  gameId: number;
+  identity: string;
+  rootKind: string;
+  relativePath: string;
+  reason: "ambiguous" | "rejected" | string;
+  candidates: string[];
 }
 
 export interface CloudSavePending {
@@ -254,6 +288,8 @@ export interface CloudSaveStatus {
   toggle: CloudSaveToggle;
   conflict: CloudSaveConflict | null;
   pending: CloudSavePending;
+  /** Identities that need one explicit choice on this machine (#294). */
+  pendingMappings: CloudSavePendingMapping[];
   deviceId: string | null;
   /** ISO timestamp of the last save detection for this game, `null` if never. */
   lastDetectionAt: string | null;

@@ -1184,6 +1184,18 @@ export const native = {
     return invoke<CloudSaveRestoreOutcome>("resolve_cloud_save_conflict", { gameId, strategy });
   },
 
+  /**
+   * Record the folder chosen for an ambiguous cross-platform save identity
+   * (#294). The folder must classify to the same root kind and relative path.
+   */
+  async resolveSaveIdentity(
+    gameId: number,
+    identity: string,
+    path: string,
+  ): Promise<CloudSaveStatus> {
+    return invoke<CloudSaveStatus>("resolve_save_identity", { gameId, identity, path });
+  },
+
   async onCloudSaveSynced(handler: (gameId: number) => void): Promise<() => void> {
     return listen<number>("cloud-save://synced", handler);
   },

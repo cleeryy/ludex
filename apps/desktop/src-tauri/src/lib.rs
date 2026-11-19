@@ -396,6 +396,7 @@ pub fn run() {
             commands::sync_cloud_save_now,
             commands::restore_cloud_save,
             commands::resolve_cloud_save_conflict,
+            commands::resolve_save_identity,
             commands::list_locations,
             commands::check_location,
             commands::suggest_storage_locations,
