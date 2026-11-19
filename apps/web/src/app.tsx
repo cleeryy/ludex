@@ -171,7 +171,12 @@ function BootError({ message }: { message: string }) {
   );
 }
 
-function Gate({ children }: { children: React.ReactNode }) {
+/**
+ * The auth/entry gate around the desktop routes. Exported for the console-flag
+ * regression test (#304): the flag must not mount a second library shell, and
+ * that is a property of this component plus the router, not of a screen.
+ */
+export function Gate({ children }: { children: React.ReactNode }) {
   const { ready, bootError, user, setup, holdLogin } = useAuth();
   const location = useLocation();
   const consoleEntry = useConsoleEntry();

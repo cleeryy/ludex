@@ -20,6 +20,39 @@ GPU, so the numbers below are recorded and analysed instead of turned into a
 false pass; the native process budget is in
 [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md).
 
+## What is measured, and where (#304)
+
+| Budget / rule | Measured on this host | Where | Verdict |
+|---|---|---|---|
+| Rail p95 ≤ 16.7 ms (60 fps) | **Yes**, by the rAF probe; asserted only on a hardware renderer | `09-console-perf.spec.ts`, tables below | p50 16.7 ms; p95 33.4 ms after the wall bake — missed on the software compositor, native checklist owns the real verdict |
+| No long task > 50 ms on the rail (FHD) | **Yes**, `PerformanceObserver` | same | met: 0 in every FHD run |
+| < 300 MB RSS at FHD | **No** — the probe measures the renderer JS heap (10.7 MB), a lower bound | JS heap here; process RSS in [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md) D3/C4 | documented, native checklist item |
+| < 380 MB RSS at UHD | **No** — same distinction | same | documented, native checklist item |
+| One static blur layer, no animated filters | **Yes**, as a source/DOM rule, not a frame bisect | `styles/console-material.test.ts`, `console-backdrop.test.tsx`, long-task counts | met |
+| Artwork decode off the focus path | **Partly**: the wall plate follows the settled selection (160 ms), pinned by unit tests; the frame tables include a settled plate, they do not isolate decode | `lib/wall-plate.ts` tests | documented, no A/B |
+| Download progress does not re-render the library | **By construction**, selector split in the downloads store; no frame-level A/B | `state/downloads.test.tsx` | documented, no A/B |
+| `console_v2` toggling does not mount a second library render | **Yes**, as a mount/query count | `components/console/console-flag-mount.test.tsx` | met: 1 mount, 1 query set after on → off → on |
+
+The distinction is deliberate: "measured" is a number on this page,
+"documented" is a rule with a test or a procedure but no frame/RSS figure. The
+process memory budget is documented — a 10.7 MB JS heap is not a 300 MB RSS
+result, and this page does not pretend otherwise.
+
+### The device flag does not double-mount the library (#304)
+
+`console-flag-mount.test.tsx` mounts the real `Gate` and a real router at `/`,
+flips `ludex.console.shell` on → off → on, and counts:
+
+- desktop library mounts: **1**
+- console library mounts: **1**
+- library query executions: **1**
+
+Off while inside `/console` deliberately does nothing: the shell is reachable
+by deep link, and redirecting out of a working console because a device flag
+changed would be a second teardown, not a safety feature. The test's scope is
+the mount and the query set, not frame time; the rAF probe above is the frame
+measurement.
+
 ## Machine and method
 
 | Item | Value |
@@ -260,6 +293,9 @@ LUDEX_E2E_PERF=1 pnpm --filter @ludex/e2e exec playwright test tests/09-console-
 # 4K:
 LUDEX_E2E_PERF=1 LUDEX_E2E_PERF_WIDTH=3840 LUDEX_E2E_PERF_HEIGHT=2160 \
   pnpm --filter @ludex/e2e exec playwright test tests/09-console-perf.spec.ts
+
+# The device-flag mount check (no server, no browser):
+pnpm --filter @ludex/web exec vitest run src/components/console/console-flag-mount.test.tsx
 ```
 
 The JSON is printed as `console-perf {...}`, attached to the run as

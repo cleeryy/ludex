@@ -20,7 +20,9 @@ screenshots).
 | Direct boot, deep link, Escape/back | **Automated** | `e2e/tests/06-console.spec.ts` |
 | 1920×1080 evidence frame | **Automated** | `e2e/tests/06-console.spec.ts` |
 | Overlay single-dispatch (one press, one action) | **Automated** | `e2e/tests/06-console.spec.ts` |
-| 720p / 1080p / 4K + 5% overscan | **Automated** (capture only) | `e2e/tests/07-console-visual.spec.ts` |
+| Home → launch, install → Downloads, settings persistence, power confirm | **Automated** | `e2e/tests/10-console-flows.spec.ts`, [E2E.md](E2E.md) |
+| 720p / 1080p / 4K + 5% overscan, pixel-diffed (Stage/Wall) | **Automated gate** | `e2e/console-screenshots.mjs --gate`, this page |
+| 720p / 1080p / 4K + 5% overscan (List/Settings/Power) | **Capture only** | `e2e/tests/07-console-visual.spec.ts` |
 | 24u floor, Cabinet anti-slop, desktop leaks | **Automated** | `e2e/tests/08-console-antislop.spec.ts` |
 | TV boot / rail frames / long tasks / heap / rAF loops | **Automated**, opt-in | `e2e/tests/09-console-perf.spec.ts`, [PERFORMANCE.md](PERFORMANCE.md) |
 | WebKitGTK Gamepad API + rail frames | **Partial, not hardware** | `e2e/webkitgtk-spike.py`, [WEBKITGTK.md](WEBKITGTK.md) |
@@ -83,6 +85,10 @@ helpers and `isConsoleUrl`.
 | fake pad drives the real input loop | With `?gamepadDebug=1`, a fake D-pad press shows up as a decoded action in the diagnostics panel; hot-unplug/hot-plug is observed. |
 | captures the 1920×1080 evidence frame | PNG is exactly 1920×1080 and not a blank frame. |
 | overlay single-dispatch | Start opens the quick-actions sheet; one D-pad Down moves the ring exactly one row; B returns to the same cover. Catches both a double dispatch and a dead controller path. |
+| Home → Play opens the launch plate; B closes it onto the same cover | A on the selected game opens the plate from the cover, the plate reaches its honest "slow" line, B closes it and `data-gamepad-focus` is back on the same card. `launch_game` was called once. |
+| Install starts a job that reaches the Status bar and Downloads | The install dialog starts a job; `install://progress` moves it to 75 %; the Status bar count and the Downloads surface both show it. Native bridge, real downloads provider. |
+| a Console setting survives a reload | Changing Room to Projector updates the shell attribute and the scoped `ludex.console.room` record; a full reload still shows Projector. |
+| Power → Sleep confirms on Cancel; B cancels | The confirmation starts on Cancel, B closes it, the shell still drives Power and `system_sleep` was never invoked. |
 | 24u floor / Cabinet rules / desktop leaks | Reads the rendered `/console` DOM: no visible text under 24 px at 1080p, no layout picker or Soft/pastel token, a room attribute from `theme/console-room.ts`, and no toast, desktop dialog, pad layer or desktop route. |
 
 ## Screenshot matrix
@@ -97,8 +103,9 @@ frame and as the 90% area a 5% overscan TV shows:
 | 3840×2160 | `4k-full.png` | `4k-safe-90.png` (3456×1944) |
 
 Files land in `e2e/test-results/console-visual/<test>/` (gitignored; CI
-uploads `e2e/test-results`). They are **evidence**, not baselines: a human
-reviews the safe-area frames for clipped hero titles, hints and focus rings.
+uploads `e2e/test-results`). They are evidence frames a human reviews for
+clipped hero titles, hints and focus rings; the approved set for the gate is
+below.
 
 Approved images for the README and docs go through the #265 pipeline
 (`pnpm screenshots`, optimized, manifest) into `docs/assets/screenshots/`.
@@ -106,6 +113,78 @@ Never commit a raw 4K PNG.
 
 Overscan rule of thumb: if it is information, it must survive the 90% crop; if
 it only exists in the outer 5%, it will not be read from a couch.
+
+### Visual gate (#303)
+
+`e2e/console-screenshots.mjs --gate` renders the demo build
+(`VITE_USE_MOCKS=true`, no server) in the same conditions the Cabinet lane used
+to approve the images — Night room, en-US, reduced motion, fixed clock — and
+compares **Stage** and **Wall** at 1280×720, 1920×1080 and 3840×2160 plus each
+5 % overscan crop against
+[`docs/assets/screenshots/console/`](../assets/screenshots/console/).
+
+```bash
+# Capture a fresh set first if apps/web/dist is stale:
+VITE_USE_MOCKS=true pnpm --filter @ludex/web build
+
+# Compare (fails on a real layout change):
+node e2e/console-screenshots.mjs --gate --skip-build
+
+# Re-approve after an intentional redesign (one command, all views + manifest):
+LUDEX_VISUAL_UPDATE=1 node e2e/console-screenshots.mjs
+```
+
+Both sides are normalised to 720 px wide with a Lanczos downscale and a 1 px
+blur before the diff. A pixel counts as changed when any channel moves by more
+than **24/255**; a frame fails when more than **0.5 %** of its pixels changed.
+The normalisation is why the gate survives palette quantisation (the baselines
+are 88-quality palette PNGs) and font hinting; it keeps structural facts — a
+cover is ~3 % of a frame at that width, a moved band strip ~5 %.
+
+Tuned and run on the CT 119 host (`ANGLE`/SwiftShader, Chromium headless) on
+2026-11-19:
+
+| Run | Worst frame | Result |
+|---|---|---|
+| Gate 1 | 0.152 % (stage-720-overscan) | pass |
+| Gate 2 | 0.076 % (stage-1080-overscan) | pass |
+| Missing first cover | 23.093 % | fail |
+| Band shifted 12 px | 1.116 % | fail |
+| Hero title moved 12 px | 1.052 % | fail |
+| Band label hidden | 0.639 % | fail |
+
+The gate is **not wired into the PR jobs**. Two reasons, both documented rather
+than hidden: the demo build overwrites `apps/web/dist` with a different adapter
+than the E2E job needs, and GitHub's runner image is not the machine the
+baselines were approved on — font rasterisation there is a different renderer,
+so a failure would say "different fonts", not "different layout". Run it on the
+dogfood/TV host or a dedicated job with a pinned image; the command above is the
+whole protocol.
+
+A failed frame writes a red-on-grey diff to
+`e2e/test-results/console-visual-gate/<frame>.diff.png`; the terminal lists the
+ratio and pixel count per frame.
+
+#### Re-approve a baseline
+
+1. Confirm the change is intentional (a Cabinet redesign, a new shell element),
+   not a regression the gate just caught.
+2. Run `LUDEX_VISUAL_UPDATE=1 node e2e/console-screenshots.mjs` (no
+   `--skip-build`: the script must rebuild the demo adapter, or the baselines
+   would come from the real server build). It rewrites all five views at three
+   resolutions, the overscan crops and `manifest.json` with the new commit and
+   timestamp.
+3. Review the changed PNGs in the PR diff. A baseline update without a visible
+   image change in the diff is a process smell.
+4. Run `node e2e/console-screenshots.mjs --gate --skip-build` once more; it must
+   pass on the fresh set.
+5. Note the re-approval and its reason in the PR body. `node
+   scripts/check-assets.mjs` enforces the 300 KB per-image budget.
+
+List, Settings and Power stay capture-only: the Settings footer prints the
+release version, so a gate over it would fail on every version bump for a
+reason that is content, not layout. Stage/Wall are the two compositions a
+player browses; they are the pixel gate.
 
 ## Performance probe
 
@@ -154,5 +233,8 @@ is one source of truth:
   renderer's JS heap by the probe — a lower bound. The `ludex.exe` commit size
   at 1080p and 4K is the real measurement and lives in
   [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md).
-- The visual captures are not pixel-diffed. Baselines are approved by a human
-  through #265; a diff gate can be added once the Cabinet shell stops moving.
+- The visual gate covers Stage and Wall only. List, Settings and Power are
+  approved by a human through #265; the Settings footer carries the release
+  version, so pixel-gating it would fail on every version bump.
+- The native bridge proves the native *branches*, not a process spawn, a real
+  archive or an OS sleep. Those remain the hardware checklist's job.

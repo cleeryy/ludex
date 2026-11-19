@@ -12,10 +12,12 @@ This is the source of truth for the Console 2.0 / rebrand work. The short contra
 | [architecture.md](research/architecture.md) | Shell/provider/input architecture, native power/window, data boundaries, migration phases, gates |
 
 Evidence for the Phase 0.6 gates: [evidence.md](evidence.md) (fake-pad suite and
-the 720p/1080p/4K + overscan matrix), [PERFORMANCE.md](PERFORMANCE.md) (TV boot,
-rail frames, long tasks, heap, rAF loops), [WEBKITGTK.md](WEBKITGTK.md) (engine
-spike, not verified on hardware) and [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md)
-(Windows + Sunshine/Moonlight, with evidence rules) — #270.
+the 720p/1080p/4K + overscan matrix), [E2E.md](E2E.md) (the harness, the native
+bridge, how to add a spec), [PERFORMANCE.md](PERFORMANCE.md) (TV boot, rail
+frames, long tasks, heap, rAF loops), [WEBKITGTK.md](WEBKITGTK.md) (engine spike,
+not verified on hardware) and [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md)
+(Windows + Sunshine/Moonlight, with evidence rules) — #270, #302, #303, #304,
+#308.
 
 ## Verdict
 
@@ -136,6 +138,11 @@ The `-overscan` variants are a 5 % crop of each side: what a TV with overscan
 shows. `docs/assets/screenshots/console/manifest.json` records the measured
 boxes and proves the safe area is empty.
 
+Stage and Wall are also the pixel gate (#303): `node
+e2e/console-screenshots.mjs --gate --skip-build` compares them against these
+files at the three resolutions plus overscan, with the tolerance and the
+re-approval procedure in [evidence.md](evidence.md#visual-gate-303).
+
 ## Issues
 
 - [#267](https://github.com/cleeryy/ludex/issues/267) — `/console` shell, single input owner, data boundaries.
@@ -168,6 +175,49 @@ route stays as a redirect, never as a second shell.
 product decision made after dogfooding, not a code cleanup. When it happens: the
 flag reader returns `true`, the old screen and its layouts are deleted, the
 redirect is dropped, README screenshots and the CHANGELOG are updated together.
+
+## Regression net (#308)
+
+The console's unit net is counted from the runner, not estimated. At `1cbf01c`
+plus this lane's two new files (2026-11-19) it is **38 files / 400 tests**:
+
+| Area | Files | Tests |
+|---|---|---|
+| `components/console/**` — shell, input owner, focus store, routes | 6 | 24 |
+| `components/big-picture/**` — motion, sound, layout, input, power, wall | 15 | 190 |
+| `theme/console-*`, `theme/artwork-accent`, `styles/console-*`, `styles/type-scale` | 6 | 56 |
+| `lib/console-*`, `lib/gamepad-*`, `lib/controller-*` | 9 | 123 |
+| `state/downloads*` — the Console's queue and the selector split | 2 | 7 |
+| **Total** | **38** | **400** |
+
+Run it with `pnpm --filter @ludex/web test`; the console files are all under
+`apps/web/src`, so a red run is a console regression or a shared-kit regression,
+never a separate suite to remember.
+
+**Rule: no test is deleted without a replacement assertion in the same PR.**
+Retargeting a test to the new shell is allowed and expected; deleting one
+because its internal store disappeared is not. The replacement must assert
+public behaviour (rendered DOM, command output, a pure model's return value),
+not the private state the old test reached into. The old screen's 191 tests are
+a floor, not a ceiling: this net is larger after the migration, and the two
+files added here are part of it.
+
+### The net catches a break
+
+On 2026-11-19 the focus/controller path was deliberately broken, then reverted,
+to check that the net is a net:
+
+| Step | Command | Result |
+|---|---|---|
+| Mutation | `use-pad-back.ts`: `enabled: options.enabled ?? true` → `enabled: true` | not committed |
+| Run | `pnpm --filter @ludex/web exec vitest run src/components/console/input/use-pad-back.test.tsx` | **1 failed** — "lets a disabled scope fall through instead of swallowing B" |
+| Revert | `git checkout -- apps/web/src/components/console/input/use-pad-back.ts` | tree clean |
+
+A second, independent check lives in `input-provider.test.tsx` ("restores the
+previous scope and its exact focus target when the overlay closes"): breaking
+the scope snapshot restore fails it. `focus-store.test.ts` pins the ring's two
+writers. There is no path where a focus or controller break passes silently —
+that is the acceptance this document records.
 
 ## Phases and gates
 

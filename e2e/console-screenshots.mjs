@@ -15,10 +15,19 @@
  *   node e2e/console-screenshots.mjs --skip-build  # reuse apps/web/dist
  *   node e2e/console-screenshots.mjs --only 1080   # one resolution
  *
+ * Visual gate (#303): Stage and Wall are compared against the approved
+ * baselines instead of being overwritten. The gate is tolerant of font
+ * rasterisation and palette-quantisation noise (see `GATE_TOLERANCE`) and
+ * fails on anything larger than that, which is what a layout regression is.
+ *
+ *   node e2e/console-screenshots.mjs --gate --skip-build
+ *   LUDEX_VISUAL_UPDATE=1 node e2e/console-screenshots.mjs   # re-approve
+ *
  * Output:
  *   docs/assets/screenshots/console/<view>-<height>.png
  *   docs/assets/screenshots/console/<view>-<height>-overscan.png  (5 % crop)
  *   docs/assets/screenshots/console/manifest.json                 (measurements)
+ *   e2e/test-results/console-visual-gate/<frame>.diff.png         (gate failure)
  */
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
@@ -35,6 +44,14 @@ const SAFE = 0.05;
 
 const args = process.argv.slice(2);
 const skipBuild = args.includes("--skip-build");
+const gate = args.includes("--gate");
+/**
+ * `--gate` compares instead of writing; `LUDEX_VISUAL_UPDATE=1` turns the same
+ * command back into the approval run, so one command re-approves the set after
+ * a redesign and the diff is never a hand edit of a PNG.
+ */
+const update = process.env.LUDEX_VISUAL_UPDATE === "1";
+const compareOnly = gate && !update;
 const onlyIndex = args.indexOf("--only");
 const only = onlyIndex >= 0 ? args[onlyIndex + 1] : null;
 
@@ -52,6 +69,38 @@ const VIEWS = [
   { id: "settings", label: "Settings · Appearance", layout: "shelf", route: "/console/settings/appearance" },
   { id: "power", label: "Power", layout: "shelf", route: "/console/power" },
 ];
+
+/**
+ * The gated views (#303). Stage and Wall are the two compositions a player
+ * actually browses; List/Settings/Power carry release-specific content (the
+ * version in the Settings footer) and stay capture-only, approved by a human
+ * through #265. A gate that fails on every version bump stops being read.
+ */
+const GATED_VIEWS = ["stage", "wall"];
+
+/**
+ * What the gate compares, and what it forgives (#303).
+ *
+ * Both frames are normalised to `GATE_WIDTH` with a Lanczos downscale and a
+ * 1 px blur before the diff. That is the measurement decision: a 4K frame and
+ * a 720p frame are judged by the same geometry, palette quantisation (the
+ * baselines are 88-quality palette PNGs) stops being a per-pixel lottery, and
+ * font hinting/antialiasing becomes sub-pixel noise. Structural facts survive
+ * the normalisation: a cover is ~3 % of the frame at 720 px wide, a moved band
+ * strip ~5 %.
+ *
+ * A pixel counts as changed when any channel moves by more than `perChannel`
+ * (out of 255). A frame fails when more than `maxRatio` of its pixels changed.
+ * Measured against the committed baseline on this host, twice: worst frame
+ * 0.152 % then 0.076 %, so 0.5 % is >3x headroom. Sensitivity was checked on
+ * the same frames: a band shifted 12 px fails at 1.116 %, a hero title moved
+ * 12 px at 1.052 %, a hidden cover at 23.093 % — a real layout change is not
+ * in the same order of magnitude as the noise.
+ */
+const GATE_TOLERANCE = { perChannel: 24, maxRatio: 0.005, width: 720, blur: 1 };
+
+/** Where a failed frame's diff is written for the reviewer. */
+const GATE_OUT = join(ROOT, "e2e", "test-results", "console-visual-gate");
 
 function log(message) {
   process.stdout.write(`${message}\n`);
@@ -139,18 +188,40 @@ async function settle(page, selector, hold = 700) {
     await document.fonts.ready;
   });
   // The shell fades in; a capture taken during that fade is a black frame.
-  await page.waitForFunction(
-    () => {
-      const visible = (element) => {
-        if (!element) return true;
-        const style = getComputedStyle(element);
-        return Number(style.opacity) > 0.99 && style.visibility !== "hidden";
-      };
-      return [document.querySelector("header"), document.querySelector("h1")].every(visible);
-    },
-    null,
-    { timeout: 10_000 },
-  );
+  await page
+    .waitForFunction(
+      () => {
+        const visible = (element) => {
+          if (!element) return true;
+          const style = getComputedStyle(element);
+          return Number(style.opacity) > 0.99 && style.visibility !== "hidden";
+        };
+        return [document.querySelector("header"), document.querySelector("h1")].every(visible);
+      },
+      null,
+      { timeout: 10_000 },
+    )
+    .catch(async (cause) => {
+      // A bare timeout hides the one fact a reviewer needs: which element is
+      // still faded and what the page actually is.
+      const state = await page.evaluate(() => {
+        const read = (element) => {
+          if (!element) return "missing";
+          const style = getComputedStyle(element);
+          return `${style.opacity}/${style.visibility}/${style.display}`;
+        };
+        return {
+          url: location.href,
+          title: document.title,
+          header: read(document.querySelector("header")),
+          h1: read(document.querySelector("h1")),
+          text: document.body.innerText.slice(0, 160),
+        };
+      });
+      throw new Error(
+        `the console never settled after ${selector}: ${JSON.stringify(state)} (${cause.message})`,
+      );
+    });
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(hold);
 }
@@ -195,6 +266,69 @@ async function stableScreenshot(page, { attempts = 16, interval = 250 } = {}) {
     previous = next;
   }
   throw new Error("the console never stopped repainting; a capture would catch an animation");
+}
+
+/**
+ * Compare one encoded frame against its approved baseline (#303).
+ *
+ * Both sides are decoded, so the comparison is on pixels, not file bytes: the
+ * palette encoder is deterministic but a caption's antialiasing is not. The
+ * changed pixels are painted into a diff PNG so a failure names its own cause
+ * instead of "0.31 % differ".
+ */
+async function compareFrame(candidate, baselineFile, name) {
+  const normalise = (input) =>
+    sharp(input)
+      .resize({ width: GATE_TOLERANCE.width, kernel: "lanczos3" })
+      .blur(GATE_TOLERANCE.blur)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+  const baseline = await normalise(baselineFile).catch(() => null);
+  if (!baseline) return { name, ok: false, reason: `baseline missing: ${baselineFile}` };
+  const actual = await normalise(candidate);
+  if (actual.info.width !== baseline.info.width || actual.info.height !== baseline.info.height) {
+    return {
+      name,
+      ok: false,
+      reason: `size ${actual.info.width}x${actual.info.height} != baseline ${baseline.info.width}x${baseline.info.height}`,
+    };
+  }
+
+  const channels = actual.info.channels;
+  const pixels = actual.info.width * actual.info.height;
+  const diff = Buffer.alloc(actual.info.width * actual.info.height * 3);
+  let changed = 0;
+  for (let index = 0; index < actual.data.length; index += channels) {
+    const raw = Math.abs(actual.data[index] - baseline.data[index]);
+    const green = Math.abs(actual.data[index + 1] - baseline.data[index + 1]);
+    const blue = Math.abs(actual.data[index + 2] - baseline.data[index + 2]);
+    const hit = raw > GATE_TOLERANCE.perChannel
+      || green > GATE_TOLERANCE.perChannel
+      || blue > GATE_TOLERANCE.perChannel;
+    const pixel = index / channels;
+    if (hit) {
+      changed += 1;
+      // Red on a dim grey version of the candidate: the geometry stays legible.
+      diff[pixel * 3] = 255;
+      diff[pixel * 3 + 1] = 32;
+      diff[pixel * 3 + 2] = 32;
+    } else {
+      const luma = Math.round((actual.data[index] + actual.data[index + 1] + actual.data[index + 2]) / 12);
+      diff[pixel * 3] = luma;
+      diff[pixel * 3 + 1] = luma;
+      diff[pixel * 3 + 2] = luma;
+    }
+  }
+
+  const ratio = changed / pixels;
+  if (ratio > GATE_TOLERANCE.maxRatio) {
+    mkdirSync(GATE_OUT, { recursive: true });
+    await sharp(diff, { raw: { width: actual.info.width, height: actual.info.height, channels: 3 } })
+      .png()
+      .toFile(join(GATE_OUT, `${name}.diff.png`));
+  }
+  return { name, ok: ratio <= GATE_TOLERANCE.maxRatio, ratio, changed, pixels };
 }
 
 /**
@@ -282,6 +416,14 @@ try {
     fail("apps/web/dist is missing; run without --skip-build first");
   }
 
+  log(
+    compareOnly
+      ? "== visual gate: Stage/Wall vs the approved baselines =="
+      : update
+        ? "== visual update: writing the approved baselines =="
+        : "== capture: writing every view and the manifest ==",
+  );
+
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   server = spawn(
@@ -296,9 +438,10 @@ try {
   browser = await chromium.launch();
 
   const captures = [];
+  const gateResults = [];
   for (const resolution of RESOLUTIONS) {
     if (only && only !== String(resolution.height) && only !== "all") continue;
-    const views = VIEWS;
+    const views = compareOnly ? VIEWS.filter((view) => GATED_VIEWS.includes(view.id)) : VIEWS;
     for (const view of views) {
       const context = await browser.newContext({
         viewport: { width: resolution.width, height: resolution.height },
@@ -336,18 +479,33 @@ try {
       // 4K is stored at 1920 wide; the measurement above is the 4K one.
       const pipeline = sharp(raw);
       if (resolution.width > 1920) pipeline.resize({ width: 1920, kernel: "lanczos3" });
-      await pipeline.png({ palette: true, quality: 88, effort: 10, compressionLevel: 9 }).toFile(file);
+      const encoded = await pipeline
+        .png({ palette: true, quality: 88, effort: 10, compressionLevel: 9 })
+        .toBuffer();
 
       // A 5 % crop of each side: what a TV with overscan actually shows.
-      const cropped = await sharp(raw)
-        .extract({
-          left: measurement.insetX,
-          top: measurement.insetY,
-          width: resolution.width - measurement.insetX * 2,
-          height: resolution.height - measurement.insetY * 2,
-        })
+      const crop = {
+        left: measurement.insetX,
+        top: measurement.insetY,
+        width: resolution.width - measurement.insetX * 2,
+        height: resolution.height - measurement.insetY * 2,
+      };
+      const encodedOverscan = await sharp(raw)
+        .extract(crop)
         .png({ palette: true, quality: 88, effort: 10, compressionLevel: 9 })
-        .toFile(join(OUT, `${name}-overscan.png`));
+        .toBuffer();
+
+      if (compareOnly) {
+        // The gate compares exactly what the approved pipeline would have
+        // written: same resize, same palette encode, decoded and diffed.
+        gateResults.push(
+          await compareFrame(encoded, file, name),
+          await compareFrame(encodedOverscan, join(OUT, `${name}-overscan.png`), `${name}-overscan`),
+        );
+      } else {
+        writeFileSync(file, encoded);
+        writeFileSync(join(OUT, `${name}-overscan.png`), encodedOverscan);
+      }
 
       captures.push({
         view: view.id,
@@ -358,7 +516,7 @@ try {
         safeArea: `${measurement.insetX}x${measurement.insetY}`,
         measured: measurement.boxes.length,
         violations: measurement.violations,
-        overscan: { width: cropped.width, height: cropped.height },
+        overscan: { width: crop.width, height: crop.height },
         pageErrors,
       });
       log(
@@ -380,32 +538,59 @@ try {
     capture.pageErrors.map((error) => `${capture.view}/${capture.resolution}: ${error}`),
   );
 
-  writeFileSync(
-    join(OUT, "manifest.json"),
-    `${JSON.stringify(
-      {
-        generator: "e2e/console-screenshots.mjs",
-        commit: commit(),
-        generatedAt: new Date().toISOString(),
-        overscan: SAFE,
-        notes: [
-          "Captured from the web build compiled with VITE_USE_MOCKS=true (demo adapter, no server).",
-          "Locale en-US, reduced motion, fixed clock at 2026-11-16T10:24:00Z, Night room.",
-          "`-overscan` images are a 5 % crop of each side: what a TV with overscan shows.",
-          "4K captures are measured at 3840x2160 and stored at 1920 px wide.",
-          "Every listed control must sit inside the action-safe area; `violations` must stay empty.",
-        ],
-        captures,
-        violations,
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  if (!compareOnly) {
+    writeFileSync(
+      join(OUT, "manifest.json"),
+      `${JSON.stringify(
+        {
+          generator: "e2e/console-screenshots.mjs",
+          commit: commit(),
+          generatedAt: new Date().toISOString(),
+          overscan: SAFE,
+          notes: [
+            "Captured from the web build compiled with VITE_USE_MOCKS=true (demo adapter, no server).",
+            "Locale en-US, reduced motion, fixed clock at 2026-11-16T10:24:00Z, Night room.",
+            "`-overscan` images are a 5 % crop of each side: what a TV with overscan shows.",
+            "4K captures are measured at 3840x2160 and stored at 1920 px wide.",
+            "Every listed control must sit inside the action-safe area; `violations` must stay empty.",
+          ],
+          captures,
+          violations,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
 
   if (errors.length > 0) fail(`page errors:\n - ${errors.join("\n - ")}`);
   if (violations.length > 0) fail(`controls inside the ${SAFE * 100}% overscan band:\n - ${violations.join("\n - ")}`);
-  log(`\n${captures.length} captures, 0 overscan violations, done in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+
+  if (compareOnly) {
+    const failures = gateResults.filter((result) => !result.ok);
+    for (const result of gateResults) {
+      const detail = result.ok
+        ? `${result.changed}/${result.pixels} px over ±${GATE_TOLERANCE.perChannel} (${(result.ratio * 100).toFixed(3)}%)`
+        : (result.reason ?? `${result.changed}/${result.pixels} px (${(result.ratio * 100).toFixed(3)}%)`);
+      log(`   ${result.ok ? "✓" : "✗"} ${result.name}  ${detail}`);
+    }
+    if (failures.length > 0) {
+      fail(
+        `${failures.length} console frame(s) outside the approved baseline ` +
+          `(tolerance: ±${GATE_TOLERANCE.perChannel}/255 per channel, ` +
+          `${(GATE_TOLERANCE.maxRatio * 100).toFixed(1)}% of pixels). ` +
+          `Diffs: ${GATE_OUT}\n` +
+          failures.map((result) => ` - ${result.name}: ${result.reason ?? (result.ratio * 100).toFixed(3) + "%"}`).join("\n"),
+      );
+    }
+    log(
+      `\n${gateResults.length} frames within the approved baseline ` +
+        `(±${GATE_TOLERANCE.perChannel}/255, ${(GATE_TOLERANCE.maxRatio * 100).toFixed(1)}% max), ` +
+        `done in ${((Date.now() - started) / 1000).toFixed(1)}s`,
+    );
+  } else {
+    log(`\n${captures.length} captures, 0 overscan violations, done in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  }
 } finally {
   await browser?.close().catch(() => {});
   if (server) server.kill("SIGTERM");
