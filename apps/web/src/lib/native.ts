@@ -48,6 +48,7 @@ import type {
   InstallJob,
   InstallResumeMode,
   InstallSpaceTotal,
+  InhibitStatus,
   InstalledGame,
   InstallerPlan,
   InstallerReport,
@@ -573,6 +574,24 @@ export const native = {
     } catch {
       return null;
     }
+  },
+
+  /**
+   * The suspend inhibitor's live state (#288). `null` when the desktop does not
+   * answer (an older build): the banner and the status row stay hidden.
+   */
+  async inhibitStatus(): Promise<InhibitStatus | null> {
+    if (!isNative()) return null;
+    try {
+      return await invoke<InhibitStatus>("inhibit_status");
+    } catch {
+      return null;
+    }
+  },
+
+  /** Follow `inhibit://status`: every reason change, start and release. */
+  onInhibitStatus(handler: (status: InhibitStatus) => void): Promise<() => void> {
+    return listen<InhibitStatus>("inhibit://status", handler);
   },
 
   /**
@@ -1653,6 +1672,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   downloadStallTimeoutSecs: 30,
   downloadRetryWindowSecs: 21600,
   autoResumeDownloads: true,
+  keepAwakeAfterMinutes: 5,
   downloadConcurrency: 1,
   closeToTray: true,
   nativeTitleBar: false,

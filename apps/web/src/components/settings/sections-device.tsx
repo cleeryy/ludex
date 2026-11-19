@@ -15,6 +15,7 @@ import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
 import { HostPreflightPanel } from "@/components/settings/host-preflight-panel";
 import { InstalledPanel } from "@/components/settings/installed-games";
+import { KeepAwakeStatus } from "@/components/settings/keep-awake-panel";
 import { LauncherImportPanel } from "@/components/settings/launcher-import";
 import { LocationsPanel } from "@/components/settings/locations-panel";
 import { PresenceStatus } from "@/components/settings/presence-status";
@@ -312,6 +313,35 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                     "Retrying for up to {count} hours. Cancel always stops the download immediately.",
                   )}
             </p>
+          </SettingsGroup>
+
+          <SettingsGroup
+            title={t("Keep the machine awake")}
+            description={t("While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.")}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="w-[150px]">
+                <Input
+                  id="keep-awake-after-minutes"
+                  aria-label={t("Minutes to keep the machine awake after the last job")}
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={1}
+                  inputMode="numeric"
+                  value={draft.keepAwakeAfterMinutes}
+                  onChange={(event) =>
+                    desktop.update({
+                      keepAwakeAfterMinutes: Math.min(60, Math.max(0, Math.round(Number(event.target.value) || 0))),
+                    })
+                  }
+                  className="font-mono text-[12px]"
+                />
+              </div>
+              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+                {t("min")}
+              </span>
+            </div>
           </SettingsGroup>
 
           <SettingsGroup
@@ -780,6 +810,12 @@ export function HostBody({ desktop }: { desktop: DesktopSettingsController }) {
   return (
     <div className="border-t border-line pt-5">
       <HostPreflightPanel />
+      <div className="mt-6 border-t border-line pt-5">
+        <h3 className="text-[13px] font-medium text-ink">{t("Keep the machine awake")}</h3>
+        <div className="mt-2">
+          <KeepAwakeStatus />
+        </div>
+      </div>
     </div>
   );
 }

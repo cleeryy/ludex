@@ -508,6 +508,10 @@ impl AppState {
             .unwrap_or(1),
         );
 
+        // #288: the "stay awake after the last job" window is live; a saved
+        // change applies to the running inhibitor without a restart.
+        crate::inhibit::set_grace_minutes(next.keep_awake_after_minutes);
+
         // A different server means a different index: adopt or open it now so
         // installs made right after the switch are written to the right place.
         // Done after releasing the settings lock to keep the lock order simple.

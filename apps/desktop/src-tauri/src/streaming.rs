@@ -2467,8 +2467,18 @@ pub fn spawn_stream(binary: &str, host: &str, app: &str) -> Result<StreamLaunch,
     let child = command
         .spawn()
         .map_err(|error| format!("Could not start Moonlight at {binary}: {error}"))?;
-    // Moonlight owns its process; Ludex only needs the start to succeed.
-    drop(child);
+    // #288: a running stream keeps the display and the machine awake. Moonlight
+    // owns its window, so a waiter thread holds one reason until it exits;
+    // Ludex never needs the exit status.
+    let holder = crate::inhibit::hold(crate::inhibit::Reason::stream(
+        &uuid::Uuid::new_v4().to_string(),
+        app,
+    ));
+    std::thread::spawn(move || {
+        let _holder = holder;
+        let mut child = child;
+        let _ = child.wait();
+    });
     let command_line = std::iter::once(binary.to_string())
         .chain(args.iter().cloned())
         .collect::<Vec<String>>();

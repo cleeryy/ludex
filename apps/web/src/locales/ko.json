@@ -4052,5 +4052,20 @@
   "Scaling filter": "스케일링 필터",
   "Upscaling filter offered by this Gamescope build": "이 Gamescope 빌드가 제공하는 스케일링 필터",
   "Width": "너비",
-  "Width × height in pixels.": "너비 × 높이(픽셀)."
+  "Width × height in pixels.": "너비 × 높이(픽셀).",
+  "Check with {command}. Ludex has no entry once the last job ends and the window above expires.": "{command}로 확인할 수 있습니다. 마지막 작업이 끝나고 위 시간이 지나면 Ludex 항목은 남지 않습니다.",
+  "Checking the inhibitor…": "억제 상태를 확인하는 중…",
+  "Keep the machine awake": "컴퓨터를 깨어 있게 유지",
+  "Keeping the machine awake during a stream": "스트리밍하는 동안 컴퓨터를 깨어 있게 유지합니다",
+  "Keeping the machine awake while a game is running": "게임이 실행되는 동안 컴퓨터를 깨어 있게 유지합니다",
+  "Keeping the machine awake while checking the install": "설치를 확인하는 동안 컴퓨터를 깨어 있게 유지합니다",
+  "Keeping the machine awake while downloading ({count} jobs)": "다운로드하는 동안 컴퓨터를 깨어 있게 유지합니다 ({count}개 작업)",
+  "Keeping the machine awake while downloading (1 job)": "다운로드하는 동안 컴퓨터를 깨어 있게 유지합니다 (1개 작업)",
+  "Ludex blocks suspend and display blanking until the last job ends, then releases the inhibitor.": "Ludex는 마지막 작업이 끝날 때까지 절전과 화면 꺼짐을 차단한 뒤 억제를 해제합니다.",
+  "min": "분",
+  "Minutes to keep the machine awake after the last job": "마지막 작업 후 컴퓨터를 깨어 있게 유지할 분",
+  "Nothing is holding the machine awake.": "현재 컴퓨터를 깨어 있게 유지하는 작업이 없습니다.",
+  "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "절전 억제에는 Linux와 systemd-inhibit가 필요합니다. 이 컴퓨터는 자체 전원 설정을 유지합니다.",
+  "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "절전 억제는 데스크톱 앱에만 있습니다. 브라우저 버전은 컴퓨터의 전원 설정을 건드리지 않습니다.",
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "다운로드, 게임 또는 스트리밍이 실행되는 동안 Ludex는 절전과 화면 꺼짐을 차단합니다. 억제는 지정한 분 후에 해제되며, 0이면 마지막 작업이 끝나는 즉시 해제됩니다. 범위는 0..60입니다."
 }

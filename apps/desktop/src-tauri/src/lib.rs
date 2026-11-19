@@ -18,6 +18,7 @@ mod file_manifest;
 mod game_config;
 mod game_executables;
 mod host_preflight;
+mod inhibit;
 mod install;
 mod install_health;
 mod installer;
@@ -194,6 +195,9 @@ pub fn run() {
             remote_play::spawn_startup_cleanup(&state.app_data);
             app.manage(state);
             app.manage(remote_play_state);
+            // #288: one suspend inhibitor for the process lifetime, refcounted
+            // by the install/game/stream lifecycles below.
+            inhibit::init(app.handle(), settings.keep_awake_after_minutes);
 
             // #213: must be installed before the first notification, otherwise
             // the plugin does not track clicks.
@@ -411,6 +415,7 @@ pub fn run() {
             power::quit_app,
             power::system_sleep,
             power::sleep_capability,
+            commands::inhibit_status,
             console_session::console_session_status,
             console_session::console_session_plan,
             console_session::console_session_apply,
@@ -464,6 +469,9 @@ pub fn run() {
             // next launch (startup markers are dropped here).
             install::clear_resume_markers_on_clean_exit(app_handle);
             server::stop_on_exit(app_handle);
+            // #288: kill and reap the suspend inhibitor before the process
+            // goes away; nothing may stay behind in `systemd-inhibit --list`.
+            inhibit::shutdown();
             presence::shutdown();
         }
     });

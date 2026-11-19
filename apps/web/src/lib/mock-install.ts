@@ -428,6 +428,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   downloadStallTimeoutSecs: 30,
   downloadRetryWindowSecs: 21600,
   autoResumeDownloads: true,
+  keepAwakeAfterMinutes: 5,
   downloadConcurrency: 1,
   closeToTray: true,
   nativeTitleBar: false,

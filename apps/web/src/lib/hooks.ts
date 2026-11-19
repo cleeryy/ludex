@@ -383,6 +383,15 @@ export function useNativeEvents() {
       if (cancelled) offLaunch();
       else unlisteners.push(offLaunch);
 
+      // Suspend inhibitor (#288): the desktop pushes a snapshot on every
+      // reason change, so the banner and the diagnostics row flip immediately
+      // instead of waiting for the next poll.
+      const offInhibit = await native.onInhibitStatus((status) => {
+        queryClient.setQueryData(qk.inhibitStatus, status);
+      });
+      if (cancelled) offInhibit();
+      else unlisteners.push(offInhibit);
+
       // App updates (#16, #163): the update center's notifier owns the launch
       // prompt, the badge and the skip decision, so no duplicate toast here.
     })();

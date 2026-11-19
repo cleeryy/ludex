@@ -4052,5 +4052,20 @@
   "Scaling filter": "Фильтр масштабирования",
   "Upscaling filter offered by this Gamescope build": "Фильтр масштабирования, доступный в этой сборке Gamescope",
   "Width": "Ширина",
-  "Width × height in pixels.": "Ширина × высота в пикселях."
+  "Width × height in pixels.": "Ширина × высота в пикселях.",
+  "Check with {command}. Ludex has no entry once the last job ends and the window above expires.": "Проверьте через {command}. Запись Ludex исчезает после завершения последней задачи и истечения указанного выше окна.",
+  "Checking the inhibitor…": "Проверка ингибитора…",
+  "Keep the machine awake": "Не давать машине засыпать",
+  "Keeping the machine awake during a stream": "Машина не засыпает во время трансляции",
+  "Keeping the machine awake while a game is running": "Машина не засыпает, пока запущена игра",
+  "Keeping the machine awake while checking the install": "Машина не засыпает во время проверки установки",
+  "Keeping the machine awake while downloading ({count} jobs)": "Машина не засыпает во время загрузки ({count} задач)",
+  "Keeping the machine awake while downloading (1 job)": "Машина не засыпает во время загрузки (1 задача)",
+  "Ludex blocks suspend and display blanking until the last job ends, then releases the inhibitor.": "Ludex блокирует сон и отключение экрана до завершения последней задачи, затем снимает блокировку.",
+  "min": "мин",
+  "Minutes to keep the machine awake after the last job": "Сколько минут не давать машине засыпать после последней задачи",
+  "Nothing is holding the machine awake.": "Сейчас ничто не удерживает машину от сна.",
+  "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "Блокировка сна требует Linux и systemd-inhibit. Эта машина сохраняет собственные настройки питания.",
+  "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "Ингибитор сна есть только в настольном приложении. Браузерная версия не трогает настройки питания машины.",
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "Пока идёт загрузка, игра или трансляция, Ludex блокирует сон и отключение экрана. Блокировка снимается через указанное число минут; 0 снимает её сразу после последней задачи. Диапазон 0..60."
 }
