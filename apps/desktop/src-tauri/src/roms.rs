@@ -352,7 +352,13 @@ pub fn launch_rom(
 
     let app_handle = app.clone();
     let session = session_id.clone();
+    // #288: the emulator is a game process; hold the inhibitor for its session.
+    let title = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_else(|| "a ROM".to_string());
     std::thread::spawn(move || {
+        let _awake = crate::inhibit::hold(crate::inhibit::Reason::game(&session, &title));
         let state = app_handle.state::<AppState>();
         loop {
             std::thread::sleep(std::time::Duration::from_millis(1000));

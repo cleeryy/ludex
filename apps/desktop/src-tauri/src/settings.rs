@@ -242,6 +242,11 @@ pub struct LocalSettings {
     /// Never applies to a user-paused or cancelled job.
     #[serde(default = "default_auto_resume_downloads")]
     pub auto_resume_downloads: bool,
+    /// Keep the machine awake for this many minutes after the last install,
+    /// game or stream ends (#288). 5 by default; 0 releases the inhibitor
+    /// immediately, and the value is clamped to 0..=60.
+    #[serde(default = "default_keep_awake_after_minutes")]
+    pub keep_awake_after_minutes: u32,
     /// Parallel archive downloads (#221): 1 (default) or 2. Extraction is
     /// always serialised, so raising it only overlaps two transfers, never two
     /// unpackers; every slot is still gated by the disk-space ledger (#222).
@@ -724,6 +729,11 @@ pub const fn default_auto_resume_downloads() -> bool {
     true
 }
 
+/// Stay awake five minutes after the last job (#288).
+pub const fn default_keep_awake_after_minutes() -> u32 {
+    crate::inhibit::DEFAULT_GRACE_MINUTES
+}
+
 /// A console session is meant for a TV: fullscreen by default (#172).
 pub const fn default_console_fullscreen() -> bool {
     true
@@ -755,6 +765,7 @@ impl Default for LocalSettings {
             download_stall_timeout_secs: default_download_stall_timeout_secs(),
             download_retry_window_secs: default_download_retry_window_secs(),
             auto_resume_downloads: default_auto_resume_downloads(),
+            keep_awake_after_minutes: default_keep_awake_after_minutes(),
             download_concurrency: default_download_concurrency(),
             download_policy: DownloadPolicy::Automatic,
             server_file_cache: default_server_file_cache(),
@@ -900,6 +911,10 @@ impl LocalSettings {
         self.download_concurrency = self
             .download_concurrency
             .clamp(1, crate::state::MAX_CONCURRENT_DOWNLOADS as u64);
+        // #288: 0 is meaningful ("release as soon as the last job ends"); a
+        // longer window than an hour is a typo, not a choice.
+        self.keep_awake_after_minutes =
+            crate::inhibit::clamp_grace_minutes(self.keep_awake_after_minutes);
         if self.download_retry_window_secs != 0 {
             self.download_retry_window_secs =
                 self.download_retry_window_secs.clamp(60, 7 * 24 * 60 * 60);
@@ -2797,6 +2812,43 @@ mod tests {
         legacy.auto_resume_downloads = false;
         legacy.normalize(Path::new("/data"));
         assert!(!legacy.auto_resume_downloads);
+    }
+
+    #[test]
+    fn keep_awake_after_minutes_defaults_and_bounds() {
+        let mut settings = LocalSettings::default();
+        assert_eq!(settings.keep_awake_after_minutes, 5);
+
+        // A settings file written before #288 has no key: the default applies.
+        let raw = serde_json::json!({ "installDir": "/games" });
+        let mut legacy: LocalSettings = serde_json::from_value(raw).unwrap();
+        assert_eq!(legacy.keep_awake_after_minutes, 5);
+
+        // 0 is meaningful ("release at once") and is preserved.
+        settings.keep_awake_after_minutes = 0;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.keep_awake_after_minutes, 0);
+
+        settings.keep_awake_after_minutes = 61;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(settings.keep_awake_after_minutes, 60);
+
+        legacy.keep_awake_after_minutes = u32::MAX;
+        legacy.normalize(Path::new("/data"));
+        assert_eq!(legacy.keep_awake_after_minutes, 60);
+
+        let encoded = serde_json::to_value(LocalSettings::default()).unwrap();
+        assert_eq!(
+            encoded
+                .get("keepAwakeAfterMinutes")
+                .and_then(|value| value.as_u64()),
+            Some(5)
+        );
+        let restored: LocalSettings = serde_json::from_value(serde_json::json!({
+            "keepAwakeAfterMinutes": 12
+        }))
+        .unwrap();
+        assert_eq!(restored.keep_awake_after_minutes, 12);
     }
 
     #[test]

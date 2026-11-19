@@ -59,6 +59,13 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<LocalSettings, String>
     Ok(state.settings_snapshot())
 }
 
+/// The suspend inhibitor's live state (#288): reasons, count and grace window.
+/// Also emitted as `inhibit://status` on every transition.
+#[tauri::command]
+pub fn inhibit_status() -> crate::inhibit::InhibitStatus {
+    crate::inhibit::status()
+}
+
 #[tauri::command]
 pub fn save_settings(
     app: AppHandle,

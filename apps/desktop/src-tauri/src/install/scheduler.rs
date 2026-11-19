@@ -1280,6 +1280,14 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
         return;
     }
 
+    // #288: the job now owns a real transfer/extraction/verification; hold the
+    // suspend inhibitor until this function returns (the guard releases on
+    // every path, including the panic unwind handled above).
+    let _awake = crate::inhibit::hold(crate::inhibit::Reason::install(
+        &job_id,
+        &entry.params.title,
+    ));
+
     entry.update(|job| {
         job.phase = InstallPhase::Queued;
         job.message = Some("Starting install".to_string());

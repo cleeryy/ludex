@@ -4052,5 +4052,20 @@
   "Scaling filter": "スケーリングフィルター",
   "Upscaling filter offered by this Gamescope build": "この Gamescope ビルドが提供するスケーリングフィルター",
   "Width": "幅",
-  "Width × height in pixels.": "幅 × 高さ（ピクセル）。"
+  "Width × height in pixels.": "幅 × 高さ（ピクセル）。",
+  "Check with {command}. Ludex has no entry once the last job ends and the window above expires.": "{command} で確認できます。最後のジョブが終わり、上の時間が過ぎると Ludex のエントリは残りません。",
+  "Checking the inhibitor…": "抑止状態を確認しています…",
+  "Keep the machine awake": "マシンをスリープさせない",
+  "Keeping the machine awake during a stream": "ストリーミング中はマシンをスリープさせません",
+  "Keeping the machine awake while a game is running": "ゲームの実行中はマシンをスリープさせません",
+  "Keeping the machine awake while checking the install": "インストールの確認中はマシンをスリープさせません",
+  "Keeping the machine awake while downloading ({count} jobs)": "ダウンロード中はマシンをスリープさせません（{count} 件）",
+  "Keeping the machine awake while downloading (1 job)": "ダウンロード中はマシンをスリープさせません（1 件）",
+  "Ludex blocks suspend and display blanking until the last job ends, then releases the inhibitor.": "Ludex は最後のジョブが終わるまでスリープと画面の消灯を抑止し、その後で抑止を解除します。",
+  "min": "分",
+  "Minutes to keep the machine awake after the last job": "最後のジョブの後にマシンをスリープさせない分数",
+  "Nothing is holding the machine awake.": "現在マシンをスリープさせない要因はありません。",
+  "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "スリープ抑止には Linux と systemd-inhibit が必要です。このマシンは独自の電源設定を保ちます。",
+  "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "スリープ抑止はデスクトップアプリにあります。ブラウザ版はマシンの電源設定に触れません。",
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "ダウンロード・ゲーム・ストリーミングの実行中、Ludex はスリープと画面の消灯を抑止します。抑止は指定した分数の後に解除され、0 なら最後のジョブが終わるとすぐに解除されます。範囲は 0..60 です。"
 }

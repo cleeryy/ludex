@@ -4052,5 +4052,20 @@
   "Scaling filter": "Filtre de mise à l'échelle",
   "Upscaling filter offered by this Gamescope build": "Filtre de mise à l'échelle proposé par cette version de Gamescope",
   "Width": "Largeur",
-  "Width × height in pixels.": "Largeur × hauteur en pixels."
+  "Width × height in pixels.": "Largeur × hauteur en pixels.",
+  "Check with {command}. Ludex has no entry once the last job ends and the window above expires.": "Vérifiez avec {command}. Ludex n'a plus aucune entrée dès la fin du dernier travail et l'expiration de la fenêtre ci-dessus.",
+  "Checking the inhibitor…": "Vérification de l'inhibiteur…",
+  "Keep the machine awake": "Garder la machine éveillée",
+  "Keeping the machine awake during a stream": "La machine reste éveillée pendant un streaming",
+  "Keeping the machine awake while a game is running": "La machine reste éveillée pendant qu'un jeu tourne",
+  "Keeping the machine awake while checking the install": "La machine reste éveillée pendant la vérification de l'installation",
+  "Keeping the machine awake while downloading ({count} jobs)": "La machine reste éveillée pendant le téléchargement ({count} tâches)",
+  "Keeping the machine awake while downloading (1 job)": "La machine reste éveillée pendant le téléchargement (1 tâche)",
+  "Ludex blocks suspend and display blanking until the last job ends, then releases the inhibitor.": "Ludex bloque la mise en veille et l'extinction de l'écran jusqu'à la fin du dernier travail, puis libère l'inhibiteur.",
+  "min": "min",
+  "Minutes to keep the machine awake after the last job": "Minutes pendant lesquelles garder la machine éveillée après le dernier travail",
+  "Nothing is holding the machine awake.": "Rien ne maintient la machine éveillée.",
+  "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "L'inhibition de la veille nécessite Linux avec systemd-inhibit. Cette machine conserve ses propres réglages d'alimentation.",
+  "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "L'inhibiteur de veille réside dans l'application de bureau. Une version navigateur ne touche pas aux réglages d'alimentation de la machine.",
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "Pendant un téléchargement, un jeu ou un streaming, Ludex bloque la mise en veille et l'extinction de l'écran. L'inhibiteur est libéré après ce nombre de minutes ; 0 le libère dès la fin du dernier travail. Borné 0..60."
 }

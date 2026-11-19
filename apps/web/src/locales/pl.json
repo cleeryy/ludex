@@ -4052,5 +4052,20 @@
   "Scaling filter": "Filtr skalowania",
   "Upscaling filter offered by this Gamescope build": "Filtr skalowania oferowany przez tę wersję Gamescope",
   "Width": "Szerokość",
-  "Width × height in pixels.": "Szerokość × wysokość w pikselach."
+  "Width × height in pixels.": "Szerokość × wysokość w pikselach.",
+  "Check with {command}. Ludex has no entry once the last job ends and the window above expires.": "Sprawdź za pomocą {command}. Gdy ostatnie zadanie się skończy, a powyższe okno minie, wpis Ludex zniknie.",
+  "Checking the inhibitor…": "Sprawdzanie inhibitora…",
+  "Keep the machine awake": "Utrzymuj komputer w stanie aktywnym",
+  "Keeping the machine awake during a stream": "Komputer pozostaje aktywny podczas transmisji",
+  "Keeping the machine awake while a game is running": "Komputer pozostaje aktywny, gdy uruchomiona jest gra",
+  "Keeping the machine awake while checking the install": "Komputer pozostaje aktywny podczas sprawdzania instalacji",
+  "Keeping the machine awake while downloading ({count} jobs)": "Komputer pozostaje aktywny podczas pobierania ({count} zadań)",
+  "Keeping the machine awake while downloading (1 job)": "Komputer pozostaje aktywny podczas pobierania (1 zadanie)",
+  "Ludex blocks suspend and display blanking until the last job ends, then releases the inhibitor.": "Ludex blokuje uśpienie i wygaszanie ekranu do końca ostatniego zadania, a potem zwalnia inhibitor.",
+  "min": "min",
+  "Minutes to keep the machine awake after the last job": "Ile minut utrzymywać komputer w stanie aktywnym po ostatnim zadaniu",
+  "Nothing is holding the machine awake.": "Nic nie utrzymuje teraz komputera w stanie aktywnym.",
+  "Suspend inhibition needs Linux with systemd-inhibit. This machine keeps its own power settings.": "Blokowanie uśpienia wymaga Linuksa z systemd-inhibit. Ten komputer zachowuje własne ustawienia zasilania.",
+  "The suspend inhibitor lives on the desktop app. A browser build leaves the machine's power settings alone.": "Inhibitor uśpienia jest tylko w aplikacji desktopowej. Wersja przeglądarkowa nie zmienia ustawień zasilania komputera.",
+  "While a download, a game or a stream is running, Ludex blocks suspend and display blanking. The inhibitor is released after this many minutes; 0 releases it as soon as the last job ends. Bounded 0..60.": "Gdy trwa pobieranie, gra lub transmisja, Ludex blokuje uśpienie i wygaszanie ekranu. Inhibitor jest zwalniany po podanej liczbie minut; 0 zwalnia go od razu po ostatnim zadaniu. Zakres 0..60."
 }

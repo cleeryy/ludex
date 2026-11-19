@@ -43,6 +43,7 @@ import { PwaPrompts } from "@/components/pwa-prompts";
 import { OverlayHost } from "@/components/overlay/overlay-host";
 import { DesktopAppPrompt } from "@/components/desktop-app-prompt";
 import { HostPreflightPrompt } from "@/components/settings/host-preflight-prompt";
+import { KeepAwakeBanner } from "@/components/shell/keep-awake-banner";
 import { useNativeEvents } from "@/lib/hooks";
 import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
 import { useActiveJobs, useQueueSummary, useTitleFor } from "@/state/downloads";
@@ -428,6 +429,7 @@ export function AppShell() {
           className="min-w-0 flex-1 overflow-y-auto overscroll-contain pb-8"
           onScroll={(event) => positions.current.set(location.key, event.currentTarget.scrollTop)}
         >
+          <KeepAwakeBanner />
           <Outlet />
         </main>
       </div>

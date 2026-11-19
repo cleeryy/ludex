@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { isNative, native } from "@/lib/native";
 import { useAuth } from "@/state/auth";
 import { ConsoleNoticeProvider } from "@/components/console/surfaces/console-notice";
+import { ConsoleKeepAwakeNotice } from "@/components/console/surfaces/console-keep-awake";
 import { ConsoleRoutes } from "@/components/console/routes";
 import {
   ConsoleBoot,
@@ -75,6 +76,7 @@ export function ConsoleApp() {
 
   return (
     <ConsoleNoticeProvider>
+      <ConsoleKeepAwakeNotice />
       <ConsoleRoutes />
     </ConsoleNoticeProvider>
   );

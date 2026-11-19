@@ -396,6 +396,10 @@ pub async fn verify_install(app: &AppHandle, game_id: i64) -> Result<VerifyRepor
     let installed = installed_game(&state, game_id)?;
     let root = PathBuf::from(&installed.install_path);
 
+    // #288: re-reading and hashing a large install is real disk work; hold the
+    // inhibitor until the check returns.
+    let _awake = crate::inhibit::hold(crate::inhibit::Reason::verify(game_id, &installed.title));
+
     let Some(manifest) = load_manifest(&state, game_id, &installed)? else {
         return Ok(no_manifest_report(game_id, &installed.source));
     };
@@ -519,6 +523,9 @@ pub async fn repair_install(app: &AppHandle, game_id: i64) -> Result<RepairRepor
     let state = app.state::<AppState>();
     let installed = installed_game(&state, game_id)?;
     ensure_game_idle(&state, game_id, "repairing it")?;
+    // #288: a repair verifies and then transfers files back; hold the
+    // inhibitor until it returns.
+    let _awake = crate::inhibit::hold(crate::inhibit::Reason::repair(game_id, &installed.title));
     let root = PathBuf::from(&installed.install_path);
 
     let Some(manifest) = load_manifest(&state, game_id, &installed)? else {

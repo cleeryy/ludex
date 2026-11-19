@@ -464,6 +464,7 @@ pub async fn launch(
         session_id.clone(),
         game_id,
         installed.source.clone(),
+        installed.title.clone(),
     );
     // #219: bring the game's window forward once it exists. Off-thread and
     // fire-and-forget: a slow or windowless game never delays the launch.
@@ -1510,8 +1511,13 @@ fn spawn_watcher(
     session_id: String,
     game_id: i64,
     source: String,
+    title: String,
 ) {
     std::thread::spawn(move || {
+        // #288: a running game keeps the machine awake for the whole session;
+        // the guard releases when this thread ends (normal exit, stop, force
+        // close or a panic in the tracking loop).
+        let _awake = crate::inhibit::hold(crate::inhibit::Reason::game(&session_id, &title));
         // Process-tree tracking (#26): the session stays open while any
         // descendant of the launched game is alive, not just the root PID.
         let mut sampler = ProcessSampler::new();

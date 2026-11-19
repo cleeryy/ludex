@@ -1286,6 +1286,12 @@ export interface LocalSettings {
   /** Re-enter interrupted downloads after an app restart (#212), default true. */
   autoResumeDownloads: boolean;
   /**
+   * Keep the machine awake for this many minutes after the last install, game
+   * or stream ends (#288). Default 5; 0 releases the inhibitor immediately;
+   * bounded 0..=60.
+   */
+  keepAwakeAfterMinutes: number;
+  /**
    * Parallel archive downloads (#221): 1 (default) or 2. Extraction stays
    * serialised either way.
    */
@@ -4327,4 +4333,31 @@ export interface ConsoleSessionEntryPlan {
   installCommand: string;
   uninstallCommand: string;
   message: string;
+}
+
+/* ------------------------ Suspend inhibitor (#288) ----------------------- */
+
+/** What keeps the machine awake. Mirrors `inhibit::ReasonKind` in Rust. */
+export type InhibitReasonKind = "install" | "verify" | "game" | "stream";
+
+export interface InhibitReason {
+  kind: InhibitReasonKind;
+  /** The game title, or a generic phrase when the job has no name. */
+  label: string;
+}
+
+/**
+ * The live suspend-inhibitor state (#288). `supported` is false on a platform
+ * without `systemd-inhibit`; `active` means Ludex has work, `holding` means the
+ * inhibitor child (or the grace window) is actually keeping the machine up.
+ */
+export interface InhibitStatus {
+  supported: boolean;
+  active: boolean;
+  holding: boolean;
+  /** Install-ish reasons: the "<n> jobs" of the banner. */
+  jobs: number;
+  count: number;
+  reasons: InhibitReason[];
+  graceMinutes: number;
 }
