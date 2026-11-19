@@ -60,8 +60,7 @@ import { VersionManager } from "@/components/game/version-manager";
 import { AdoptInstallDialog } from "@/components/game/adopt-install";
 import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
-import { LaunchOptionsPanel } from "@/components/game/launch-options";
-import { MakeItRunPanel } from "@/components/game/make-it-run";
+import { SettingsTiersPanel } from "@/components/game/settings-tiers";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
@@ -575,9 +574,18 @@ export function GameDetailScreen() {
       case "launch":
         return (
           <div className="flex flex-col gap-8">
-            {isEditor && game.kind !== "rom" && <StartupCommandPanel game={game} installed={isInstalled} />}
-            {isInstalled && desktop && game.kind !== "rom" && <MakeItRunPanel gameId={game.id} />}
-            {isInstalled && desktop && game.kind !== "rom" && <LaunchOptionsPanel gameId={game.id} title={game.title} />}
+            {isEditor && game.kind !== "rom" && !(isInstalled && desktop) && (
+              <StartupCommandPanel game={game} installed={isInstalled} />
+            )}
+            {isInstalled && desktop && game.kind !== "rom" && (
+              <SettingsTiersPanel
+                gameId={game.id}
+                title={game.title}
+                game={game}
+                installed={isInstalled}
+                isEditor={isEditor}
+              />
+            )}
             <ControllerPanel gameId={game.id} gameTitle={game.title} plain />
           </div>
         );

@@ -252,6 +252,7 @@ required check before a release publishes.
 | PostgreSQL, S3 storage, backups | [`docs/POSTGRES.md`](docs/POSTGRES.md), [`docs/STORAGE.md`](docs/STORAGE.md), [`docs/BACKUP.md`](docs/BACKUP.md) |
 | SSO, API keys, webhooks, audit log | [`docs/OIDC.md`](docs/OIDC.md), [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) |
 | Saves, achievements, emulators, themes/i18n/PWA | [`docs/SAVES.md`](docs/SAVES.md), [`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md), [`docs/EMULATORS.md`](docs/EMULATORS.md), [`docs/I18N.md`](docs/I18N.md) |
+| Game settings tiers and copy rules | [`docs/SETTINGS.md`](docs/SETTINGS.md) |
 | Remote access (VPN, tunnel warnings) | [`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md) |
 | GameVault comparison, migration | [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md), [`docs/MIGRATION.md`](docs/MIGRATION.md) |
 | Screenshots and assets | [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md), [`docs/assets/README.md`](docs/assets/README.md) |

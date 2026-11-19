@@ -43,6 +43,7 @@ const REQUIRED_PANELS = [
   "installed-files",
   "setup-program",
   "startup-command",
+  "settings-tiers",
   "make-it-run",
   "linux-launch",
   "controller",
@@ -197,7 +198,12 @@ describe("game page composition", () => {
 
   it("keeps editor-only bodies out of a reader's groups", () => {
     const screen = fs.readFileSync(screenPath, "utf8");
-    expect(screen).toContain('{isEditor && game.kind !== "rom" && <StartupCommandPanel');
+    expect(screen).toContain('{isEditor && game.kind !== "rom" && !(isInstalled && desktop) && (');
+    // An installed desktop game moves the custom command behind the advanced
+    // unlock (#299), still editor-only.
+    expect(fs.readFileSync(`${gameRoot}settings-tiers.tsx`, "utf8")).toContain(
+      "{isEditor && <StartupCommandPanel game={game} installed={installed} />}",
+    );
     expect(fs.readFileSync(`${gameRoot}achievements.tsx`, "utf8")).toContain("isEditor ?");
     expect(fs.readFileSync(`${gameRoot}rom-panel.tsx`, "utf8")).toContain("isEditor ?");
     expect(fs.readFileSync(`${gameRoot}version-manager.tsx`, "utf8")).toContain("{isEditor &&");
