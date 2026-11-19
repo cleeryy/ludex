@@ -6,6 +6,13 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Native `.rpm` bundles in releases (#281): the Linux desktop job builds
+  `appimage,deb,rpm`, so Fedora/RHEL users get a normal package install and
+  avoid the AppImage `/.mount_*` environment leaking into spawned games
+  (cf. #278). `docs/INSTALL.md` and `docs/install/linux.md` list the channel.
+
 ## [0.4.23] - 2026-11-18
 
 ### Added
