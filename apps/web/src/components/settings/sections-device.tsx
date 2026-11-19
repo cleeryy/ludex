@@ -13,6 +13,7 @@ import { Button, Input, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { CompatibilityPanel } from "@/components/settings/compatibility-panel";
 import { DesktopUpdatePanel } from "@/components/settings/desktop-update";
+import { HostPreflightPanel } from "@/components/settings/host-preflight-panel";
 import { InstalledPanel } from "@/components/settings/installed-games";
 import { LauncherImportPanel } from "@/components/settings/launcher-import";
 import { LocationsPanel } from "@/components/settings/locations-panel";
@@ -761,6 +762,25 @@ export function CompatibilityBody({ desktop }: { desktop: DesktopSettingsControl
         </>
       )}
     </DesktopBody>
+  );
+}
+
+/**
+ * Host preflight (#285): read-only checks plus an explicit install consent.
+ * Nothing here edits the settings draft, so there is no save bar.
+ */
+export function HostBody({ desktop }: { desktop: DesktopSettingsController }) {
+  if (!desktop.available) {
+    return (
+      <div className="border-t border-line pt-5">
+        <DesktopOnlyNote message={t("Host checks need the Ludex desktop app on Linux.")} />
+      </div>
+    );
+  }
+  return (
+    <div className="border-t border-line pt-5">
+      <HostPreflightPanel />
+    </div>
   );
 }
 

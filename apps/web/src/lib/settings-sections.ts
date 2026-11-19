@@ -23,6 +23,7 @@ export type SettingsSectionId =
   | "saves"
   | "streaming"
   | "compatibility"
+  | "host"
   | "integrations"
   | "profiles"
   | "updates"
@@ -40,6 +41,7 @@ export type SettingsIconName =
   | "saves"
   | "streaming"
   | "compatibility"
+  | "host"
   | "integrations"
   | "profiles"
   | "updates"
@@ -133,6 +135,15 @@ export const SETTINGS_SECTIONS = [
     availability: "native",
     keywords: ["proton", "wine", "umu", "linux", "steam"],
     panels: ["steam-proton"],
+  },
+  {
+    id: "host",
+    labelKey: "Host",
+    descriptionKey: "What this machine is missing to play games, and how to install it with your permission.",
+    icon: "host",
+    availability: "desktop",
+    keywords: ["vulkan", "gpu", "driver", "umu", "gamemode", "mangohud", "gamescope", "webkit", "packages", "preflight"],
+    panels: ["host-preflight"],
   },
   {
     id: "integrations",

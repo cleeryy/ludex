@@ -23,6 +23,7 @@ import {
 import {
   CompatibilityBody,
   DownloadsBody,
+  HostBody,
   IntegrationsBody,
   SavesBody,
   StorageBody,
@@ -90,6 +91,8 @@ export function SettingsScreen() {
         return <StreamingBody desktop={desktop} />;
       case "compatibility":
         return <CompatibilityBody desktop={desktop} />;
+      case "host":
+        return <HostBody desktop={desktop} />;
       case "integrations":
         return <IntegrationsBody desktop={desktop} />;
       case "profiles":

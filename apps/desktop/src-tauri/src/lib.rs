@@ -16,6 +16,7 @@ mod elevate;
 mod file_manifest;
 mod game_config;
 mod game_executables;
+mod host_preflight;
 mod install;
 mod install_health;
 mod installer;
@@ -258,6 +259,11 @@ pub fn run() {
                 // skipped when the user turned automatic downloads off.
                 crate::saves::manifest::auto_update(handle.clone()).await;
 
+                // #285: one host preflight at first start (persisted in
+                // settings); later launches read the stored result instead of
+                // re-probing. Off the runtime and never fatal.
+                host_preflight::spawn_startup_probe(handle.clone());
+
                 // Throttled to once per 24 h; a no-op without release keys.
                 crate::update::app::check_on_startup(handle.clone()).await;
                 // #213: a window left open for days still learns about a new
@@ -345,6 +351,9 @@ pub fn run() {
             commands::reorder_gamevault_roots,
             commands::detect_gamevault_roots,
             commands::compat_scan,
+            host_preflight::host_preflight_report,
+            host_preflight::host_preflight_plan,
+            host_preflight::host_preflight_install,
             commands::get_launch_options,
             commands::set_launch_options,
             commands::wine_prefix_info,
