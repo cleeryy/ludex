@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.26] - 2026-11-19
+
 ### Added
 
 - Libraries on removable and network mounts (#290): mount-aware roots with one

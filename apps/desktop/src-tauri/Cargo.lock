@@ -2879,7 +2879,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "ludex-core"
-version = "0.4.25"
+version = "0.4.26"
 dependencies = [
  "chrono",
  "crc32fast",
@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "ludex-desktop"
-version = "0.4.25"
+version = "0.4.26"
 dependencies = [
  "chrono",
  "crc32fast",
@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "ludex-server"
-version = "0.4.25"
+version = "0.4.26"
 dependencies = [
  "aes-gcm",
  "anyhow",
