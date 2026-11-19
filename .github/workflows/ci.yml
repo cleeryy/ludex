@@ -848,6 +848,25 @@ jobs:
       - name: Build web UI
         run: pnpm --filter @ludex/web build
 
+      # A re-run of the same workflow keeps the run number, so the stamped edge
+      # version and the asset names repeat. tauri-action refuses to overwrite an
+      # existing asset, which made every re-run red after a cancellation; drop
+      # this run's assets first so the job is idempotent.
+      - name: Drop stale edge assets for this run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view edge >/dev/null 2>&1 || exit 0
+          gh release view edge --json assets --jq '.assets[].name' | while IFS= read -r name; do
+            case "$name" in
+              *"$VERSION"*) gh release delete-asset edge "$name" --yes || true ;;
+            esac
+          done
+
       - name: Build and upload the edge desktop bundle
         uses: tauri-apps/tauri-action@v0
         env:
