@@ -4052,5 +4052,13 @@
   "Scaling filter": "Filtre de mise à l'échelle",
   "Upscaling filter offered by this Gamescope build": "Filtre de mise à l'échelle proposé par cette version de Gamescope",
   "Width": "Largeur",
-  "Width × height in pixels.": "Largeur × hauteur en pixels."
+  "Width × height in pixels.": "Largeur × hauteur en pixels.",
+  "Adaptive sync": "Synchronisation adaptative",
+  "Matches the display refresh rate to the game through Gamescope.": "Aligne la fréquence de rafraîchissement de l'écran sur celle du jeu via Gamescope.",
+  "No gamescope is installed, so adaptive sync has nothing to apply it.": "Gamescope n'est pas installé : la synchronisation adaptative n'a rien pour l'appliquer.",
+  "No gamescope is installed, so HDR has nothing to apply it.": "Gamescope n'est pas installé : le HDR n'a rien pour l'appliquer.",
+  "The installed gamescope build has no --adaptive-sync.": "La version de Gamescope installée n'a pas --adaptive-sync.",
+  "The installed gamescope build has no --hdr-enabled.": "La version de Gamescope installée n'a pas --hdr-enabled.",
+  "The output has no HDR metadata.": "L'écran ne fournit aucune métadonnée HDR.",
+  "This output reports VRR as incompatible.": "Cet écran signale VRR comme incompatible."
 }

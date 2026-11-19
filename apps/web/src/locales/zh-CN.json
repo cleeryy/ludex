@@ -4052,5 +4052,13 @@
   "Scaling filter": "缩放滤镜",
   "Upscaling filter offered by this Gamescope build": "此 Gamescope 版本提供的缩放滤镜",
   "Width": "宽度",
-  "Width × height in pixels.": "宽度 × 高度（像素）。"
+  "Width × height in pixels.": "宽度 × 高度（像素）。",
+  "Adaptive sync": "自适应同步",
+  "Matches the display refresh rate to the game through Gamescope.": "通过 Gamescope 让显示器刷新率与游戏帧率保持一致。",
+  "No gamescope is installed, so adaptive sync has nothing to apply it.": "未安装 Gamescope，自适应同步无法应用。",
+  "No gamescope is installed, so HDR has nothing to apply it.": "未安装 Gamescope，HDR 无法应用。",
+  "The installed gamescope build has no --adaptive-sync.": "已安装的 Gamescope 版本没有 --adaptive-sync。",
+  "The installed gamescope build has no --hdr-enabled.": "已安装的 Gamescope 版本没有 --hdr-enabled。",
+  "The output has no HDR metadata.": "该输出没有 HDR 元数据。",
+  "This output reports VRR as incompatible.": "该输出报告 VRR 不兼容。"
 }

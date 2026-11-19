@@ -1667,6 +1667,7 @@ mod tests {
             steam_client_path: None,
             suggested_verbs: Vec::new(),
             warnings: Vec::new(),
+            display_capabilities: crate::display_caps::DisplayCapabilities::default(),
         }
     }
 
@@ -1894,6 +1895,7 @@ mod tests {
             home: Some(root.join("home")),
             steam_roots: vec![root.join("steam")],
             path_dirs: Vec::new(),
+            display_root: Some(root.join("drm")),
             overrides: CompatOverrides::default(),
         });
         let mut env = base_env(&root);

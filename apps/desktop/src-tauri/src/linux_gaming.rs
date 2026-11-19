@@ -12,6 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::compat::{CompatTool, ToolKind};
+use crate::display_caps::{Capability, DisplayCapabilities};
 
 /// How a game is started on Linux.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -134,8 +135,11 @@ pub struct DisplayProfile {
     /// Gamescope upscaler filter (`linear`, `nearest`, `fsr`, `nis`, `pixel`,
     /// `sgsr`); empty keeps the Gamescope default.
     pub filter: String,
+    /// Ask Gamescope for adaptive sync (#292). Applied only when the installed
+    /// build advertises `--adaptive-sync` and the active output supports VRR.
+    pub adaptive_sync: bool,
     /// Ask Gamescope for HDR output. Applied only when the installed build
-    /// advertises `--hdr-enabled`.
+    /// advertises `--hdr-enabled` and the output advertises HDR metadata.
     pub hdr: bool,
 }
 
@@ -215,6 +219,8 @@ pub struct GamescopeInfo {
     pub version: Option<String>,
     /// `--hdr-enabled` is in the help output.
     pub hdr: bool,
+    /// `--adaptive-sync` is in the help output (#292).
+    pub adaptive_sync: bool,
     /// Upscaler filters the help output lists for `--filter`. Empty means the
     /// flag is unsupported (or its value list could not be parsed).
     pub filters: Vec<String>,
@@ -242,6 +248,7 @@ impl GamescopeInfo {
 ///   -r, --nested-refresh           game refresh rate (frames per second)
 ///   -F, --filter                   upscaler filter (linear, nearest, fsr, nis, pixel, sgsr)
 ///   --hdr-enabled                  enable HDR output ...
+///   --adaptive-sync                enable adaptive sync ...
 /// ```
 pub fn parse_gamescope_help(help: &str) -> GamescopeInfo {
     let version = help.lines().find_map(|line| {
@@ -279,6 +286,7 @@ pub fn parse_gamescope_help(help: &str) -> GamescopeInfo {
         path: String::new(),
         version,
         hdr: help.contains("--hdr-enabled"),
+        adaptive_sync: help.contains("--adaptive-sync"),
         filters,
     }
 }
@@ -309,13 +317,15 @@ pub fn probe_gamescope(program: &Path) -> GamescopeInfo {
 pub struct GamescopeCommand {
     /// `--hdr-enabled` made it into the command.
     pub hdr: bool,
+    /// `--adaptive-sync` made it into the command (#292).
+    pub adaptive_sync: bool,
     /// Filter actually applied, when the installed build offers it.
     pub filter: Option<String>,
     /// Requests the build could not honour; logged, never fatal.
     pub warnings: Vec<String>,
 }
 
-/// What [`resolve_display`] decided.
+/// What [`resolve_display_with_caps`] decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DisplayLaunch {
     /// Run the resolved program and arguments as-is.
@@ -351,22 +361,29 @@ impl ResolvedLaunch {
     }
 }
 
-/// Decide how to present one launch (#287).
+/// Decide how to present one launch with per-output capabilities (#292).
 ///
 /// The only flags used are the nested-mode ones from `gamescope --help`:
 /// `-w/--nested-width`, `-h/--nested-height`, `-r/--nested-refresh`,
-/// `--filter` and `--hdr-enabled`, separated from the game by `--`.
+/// `--adaptive-sync`, `--hdr-enabled` and `--filter`, separated from the game
+/// by `--`.
 ///
 /// Deliberately absent: `-f/--fullscreen` (a fullscreen nested window would
 /// cover the desktop), `--backend drm` (an exclusive session), and
 /// `-O/--prefer-output` (a DRM connector selector). Gamescope therefore stays
 /// nested and the desktop mode is never changed.
 ///
+/// Adaptive sync and HDR are dropped with a warning when the build does not
+/// advertise the flag, or when the active output reports the capability as
+/// incompatible. An unreadable capability (`unknown`) never blocks a flag: only
+/// an explicit "incapable" is a reason to fall back.
+///
 /// Every failure path returns the unwrapped command: a missing binary, an
-/// incomplete profile, HDR or a filter this build does not advertise.
-pub fn resolve_display(
+/// incomplete profile, a flag this build does not advertise.
+pub fn resolve_display_with_caps(
     profile: &DisplayProfile,
     gamescope: Option<&GamescopeInfo>,
+    capabilities: Option<&DisplayCapabilities>,
     program: &Path,
     args: &[String],
 ) -> ResolvedLaunch {
@@ -415,13 +432,12 @@ pub fn resolve_display(
         }
     }
 
-    let hdr = profile.hdr && gamescope.hdr;
-    if profile.hdr && !gamescope.hdr {
-        warnings.push(
-            "This Gamescope build does not advertise --hdr-enabled; HDR was not requested."
-                .to_string(),
-        );
+    let adaptive_sync = synchronisation_requested(profile, gamescope, capabilities, &mut warnings);
+    if adaptive_sync {
+        gamescope_args.push("--adaptive-sync".to_string());
     }
+
+    let hdr = hdr_requested(profile, gamescope, capabilities, &mut warnings);
     if hdr {
         gamescope_args.push("--hdr-enabled".to_string());
     }
@@ -451,10 +467,61 @@ pub fn resolve_display(
         args: gamescope_args,
         display: DisplayLaunch::Gamescope(GamescopeCommand {
             hdr,
+            adaptive_sync,
             filter,
             warnings,
         }),
     }
+}
+
+/// Whether `--adaptive-sync` reaches the command (#292).
+fn synchronisation_requested(
+    profile: &DisplayProfile,
+    gamescope: &GamescopeInfo,
+    capabilities: Option<&DisplayCapabilities>,
+    warnings: &mut Vec<String>,
+) -> bool {
+    if !profile.adaptive_sync {
+        return false;
+    }
+    if !gamescope.adaptive_sync {
+        warnings.push(
+            "This Gamescope build does not advertise --adaptive-sync; adaptive sync was not requested."
+                .to_string(),
+        );
+        return false;
+    }
+    if capabilities.map(DisplayCapabilities::vrr) == Some(Capability::Incapable) {
+        warnings.push(
+            "This output reports VRR as incompatible; adaptive sync was not requested.".to_string(),
+        );
+        return false;
+    }
+    true
+}
+
+/// Whether `--hdr-enabled` reaches the command (#292).
+fn hdr_requested(
+    profile: &DisplayProfile,
+    gamescope: &GamescopeInfo,
+    capabilities: Option<&DisplayCapabilities>,
+    warnings: &mut Vec<String>,
+) -> bool {
+    if !profile.hdr {
+        return false;
+    }
+    if !gamescope.hdr {
+        warnings.push(
+            "This Gamescope build does not advertise --hdr-enabled; HDR was not requested."
+                .to_string(),
+        );
+        return false;
+    }
+    if capabilities.map(DisplayCapabilities::hdr) == Some(Capability::Incapable) {
+        warnings.push("The output has no HDR metadata; HDR was not requested.".to_string());
+        return false;
+    }
+    true
 }
 
 /// Environment keys refused because they would break the tool itself.
@@ -1434,6 +1501,7 @@ Options:
   -F, --filter                   upscaler filter (linear, nearest, fsr, nis, pixel, sgsr)
   --backend                      select rendering backend
   --hdr-enabled                  enable HDR output (needs Gamescope WSI layer enabled for support from clients)
+  --adaptive-sync                enable adaptive sync/VRR output
 Nested mode options:
   -f, --fullscreen               make the window fullscreen
 ";
@@ -1443,6 +1511,7 @@ Nested mode options:
             path: "/usr/bin/gamescope".to_string(),
             version: Some("3.15.14".to_string()),
             hdr: true,
+            adaptive_sync: true,
             filters: vec![
                 "linear".to_string(),
                 "nearest".to_string(),
@@ -1461,7 +1530,25 @@ Nested mode options:
             height: 1080,
             refresh: 60,
             filter: "fsr".to_string(),
+            adaptive_sync: false,
             hdr: false,
+        }
+    }
+
+    /// One connected output; `active` so `DisplayCapabilities::vrr()/hdr()`
+    /// read this record.
+    fn display_caps(vrr: Capability, hdr: Capability) -> DisplayCapabilities {
+        DisplayCapabilities {
+            outputs: vec![crate::display_caps::DisplayOutput {
+                connector: "card0-DP-1".to_string(),
+                status: "connected".to_string(),
+                active: true,
+                vrr,
+                hdr,
+                max_refresh: Some(240),
+                color_depth: Some(10),
+            }],
+            active: Some("card0-DP-1".to_string()),
         }
     }
 
@@ -1469,22 +1556,34 @@ Nested mode options:
         vec!["--windowed".to_string()]
     }
 
+    /// #287 tests run without a capability probe; #292 tests pass the fixture.
+    fn resolve(
+        profile: &DisplayProfile,
+        gamescope: Option<&GamescopeInfo>,
+        program: &Path,
+        args: &[String],
+    ) -> ResolvedLaunch {
+        resolve_display_with_caps(profile, gamescope, None, program, args)
+    }
+
     #[test]
-    fn gamescope_help_parsing_reports_version_hdr_and_filters() {
+    fn gamescope_help_parsing_reports_version_hdr_adaptive_sync_and_filters() {
         let info = parse_gamescope_help(GAMESCOPE_HELP);
         assert_eq!(info.version.as_deref(), Some("3.15.14"));
         assert!(info.hdr);
+        assert!(info.adaptive_sync);
         assert_eq!(
             info.filters,
             vec!["linear", "nearest", "fsr", "nis", "pixel", "sgsr"]
         );
 
-        // An older build without HDR or `--filter`: the parser must not invent
-        // support from the version number.
+        // An older build without HDR, adaptive sync or `--filter`: the parser
+        // must not invent support from the version number.
         let old = parse_gamescope_help(
             "gamescope version 3.11.39\nusage: gamescope [options...] -- [command...]\n",
         );
         assert!(!old.hdr);
+        assert!(!old.adaptive_sync);
         assert!(old.filters.is_empty());
         assert_eq!(old.version.as_deref(), Some("3.11.39"));
     }
@@ -1495,8 +1594,7 @@ Nested mode options:
         assert_eq!(options.display.mode, DisplayMode::Desktop);
         assert_eq!(options.display, DisplayProfile::default());
 
-        let resolved =
-            resolve_display(&options.display, Some(&gamescope()), &exe(), &native_args());
+        let resolved = resolve(&options.display, Some(&gamescope()), &exe(), &native_args());
         assert_eq!(resolved.display, DisplayLaunch::Desktop);
         assert_eq!(resolved.program, exe());
         assert_eq!(resolved.args, native_args());
@@ -1510,7 +1608,7 @@ Nested mode options:
             filter: "FSR".to_string(),
             ..game_profile()
         };
-        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &native_args());
+        let resolved = resolve(&profile, Some(&gamescope()), &exe(), &native_args());
         assert_eq!(resolved.program, PathBuf::from("/usr/bin/gamescope"));
         assert_eq!(
             resolved.args,
@@ -1552,7 +1650,7 @@ Nested mode options:
         let umu = select_tool(&all, LaunchMode::Umu, "").unwrap();
         let umu_plan =
             build_launch(&umu, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
-        let resolved = resolve_display(
+        let resolved = resolve(
             &profile,
             Some(&gamescope),
             &umu_plan.program,
@@ -1573,7 +1671,7 @@ Nested mode options:
         let proton_plan =
             build_launch(&proton, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
         assert_eq!(proton_plan.program, PathBuf::from("/usr/bin/umu-run"));
-        let resolved = resolve_display(
+        let resolved = resolve(
             &profile,
             Some(&gamescope),
             &proton_plan.program,
@@ -1597,7 +1695,7 @@ Nested mode options:
         let wine = select_tool(&tools(), LaunchMode::Auto, &tools()[2].id).unwrap();
         let wine_plan =
             build_launch(&wine, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
-        let resolved = resolve_display(
+        let resolved = resolve(
             &profile,
             Some(&gamescope()),
             &wine_plan.program,
@@ -1619,7 +1717,7 @@ Nested mode options:
         let proton = select_tool(&protons, LaunchMode::Proton, "").unwrap();
         let proton_plan =
             build_launch(&proton, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
-        let resolved = resolve_display(
+        let resolved = resolve(
             &profile,
             Some(&gamescope()),
             &proton_plan.program,
@@ -1640,7 +1738,7 @@ Nested mode options:
     #[test]
     fn a_missing_gamescope_falls_back_to_the_unwrapped_command() {
         let profile = game_profile();
-        let resolved = resolve_display(&profile, None, &exe(), &native_args());
+        let resolved = resolve(&profile, None, &exe(), &native_args());
         assert_eq!(resolved.program, exe());
         assert_eq!(resolved.args, native_args());
         assert!(resolved.gamescope().is_none());
@@ -1656,7 +1754,7 @@ Nested mode options:
             width: 0,
             ..game_profile()
         };
-        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &native_args());
+        let resolved = resolve(&profile, Some(&gamescope()), &exe(), &native_args());
         assert_eq!(resolved.program, exe());
         assert_eq!(resolved.args, native_args());
         assert!(resolved.fallback_reason().unwrap().contains("resolution"));
@@ -1668,7 +1766,7 @@ Nested mode options:
             hdr: true,
             ..game_profile()
         };
-        let supported = resolve_display(&profile, Some(&gamescope()), &exe(), &[]);
+        let supported = resolve(&profile, Some(&gamescope()), &exe(), &[]);
         let command = supported.gamescope().unwrap();
         assert!(command.hdr);
         assert!(supported.args.iter().any(|value| value == "--hdr-enabled"));
@@ -1676,7 +1774,7 @@ Nested mode options:
 
         let mut older = gamescope();
         older.hdr = false;
-        let unsupported = resolve_display(&profile, Some(&older), &exe(), &[]);
+        let unsupported = resolve(&profile, Some(&older), &exe(), &[]);
         let command = unsupported.gamescope().unwrap();
         assert!(!command.hdr);
         assert!(!unsupported
@@ -1690,6 +1788,128 @@ Nested mode options:
     }
 
     #[test]
+    fn adaptive_sync_is_requested_only_when_the_build_advertises_it() {
+        let profile = DisplayProfile {
+            adaptive_sync: true,
+            ..game_profile()
+        };
+        let capable = display_caps(Capability::Supported, Capability::Supported);
+        let supported =
+            resolve_display_with_caps(&profile, Some(&gamescope()), Some(&capable), &exe(), &[]);
+        let command = supported.gamescope().unwrap();
+        assert!(command.adaptive_sync);
+        assert!(!command.hdr);
+        assert!(supported
+            .args
+            .iter()
+            .any(|value| value == "--adaptive-sync"));
+        assert!(command.warnings.is_empty());
+
+        let mut older = gamescope();
+        older.adaptive_sync = false;
+        let unsupported =
+            resolve_display_with_caps(&profile, Some(&older), Some(&capable), &exe(), &[]);
+        let command = unsupported.gamescope().unwrap();
+        assert!(!command.adaptive_sync);
+        assert!(!unsupported
+            .args
+            .iter()
+            .any(|value| value == "--adaptive-sync"));
+        assert!(command
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("--adaptive-sync")));
+    }
+
+    #[test]
+    fn adaptive_sync_falls_back_when_the_output_reports_vrr_incompatible() {
+        let profile = DisplayProfile {
+            adaptive_sync: true,
+            ..game_profile()
+        };
+        let incapable = display_caps(Capability::Incapable, Capability::Supported);
+        let resolved =
+            resolve_display_with_caps(&profile, Some(&gamescope()), Some(&incapable), &exe(), &[]);
+        let command = resolved.gamescope().unwrap();
+        assert!(!command.adaptive_sync);
+        assert!(!resolved.args.iter().any(|value| value == "--adaptive-sync"));
+        assert!(command
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("VRR as incompatible")));
+
+        // Unknown never blocks the flag: only an explicit "incapable" does.
+        let unknown = display_caps(Capability::Unknown, Capability::Supported);
+        let resolved =
+            resolve_display_with_caps(&profile, Some(&gamescope()), Some(&unknown), &exe(), &[]);
+        assert!(resolved.gamescope().unwrap().adaptive_sync);
+    }
+
+    #[test]
+    fn hdr_falls_back_when_the_output_has_no_hdr_metadata() {
+        let profile = DisplayProfile {
+            hdr: true,
+            ..game_profile()
+        };
+        let incapable = display_caps(Capability::Supported, Capability::Incapable);
+        let resolved =
+            resolve_display_with_caps(&profile, Some(&gamescope()), Some(&incapable), &exe(), &[]);
+        let command = resolved.gamescope().unwrap();
+        assert!(!command.hdr);
+        assert!(!resolved.args.iter().any(|value| value == "--hdr-enabled"));
+        assert!(command
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("HDR metadata")));
+
+        let unknown = display_caps(Capability::Supported, Capability::Unknown);
+        let resolved =
+            resolve_display_with_caps(&profile, Some(&gamescope()), Some(&unknown), &exe(), &[]);
+        assert!(resolved.gamescope().unwrap().hdr);
+    }
+
+    /// #292: a desktop launch never goes through Gamescope, so neither switch
+    /// can change the desktop mode, the output routing or the colour pipeline.
+    #[test]
+    fn the_switches_never_touch_the_desktop() {
+        let profile = DisplayProfile {
+            adaptive_sync: true,
+            hdr: true,
+            ..DisplayProfile::default()
+        };
+        let capable = display_caps(Capability::Supported, Capability::Supported);
+        let resolved = resolve_display_with_caps(
+            &profile,
+            Some(&gamescope()),
+            Some(&capable),
+            &exe(),
+            &native_args(),
+        );
+        assert_eq!(resolved.display, DisplayLaunch::Desktop);
+        assert_eq!(resolved.program, exe());
+        assert_eq!(resolved.args, native_args());
+        assert!(resolved.gamescope().is_none());
+
+        // With a Gamescope profile the flags exist, but the wrapper still never
+        // receives a connector, an exclusive backend or a fullscreen request.
+        let profile = DisplayProfile {
+            adaptive_sync: true,
+            hdr: true,
+            ..game_profile()
+        };
+        let resolved =
+            resolve_display_with_caps(&profile, Some(&gamescope()), Some(&capable), &exe(), &[]);
+        assert!(resolved.args.iter().any(|value| value == "--adaptive-sync"));
+        assert!(resolved.args.iter().any(|value| value == "--hdr-enabled"));
+        for forbidden in ["-W", "-H", "-O", "-f", "--fullscreen", "--backend"] {
+            assert!(
+                !resolved.args.iter().any(|argument| argument == forbidden),
+                "{forbidden} must never be passed to gamescope"
+            );
+        }
+    }
+
+    #[test]
     fn a_filter_is_applied_only_when_the_build_lists_it() {
         let profile = DisplayProfile {
             filter: "fsr".to_string(),
@@ -1697,7 +1917,7 @@ Nested mode options:
         };
         let mut older = gamescope();
         older.filters = vec!["linear".to_string(), "nearest".to_string()];
-        let resolved = resolve_display(&profile, Some(&older), &exe(), &[]);
+        let resolved = resolve(&profile, Some(&older), &exe(), &[]);
         let command = resolved.gamescope().unwrap();
         assert_eq!(command.filter, None);
         assert!(!resolved.args.iter().any(|value| value == "--filter"));
@@ -1711,7 +1931,7 @@ Nested mode options:
             filter: String::new(),
             ..game_profile()
         };
-        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &[]);
+        let resolved = resolve(&profile, Some(&gamescope()), &exe(), &[]);
         assert_eq!(resolved.gamescope().unwrap().filter, None);
         assert!(!resolved.args.iter().any(|value| value == "--filter"));
     }
@@ -1722,7 +1942,7 @@ Nested mode options:
             refresh: 0,
             ..game_profile()
         };
-        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &[]);
+        let resolved = resolve(&profile, Some(&gamescope()), &exe(), &[]);
         assert!(!resolved.args.iter().any(|value| value == "-r"));
     }
 
@@ -1756,22 +1976,18 @@ Nested mode options:
     fn a_per_game_profile_overrides_the_desktop_default() {
         // The global default (no profile) never wraps ...
         let default = LaunchOptions::default();
-        assert!(
-            resolve_display(&default.display, Some(&gamescope()), &exe(), &[])
-                .gamescope()
-                .is_none()
-        );
+        assert!(resolve(&default.display, Some(&gamescope()), &exe(), &[])
+            .gamescope()
+            .is_none());
 
         // ... a per-game Gamescope profile does.
         let options = LaunchOptions {
             display: game_profile(),
             ..LaunchOptions::default()
         };
-        assert!(
-            resolve_display(&options.display, Some(&gamescope()), &exe(), &[])
-                .gamescope()
-                .is_some()
-        );
+        assert!(resolve(&options.display, Some(&gamescope()), &exe(), &[])
+            .gamescope()
+            .is_some());
     }
 
     /// #287: the web type reads `display` in camelCase, and an older settings
@@ -1791,6 +2007,7 @@ Nested mode options:
         assert_eq!(json["display"]["height"], 1080);
         assert_eq!(json["display"]["refresh"], 60);
         assert_eq!(json["display"]["filter"], "fsr");
+        assert_eq!(json["display"]["adaptiveSync"], false);
         assert_eq!(json["display"]["hdr"], false);
     }
 }

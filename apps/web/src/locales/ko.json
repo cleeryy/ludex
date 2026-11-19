@@ -4052,5 +4052,13 @@
   "Scaling filter": "스케일링 필터",
   "Upscaling filter offered by this Gamescope build": "이 Gamescope 빌드가 제공하는 스케일링 필터",
   "Width": "너비",
-  "Width × height in pixels.": "너비 × 높이(픽셀)."
+  "Width × height in pixels.": "너비 × 높이(픽셀).",
+  "Adaptive sync": "적응형 동기화",
+  "Matches the display refresh rate to the game through Gamescope.": "Gamescope를 통해 디스플레이 주사율을 게임에 맞춥니다.",
+  "No gamescope is installed, so adaptive sync has nothing to apply it.": "Gamescope가 설치되어 있지 않아 적응형 동기화를 적용할 수 없습니다.",
+  "No gamescope is installed, so HDR has nothing to apply it.": "Gamescope가 설치되어 있지 않아 HDR을 적용할 수 없습니다.",
+  "The installed gamescope build has no --adaptive-sync.": "설치된 Gamescope 빌드에 --adaptive-sync가 없습니다.",
+  "The installed gamescope build has no --hdr-enabled.": "설치된 Gamescope 빌드에 --hdr-enabled가 없습니다.",
+  "The output has no HDR metadata.": "이 출력에는 HDR 메타데이터가 없습니다.",
+  "This output reports VRR as incompatible.": "이 출력은 VRR을 호환되지 않는다고 보고합니다."
 }

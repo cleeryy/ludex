@@ -87,6 +87,9 @@ pub struct ScanPaths {
     /// Directories searched for plain executables (`umu-run`, `wine`,
     /// `winetricks`), like `PATH`.
     pub path_dirs: Vec<PathBuf>,
+    /// `/sys/class/drm` override for the display-capability probe (#292).
+    /// `None` reads the real root; tests point it at a fixture tree.
+    pub display_root: Option<PathBuf>,
     pub overrides: CompatOverrides,
 }
 
@@ -115,6 +118,9 @@ pub struct CompatScan {
     /// Optional Gamescope for per-game display profiles (#287). Probed once
     /// per scan with `--help`; absent means the wrapper is unavailable.
     pub gamescope: Option<linux_gaming::GamescopeInfo>,
+    /// Per-output VRR/HDR capabilities (#292). Empty when no DRM connector is
+    /// visible; every capability then reads `unknown`.
+    pub display_capabilities: crate::display_caps::DisplayCapabilities,
 }
 
 /// Environment-based detection, using the configured Steam root override.
@@ -129,6 +135,7 @@ pub fn scan(settings: &LocalSettings) -> CompatScan {
         home,
         steam_roots,
         path_dirs,
+        display_root: None,
         overrides: CompatOverrides::from_settings(settings),
     };
     let mut result = scan_with(&paths);
@@ -160,6 +167,12 @@ pub fn scan_with(paths: &ScanPaths) -> CompatScan {
         suggested_verbs: linux_gaming::suggested_verbs(),
         warnings: Vec::new(),
         gamescope: None,
+        display_capabilities: crate::display_caps::probe(
+            paths
+                .display_root
+                .as_deref()
+                .unwrap_or_else(|| std::path::Path::new(crate::display_caps::DEFAULT_DRM_ROOT)),
+        ),
     };
 
     let mut seen: BTreeSet<(ToolKind, String)> = BTreeSet::new();
@@ -616,6 +629,7 @@ mod tests {
             home: Some(root.join("home")),
             steam_roots: vec![steam],
             path_dirs: vec![bin],
+            display_root: Some(root.join("drm")),
             overrides: CompatOverrides::default(),
         };
         (root, paths)
@@ -709,6 +723,7 @@ mod tests {
             home: Some(root.join("home")),
             steam_roots: Vec::new(),
             path_dirs: Vec::new(),
+            display_root: Some(root.join("drm")),
             overrides: CompatOverrides::default(),
         });
         assert!(scan.tools.is_empty());
@@ -734,7 +749,8 @@ mod tests {
              echo 'gamescope version 9.9.9'\n\
              echo 'usage: gamescope [options...] -- [command...]'\n\
              echo '  -F, --filter  upscaler filter (linear, nearest, fsr)'\n\
-             echo '  --hdr-enabled  enable HDR output'\n",
+             echo '  --hdr-enabled  enable HDR output'\n\
+             echo '  --adaptive-sync  enable adaptive sync'\n",
         );
         let mut permissions = std::fs::metadata(&gamescope).unwrap().permissions();
         permissions.set_mode(0o755);
@@ -745,7 +761,36 @@ mod tests {
         assert!(info.path.ends_with("bin/gamescope"));
         assert_eq!(info.version.as_deref(), Some("9.9.9"));
         assert!(info.hdr);
+        assert!(info.adaptive_sync);
         assert_eq!(info.filters, vec!["linear", "nearest", "fsr"]);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// #292: `compat_scan` carries the per-output probe, and tests never read
+    /// the real `/sys/class/drm`.
+    #[test]
+    fn display_capabilities_are_probed_from_the_injected_root() {
+        let (root, paths) = fixture();
+        let drm = root.join("drm/card0-DP-1");
+        std::fs::create_dir_all(&drm).unwrap();
+        write(&drm.join("status"), "connected\n");
+        write(&drm.join("enabled"), "enabled\n");
+        write(&drm.join("vrr_capable"), "1\n");
+
+        let scan = scan_with(&paths);
+        let caps = scan.display_capabilities;
+        assert_eq!(caps.active.as_deref(), Some("card0-DP-1"));
+        assert_eq!(caps.outputs.len(), 1);
+        assert_eq!(
+            caps.outputs[0].vrr,
+            crate::display_caps::Capability::Supported
+        );
+        // No EDID fixture: HDR cannot be asserted.
+        assert_eq!(
+            caps.outputs[0].hdr,
+            crate::display_caps::Capability::Unknown
+        );
 
         std::fs::remove_dir_all(&root).ok();
     }

@@ -13,6 +13,7 @@ mod console_session;
 mod crash_guard;
 mod db;
 mod diagnostics;
+mod display_caps;
 mod elevate;
 mod file_manifest;
 mod game_config;

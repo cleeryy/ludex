@@ -5009,6 +5009,7 @@ mod tests {
                 height: 1440,
                 refresh: 144,
                 filter: "fsr".into(),
+                adaptive_sync: true,
                 hdr: false,
             },
             ..LaunchOptions::default()

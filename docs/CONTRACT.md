@@ -2387,7 +2387,8 @@ interface DisplayProfile {
   height: number;                    // game height
   refresh: number;                   // Hz; 0 = desktop rate
   filter: string;                    // linear|nearest|fsr|nis|pixel|sgsr or empty
-  hdr: boolean;                      // applied only when the build advertises --hdr-enabled
+  adaptiveSync: boolean;             // #292: only when the build advertises --adaptive-sync and the output supports VRR
+  hdr: boolean;                      // applied only when the build advertises --hdr-enabled and the output advertises HDR metadata
 }
 
 /** One detected Steam/Proton/UMU/Wine tool (#90). */
@@ -2413,6 +2414,23 @@ interface CompatScan {
   suggestedVerbs: string[];
   warnings: string[];
   gamescope: GamescopeInfo | null;   // #287: probed with `gamescope --help`
+  displayCapabilities: DisplayCapabilities; // #292: per connected output
+}
+
+/** #292: one connected output, from `/sys/class/drm`. */
+interface DisplayOutput {
+  connector: string;                 // "card0-DP-1"
+  status: string;                    // `status` file; connected
+  active: boolean;                   // `enabled` (or the only connected output)
+  vrr: "supported" | "incapable" | "unknown";   // `vrr_capable`
+  hdr: "supported" | "incapable" | "unknown";   // EDID CEA HDR static metadata
+  maxRefresh: number | null;         // EDID range limits / detailed timing, Hz
+  colorDepth: number | null;         // EDID video input definition, bits per channel
+}
+
+interface DisplayCapabilities {
+  outputs: DisplayOutput[];          // connected outputs, sorted by connector
+  active: string | null;             // connector considered active
 }
 
 /** #287: what the installed Gamescope advertises; support is never inferred from the version. */
@@ -2420,6 +2438,7 @@ interface GamescopeInfo {
   path: string;
   version: string | null;
   hdr: boolean;                      // `--hdr-enabled` in the help output
+  adaptiveSync: boolean;             // #292: `--adaptive-sync` in the help output
   filters: string[];                 // values listed for `--filter`; empty = unsupported
 }
 
