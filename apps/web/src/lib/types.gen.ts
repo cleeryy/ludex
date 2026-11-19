@@ -464,6 +464,7 @@ export interface CreateLibraryRootRequest {
   enabled?: boolean | null;
   kind?: string | null;
   label?: string | null;
+  minFreeBytes?: number | null;
   path: string;
 }
 
@@ -1215,6 +1216,8 @@ export interface LibraryRootView {
   label: string;
   lastError?: string | null;
   lastScanAt?: string | null;
+  minFreeBytes: number;
+  offline: boolean;
   path: string;
   position: number;
   versionCount: number;
@@ -2112,6 +2115,7 @@ export interface UpdateLibraryRootRequest {
   enabled?: boolean | null;
   kind?: string | null;
   label?: string | null;
+  minFreeBytes?: number | null;
   path?: string | null;
   position?: number | null;
 }
