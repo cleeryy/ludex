@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.24] - 2026-11-19
+
 ### Fixed
 
 - Game launches from the AppImage no longer inherit the bundle environment
