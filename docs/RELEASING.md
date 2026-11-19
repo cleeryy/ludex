@@ -468,7 +468,7 @@ The `Release` workflow then runs:
 3. **`server`**, **`desktop`**, **`docker`** — all `needs: create-release`:
    - Linux x86_64 server archive:
      `ludex-server-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` + `.sha256`
-   - Windows x64 NSIS installer and Linux AppImage/deb (universal macOS DMG
+   - Windows x64 NSIS installer and Linux AppImage/deb/rpm (universal macOS DMG
      when the matrix includes it), each with `.sig` and a merged `latest.json`
    - `ghcr.io/cleeryy/ludex` with tags `latest`, `vX.Y.Z` and `X.Y`
    `desktop` uploads to the draft (`releaseDraft: true`) instead of publishing.
