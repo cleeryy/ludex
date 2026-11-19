@@ -53,6 +53,7 @@ mod saves;
 mod secrets;
 mod server;
 mod settings;
+mod shader_prep;
 mod space;
 mod state;
 mod steam;
@@ -239,6 +240,10 @@ pub fn run() {
                 // app run after the embedded server is up (their URL points at
                 // it). Safe mode and the two-strike circuit breaker live there.
                 install::auto_resume_on_startup(&handle);
+                // #293: a warm start never survives a restart (the queue is in
+                // memory); turn its stale `queued`/`running` record into an
+                // honest cancellation instead of a spinner that never moves.
+                crate::shader_prep::recover_interrupted(&handle);
                 // #222: rebuild the per-volume reservation ledger from the
                 // active rows, so a restart never double-counts a reservation.
                 install::rebuild_space_ledger(&handle);
@@ -422,6 +427,13 @@ pub fn run() {
             power::system_sleep,
             power::sleep_capability,
             commands::inhibit_status,
+            shader_prep::queue::shader_prep_stats,
+            shader_prep::queue::list_shader_prep,
+            shader_prep::queue::set_shader_prep_enabled,
+            shader_prep::queue::set_shader_prep_budget,
+            shader_prep::queue::prepare_game_shaders,
+            shader_prep::queue::cancel_shader_prep,
+            shader_prep::queue::clear_shader_cache,
             console_session::console_session_status,
             console_session::console_session_plan,
             console_session::console_session_apply,

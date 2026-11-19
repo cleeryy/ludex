@@ -61,6 +61,7 @@ import { AdoptInstallDialog } from "@/components/game/adopt-install";
 import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
 import { LaunchOptionsPanel } from "@/components/game/launch-options";
+import { ShaderPrepPanel } from "@/components/game/shader-prep";
 import { MakeItRunPanel } from "@/components/game/make-it-run";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
@@ -578,6 +579,9 @@ export function GameDetailScreen() {
             {isEditor && game.kind !== "rom" && <StartupCommandPanel game={game} installed={isInstalled} />}
             {isInstalled && desktop && game.kind !== "rom" && <MakeItRunPanel gameId={game.id} />}
             {isInstalled && desktop && game.kind !== "rom" && <LaunchOptionsPanel gameId={game.id} title={game.title} />}
+            {isInstalled && desktop && game.kind !== "rom" && (
+              <ShaderPrepPanel gameId={game.id} title={game.title} />
+            )}
             <ControllerPanel gameId={game.id} gameTitle={game.title} plain />
           </div>
         );

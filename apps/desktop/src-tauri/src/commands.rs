@@ -93,6 +93,10 @@ pub fn save_settings(
         // install). A web draft loaded before that must not write a stale
         // report back over the stored one.
         object.remove("hostPreflight");
+        // #293: shader preparation records are written by the background
+        // queue. A settings draft from another tab must not overwrite the
+        // state of a run it never saw.
+        object.remove("shaderPrep");
         // #235: the download policy replaces `installTransport`. Translate an
         // older payload once and drop the key so a stale draft cannot override
         // the stored choice on every save.

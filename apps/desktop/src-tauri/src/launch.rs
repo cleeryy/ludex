@@ -375,6 +375,18 @@ pub async fn launch(
         args.as_deref(),
         &options,
     )?;
+    // #293: a game that prepared its shaders reads those caches back on every
+    // launch. Applied after the compat plan so the pinned paths win, except
+    // where the user set the same variable per game. A launcher URI has no
+    // local cache and is left alone.
+    let launches_local_game = installed
+        .launch_uri
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(str::is_empty);
+    if launches_local_game {
+        crate::shader_prep::apply_launch_env(app, game_id, &options, &mut command);
+    }
 
     // #180: record the guessed save folders before the session starts. The
     // blocking scan is bounded (per-path caps) and a failure only means the
@@ -779,6 +791,107 @@ fn linux_prepare_launch(
         "launching a Windows game through a compatibility tool"
     );
     Ok((command, Some(plan.tool_name), launch_log))
+}
+
+/// Build the command of one shader warm start (#293).
+///
+/// Deliberately the same path as a real launch: the compat tool, the prefix,
+/// the working directory and the Gamescope profile are resolved by the same
+/// helpers, so a game that starts for the player also starts here. Only the
+/// environment differs (the cache paths are pinned to Ludex's folder).
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn prepare_warm_start(
+    app: &AppHandle,
+    installed: &db::InstalledGame,
+    options: &crate::linux_gaming::LaunchOptions,
+) -> Result<crate::shader_prep::PrepCommand, String> {
+    if installed
+        .launch_uri
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|uri| !uri.is_empty())
+    {
+        return Err(
+            "This entry starts another launcher, so there is no local shader cache to prepare."
+                .to_string(),
+        );
+    }
+    let install_path = paths::normalize_native_path(Path::new(&installed.install_path));
+    if !install_path.is_dir() {
+        return Err(format!(
+            "The install folder is missing: {}. Reinstall the game before preparing its shaders.",
+            install_path.display()
+        ));
+    }
+    let prefix = crate::linux_gaming::prefix_for(&install_path, &options.prefix_path)?;
+    let executable = resolve_executable(
+        &install_path,
+        Some(&prefix),
+        None,
+        installed.executable.as_deref(),
+        &installed.title,
+    )?;
+    let working_dir = working_directory_override(&options.working_dir, &install_path)
+        .unwrap_or_else(|| launch_working_directory(&install_path, &executable, &installed.source));
+    let session_id = format!("prep-{}", uuid::Uuid::new_v4());
+    let (command, _tool, _log) = prepare_launch(
+        app,
+        installed.game_id,
+        &session_id,
+        installed,
+        Some(&executable),
+        Some(&working_dir),
+        &install_path,
+        &prefix,
+        None,
+        options,
+    )?;
+    Ok(prep_command_from(command, &install_path))
+}
+
+/// Copy the resolved `Command` into the plain-data shape the supervised
+/// spawner takes. Only explicitly-set variables are copied; the parent
+/// environment is inherited by the child anyway.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn prep_command_from(
+    command: std::process::Command,
+    install_path: &Path,
+) -> crate::shader_prep::PrepCommand {
+    let program = PathBuf::from(command.get_program());
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().to_string())
+        .collect();
+    let working_dir = command
+        .get_current_dir()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| install_path.to_path_buf());
+    let env = command
+        .get_envs()
+        .filter_map(|(key, value)| {
+            Some((
+                key.to_string_lossy().to_string(),
+                value?.to_string_lossy().to_string(),
+            ))
+        })
+        .collect();
+    crate::shader_prep::PrepCommand {
+        program,
+        args,
+        working_dir,
+        env,
+    }
+}
+
+/// Shader preparation only runs on Linux: Windows and macOS keep their driver
+/// caches next to the game without a wrapper Ludex can control.
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+pub(crate) fn prepare_warm_start(
+    _app: &AppHandle,
+    _installed: &db::InstalledGame,
+    _options: &crate::linux_gaming::LaunchOptions,
+) -> Result<crate::shader_prep::PrepCommand, String> {
+    Err("Shader preparation is only available on Linux.".to_string())
 }
 
 /// Log a display profile that was requested but could not be applied. The

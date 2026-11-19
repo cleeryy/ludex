@@ -153,6 +153,9 @@ export const qk = {
   inhibitStatus: ["inhibit-status"] as const,
   launchOptions: (gameId: number) => key("launch-options", gameId),
   prefixInfo: (gameId: number) => key("prefix-info", gameId),
+  /** Shader preparation (#293): one game's record, and every record. */
+  shaderPrep: (gameId: number) => key("shader-prep", gameId),
+  shaderPrepAll: ["shader-prep"] as const,
   makeItRun: (gameId: number) => key("make-it-run", gameId),
   virustotal: {
     forGame: (gameId: number) => key("game-virustotal", gameId),

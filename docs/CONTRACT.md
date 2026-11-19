@@ -2069,6 +2069,9 @@ interface LocalSettings {
   autoResumeDownloads: boolean;      // re-enter interrupted downloads on launch (#212), default true; never a paused/cancelled job; two consecutive unclean launches park the job instead (#234); LUDEX_SAFE_MODE=1 skips it
   keepAwakeAfterMinutes: number;     // #288: keep the machine awake this many minutes after the last install/game/stream ends; default 5, 0 releases immediately, clamped 0..60. Applies to the running inhibitor on save
   downloadConcurrency: number;       // parallel archive downloads (#221), default 1, clamped 1..2; extraction stays serialised
+  shaderPrepAfterInstall: boolean;   // #293: prepare shaders after every install unless the game has its own choice; default false
+  shaderPrepBudgetSecs: number;      // #293: time budget of one warm start, default 180, clamped 30..900
+  shaderPrep: Record<string, { state: "never"|"queued"|"running"|"done"|"failed"|"cancelled"; enabled: boolean; preparedAt: string|null; cacheBytes: number; durationMs: number|null; message: string|null }>; // #293: per-game preparation records, keyed by game id as a string; device-local, never synced
   closeToTray: boolean;         // closing the window hides to the tray (default true)
   nativeTitleBar: boolean;      // OS title bar instead of Ludex's own (#111), default false
   updateChannel: "stable" | "early"; // app updater channel (default stable)
@@ -3208,6 +3211,13 @@ interface RemotePlayCleanup {
 | `quit_app` (pending #196) | — | `null`; quits the Ludex process from the console Power surface. Not implemented in the Tauri registry yet: the web bridge calls it, reports the missing command, and falls back to `exit_console` in a console session so the player is not trapped |
 | `system_sleep` (pending #196) | — | `null`; best-effort OS sleep from the Power surface, behind a capability probe. Not implemented yet; the web UI keeps the action visible but reports the failure instead of faking a sleep state |
 | `inhibit_status` | — | `InhibitStatus { supported, active, holding, jobs, count, reasons[], graceMinutes }`; the live suspend inhibitor (#288). `supported` is false without `systemd-inhibit`; `active` means work is running, `holding` means the lock (or its grace window) is actually held. Emitted as `inhibit://status` on every transition. On Linux the desktop holds one `systemd-inhibit --what=idle:sleep:handle-lid-switch --mode=block --who=Ludex --why=… sleep infinity` child while an install/verify/repair, a game or a stream runs, kills and reaps it when the last reason ends, and again on app exit; see `docs/POWER.md` |
+| `shader_prep_stats` | `{ gameId }` | `ShaderPrepView { gameId, state, enabled, preparedAt, cacheBytes, durationMs, message, cachePath, budgetSecs, supported }`; one game's shader preparation (#293). `cacheBytes` is the live size of `{appDataDir}/shader-cache/{gameId}`; `supported` is false outside Linux |
+| `list_shader_prep` | — | `ShaderPrepView[]`; every game with a preparation record plus the queue's live jobs, newest prepared first (Downloads section) |
+| `set_shader_prep_enabled` | `{ gameId, enabled }` | `ShaderPrepView`; per-game "Prepare after install", which wins over the global `shaderPrepAfterInstall` |
+| `set_shader_prep_budget` | `{ seconds }` | `number`; stores the clamped budget (30..900 s) and returns it |
+| `prepare_game_shaders` | `{ gameId }` | `ShaderPrepView`; queues a warm start. One game at a time, never blocks the first launch; emits `shader-prep://progress` and `shader-prep://changed` |
+| `cancel_shader_prep` | `{ gameId }` | `ShaderPrepView`; drops a queued job or stops the running process tree. The partial cache is kept |
+| `clear_shader_cache` | `{ gameId }` | `ShaderPrepView`; deletes the cache folder and resets the record. Refused while a run owns it |
 | `moonlight_status` | — | `MoonlightStatus`; binary, config source (portable `Moonlight.ini`, Windows registry, `Moonlight.conf`), parsed hosts and the manual host fallback (#98, #151) |
 | `stream_target` | `{ gameId }` | `StreamTarget`; whether the game is published and which hosts can stream it. The filesystem/registry probes run on the blocking pool (#159) |
 | `stream_game` | `{ gameId, host? }` | `StreamLaunch`; runs `moonlight stream <host> <app>` for a published game. Refuses unpaired hosts and missing Moonlight |
