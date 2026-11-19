@@ -59,13 +59,20 @@ const HASH_BUFFER_BYTES: usize = 64 * 1024;
 pub struct ScanRequest {
     /// Restrict the scan to a single root.
     pub root_id: Option<i64>,
+    /// Walk the tree even when a reconnected mount kept its identity (#290).
+    /// An explicit "scan this root" sets it; the scheduled scan does not, so a
+    /// NAS that comes back resumes from the stored index.
+    pub force: bool,
 }
 
 impl ScanRequest {
     /// Full scan over every enabled root.
     #[must_use]
     pub const fn all() -> Self {
-        Self { root_id: None }
+        Self {
+            root_id: None,
+            force: false,
+        }
     }
 
     /// Scan one root only.
@@ -73,16 +80,28 @@ impl ScanRequest {
     pub const fn root(root_id: i64) -> Self {
         Self {
             root_id: Some(root_id),
+            force: true,
         }
     }
 
     /// Merges two queued requests: a full scan wins over a targeted one, and
     /// two different roots are merged into a full scan so neither is skipped.
+    /// A forced scan forces the merged request.
     fn merge(self, other: Self) -> Self {
+        let force = self.force || other.force;
         match (self.root_id, other.root_id) {
-            (None, _) | (_, None) => Self::all(),
-            (Some(left), Some(right)) if left == right => self,
-            (Some(_), Some(_)) => Self::all(),
+            (None, _) | (_, None) => Self {
+                root_id: None,
+                force,
+            },
+            (Some(left), Some(right)) if left == right => Self {
+                root_id: Some(left),
+                force,
+            },
+            (Some(_), Some(_)) => Self {
+                root_id: None,
+                force,
+            },
         }
     }
 }
@@ -205,6 +224,10 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
     let mut errors: Vec<String> = Vec::new();
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut scanned_roots: Vec<i64> = Vec::new();
+    // Roots actually walked this run. A root that reconnected with an unchanged
+    // mount identity reuses its index, so it must never feed the missing sweep
+    // (#290) — its versions were not seen, not gone.
+    let mut walked_roots: Vec<i64> = Vec::new();
     let mut unavailable_roots: Vec<i64> = Vec::new();
     // Versions indexed after this instant appeared while the scan was walking
     // the disk; they cannot be "missing" (#CI flake in parental/age tests).
@@ -214,6 +237,68 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         let path = PathBuf::from(&root.path);
         let root_id = root.id;
         let kind = root.kind.clone();
+
+        // #290: resolve the mount before walking. An absent automount is
+        // triggered once; a root that stays absent is offline, not deleted.
+        let probe = crate::mounts::HostProbe;
+        let check_path = path.clone();
+        let mount = tokio::task::spawn_blocking(move || crate::mounts::ensure(&probe, &check_path))
+            .await
+            .unwrap_or_else(|error| crate::mounts::EnsuredMount {
+                status: crate::mounts::RootMountStatus::Offline {
+                    mount_point: None,
+                    message: format!(
+                        "The library at {} could not be checked: {error}. The indexed games were kept.",
+                        root.path
+                    ),
+                    absent_mount: false,
+                },
+                plan: None,
+                attempt_error: None,
+            });
+
+        if !mount.status.is_online() {
+            unavailable_roots.push(root.id);
+            if errors.len() < 20 {
+                if let crate::mounts::RootMountStatus::Offline { message, .. } = &mount.status {
+                    errors.push(message.clone());
+                }
+            }
+            if let Err(error) = roots::record_mount(&state.core.pool, root.id, &mount.status).await
+            {
+                tracing::warn!(root_id = root.id, %error, "could not record offline root");
+            }
+            continue;
+        }
+
+        let stored = match (
+            root.mount_device_id.as_deref(),
+            root.mount_marker.as_deref(),
+        ) {
+            (Some(device), marker) => ludex_core::mount::MountIdentity::decode(&format!(
+                "{device}:{}",
+                marker.unwrap_or_default()
+            )),
+            _ => None,
+        };
+        let identity = match &mount.status {
+            crate::mounts::RootMountStatus::Online { identity, .. } => *identity,
+            crate::mounts::RootMountStatus::Offline { .. } => unreachable!(),
+        };
+        if !request.force
+            && ludex_core::mount::may_reuse_index(root.offline != 0, stored, &identity)
+        {
+            scanned_roots.push(root.id);
+            if let Err(error) = roots::record_resumed(&state.core.pool, root.id, &identity).await {
+                tracing::warn!(root_id = root.id, %error, "could not record resumed root");
+            }
+            tracing::info!(
+                root = %root.path,
+                "library root reconnected with the same mount; reusing the stored index"
+            );
+            continue;
+        }
+
         let discovered =
             tokio::task::spawn_blocking(move || discover_root(&path, root_id, &kind)).await;
         match discovered {
@@ -222,6 +307,12 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
                     let count = discovered.candidates.len();
                     candidates.extend(discovered.candidates);
                     scanned_roots.push(root.id);
+                    walked_roots.push(root.id);
+                    if let Err(error) =
+                        roots::record_scanned(&state.core.pool, root.id, &identity).await
+                    {
+                        tracing::warn!(root_id = root.id, %error, "could not record scan state");
+                    }
                     tracing::debug!(root = %root.path, files = count, "root scanned");
                 } else {
                     unavailable_roots.push(root.id);
@@ -234,6 +325,16 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
                                 .unwrap_or_else(|| "root is unavailable".to_string())
                         ));
                     }
+                    if let Err(error) = roots::record_scan(
+                        &state.core.pool,
+                        root.id,
+                        false,
+                        Some("root is missing or not a directory"),
+                    )
+                    .await
+                    {
+                        tracing::warn!(root_id = root.id, %error, "could not record root state");
+                    }
                 }
             }
             Ok(Err(error)) => {
@@ -241,27 +342,28 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
                 if errors.len() < 20 {
                     errors.push(format!("{}: {error}", root.path));
                 }
+                if let Err(error) =
+                    roots::record_scan(&state.core.pool, root.id, false, Some(&error.to_string()))
+                        .await
+                {
+                    tracing::warn!(root_id = root.id, %error, "could not record root state");
+                }
             }
             Err(error) => {
                 unavailable_roots.push(root.id);
                 if errors.len() < 20 {
                     errors.push(format!("{}: scan task failed: {error}", root.path));
                 }
+                if let Err(error) =
+                    roots::record_scan(&state.core.pool, root.id, false, Some("scan task failed"))
+                        .await
+                {
+                    tracing::warn!(root_id = root.id, %error, "could not record root state");
+                }
             }
         }
     }
 
-    for root in &roots {
-        let available = scanned_roots.contains(&root.id);
-        let error = if available {
-            None
-        } else {
-            Some("root is missing or not a directory")
-        };
-        if let Err(error) = roots::record_scan(&state.core.pool, root.id, available, error).await {
-            tracing::warn!(root_id = root.id, %error, "could not record root scan state");
-        }
-    }
     mark_root_availability(state, &scanned_roots, &unavailable_roots).await;
 
     let scanned = i64::try_from(candidates.len()).unwrap_or(i64::MAX);
@@ -318,7 +420,7 @@ pub async fn run_scan(state: &AppState, request: ScanRequest) {
         }
     }
 
-    let removed = match mark_missing(state, &seen, &scanned_roots, started_at).await {
+    let removed = match mark_missing(state, &seen, &walked_roots, started_at).await {
         Ok(removed) => removed,
         Err(error) => {
             if errors.len() < 20 {

@@ -1659,9 +1659,10 @@ verdict is advisory: it never deletes, quarantines or blocks an install.
 | GET | `/api/library/folders` | `{ gamesDir, mediaDir, dataDir }` (admin) |
 | GET | `/api/library/roots` | admin + `admin` scope; `LibraryRoot[]`, ordered |
 | POST | `/api/library/roots` | admin; `{ path, label?, enabled?, kind? }` (`kind`: `game` default or `rom`) → 201 `LibraryRoot`; 409 `root_exists` |
-| PATCH | `/api/library/roots/{id}` | admin; `{ label?, path?, enabled?, position?, kind? }` → `LibraryRoot`; 409 `root_kind_locked` when indexed versions exist |
+| PATCH | `/api/library/roots/{id}` | admin; `{ label?, path?, enabled?, position?, kind?, minFreeBytes? }` → `LibraryRoot`; 409 `root_kind_locked` when indexed versions exist; a path change clears the mount fingerprint |
 | DELETE | `/api/library/roots/{id}?force=` | admin; 204; 409 `root_not_empty` unless `force=true` |
-| POST | `/api/library/roots/{id}/scan` | admin/editor; 202 `{ started, rootId }`; scans that root only |
+| POST | `/api/library/roots/{id}/scan` | admin/editor; 202 `{ started, rootId }`; scans that root only; always walks the tree |
+| POST | `/api/library/roots/{id}/mount` | admin; re-checks the root's mount and tries its automount once (#290) → `LibraryRoot` |
 | GET | `/api/library/watcher` | admin; `LibraryWatcherStatus` |
 
 ```ts
@@ -1672,6 +1673,10 @@ interface LibraryRoot {
   versionCount: number;
   /** `game` for game archives, `rom` for an emulator ROM library (#52). */
   kind: "game" | "rom";
+  /** True when the configured mount is absent: offline, never deleted (#290). */
+  offline: boolean;
+  /** Free space kept free on the root, in bytes (#290, default 5 GiB). */
+  minFreeBytes: number;
 }
 
 interface LibraryWatcherStatus {
@@ -1685,8 +1690,14 @@ interface LibraryWatcherStatus {
 A root whose path is missing or unmounted is reported with `available: false`
 and a `lastError`; its versions keep `missing = 0` and downloads answer
 `404 root_unavailable`. Removing a root keeps games, progress and cloud saves.
+An unmounted root is also `offline: true`: the scanner tries the matching
+`.automount` (or the `_netdev` fstab entry) once, and a reconnect with an
+unchanged mount identity (device id + mount-point marker) reuses the stored
+index instead of rescanning. The per-root free-space floor refuses uploads and
+cache extractions below `minFreeBytes` with `507 insufficient_space`.
 See [`LIBRARY.md`](./LIBRARY.md) for scan ordering, mirror deduplication and
-watcher platform limits.
+watcher platform limits, and [`MOUNTS.md`](./MOUNTS.md) for removable/network
+roots.
 
 ## Library Health Center (#165)
 
@@ -4631,6 +4642,7 @@ request untouched for two minutes is labelled "PC offline".
 | `LUDEX_LOGIN_BACKOFF_MS` | `500` | Base exponential backoff from the third failure |
 | `LUDEX_UPLOAD_CHUNK_BYTES` | `16777216` | Chunk size returned by `POST /api/uploads` (capped at 64 MiB) |
 | `LUDEX_UPLOAD_MAX_BYTES` | `107374182400` | Largest accepted archive upload |
+| `LUDEX_MIN_FREE_BYTES` | unset | Overrides every root's free-space floor (#290); `0` disables the server-side floor. The embedded local server uses `0` |
 | `LUDEX_UPLOAD_TTL_HOURS` | `24` | Stale upload cleanup age |
 | `LUDEX_DESKTOP_HANDOFF_TTL_SECONDS` | `120` (30–600) | Lifetime of a pending desktop SSO handoff (#157) |
 | `LUDEX_DESKTOP_RELEASES_API` | `https://api.github.com/repos/cleeryy/ludex/releases/latest` | GitHub-compatible releases endpoint polled by the public download page (#164); no token |

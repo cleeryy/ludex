@@ -988,6 +988,7 @@ mod tests {
             path: "D:\\My Games".into(),
             kind: crate::settings::LocationKind::Install,
             default: true,
+            min_free_bytes: crate::settings::DEFAULT_MIN_FREE_BYTES,
         }];
         settings.install_dir = "D:\\My Games".into();
         let before = serde_json::to_value(&settings).unwrap();

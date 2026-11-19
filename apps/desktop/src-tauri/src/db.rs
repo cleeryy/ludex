@@ -132,7 +132,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 24;
+const SCHEMA_VERSION: i64 = 25;
 
 /// Pre-migration snapshots kept next to the database (`<name>-backup-<stamp>.db`).
 const BACKUP_RETENTION: usize = 3;
@@ -643,6 +643,26 @@ const SCHEMA_V24: &str = r#"
 ALTER TABLE game_launch_options ADD COLUMN display TEXT NOT NULL DEFAULT '{}';
 "#;
 
+/// Move-to-another-library journal (#290).
+///
+/// `install_moves` survives an interruption: the source stays untouched, the
+/// staging copy is verified against the manifest, and only the rename that
+/// publishes the destination swaps the index. `verify_state` is `pending` on a
+/// freshly moved install so its first launch runs the digest check before the
+/// game starts.
+const SCHEMA_V25: &str = r#"
+CREATE TABLE IF NOT EXISTS install_moves (
+    game_id     INTEGER PRIMARY KEY,
+    source      TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    staging     TEXT NOT NULL,
+    state       TEXT NOT NULL DEFAULT 'copying',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+ALTER TABLE installed_games ADD COLUMN verify_state TEXT;
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -957,6 +977,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: SCHEMA_V24,
         context: "add the per-game display profile to the desktop database",
     },
+    Migration {
+        version: 25,
+        sql: SCHEMA_V25,
+        context: "add the install-move journal and the moved-install verify state",
+    },
 ];
 
 /// Applies every pending step in one transaction.
@@ -1075,6 +1100,143 @@ fn map_installed(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstalledGame> {
         source: row.get(11)?,
         launch_uri: row.get(12)?,
     })
+}
+
+/// One in-flight move between libraries (#290).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallMove {
+    pub game_id: i64,
+    pub source: String,
+    pub destination: String,
+    pub staging: String,
+    /// `copying`, `copied` (verified staging, not swapped) or `swapped`.
+    pub state: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Records (or updates) the move journal for a game.
+pub fn upsert_install_move(connection: &Connection, record: &InstallMove) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO install_moves
+                (game_id, source, destination, staging, state, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(game_id) DO UPDATE SET
+                source      = excluded.source,
+                destination = excluded.destination,
+                staging     = excluded.staging,
+                state       = excluded.state,
+                updated_at  = excluded.updated_at
+            "#,
+            params![
+                record.game_id,
+                record.source,
+                record.destination,
+                record.staging,
+                record.state,
+                record.created_at,
+                record.updated_at,
+            ],
+        )
+        .map(|_| ())
+        .map_err(|e| format!("Could not record the install move: {e}"))
+}
+
+/// The journal row for one game, when a move is in flight.
+pub fn install_move(connection: &Connection, game_id: i64) -> Result<Option<InstallMove>, String> {
+    connection
+        .query_row(
+            r#"
+            SELECT game_id, source, destination, staging, state, created_at, updated_at
+            FROM install_moves WHERE game_id = ?1
+            "#,
+            params![game_id],
+            |row| {
+                Ok(InstallMove {
+                    game_id: row.get(0)?,
+                    source: row.get(1)?,
+                    destination: row.get(2)?,
+                    staging: row.get(3)?,
+                    state: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the install move: {e}"))
+}
+
+/// Every journal row (startup resume, #290).
+pub fn pending_install_moves(connection: &Connection) -> Result<Vec<InstallMove>, String> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT game_id, source, destination, staging, state, created_at, updated_at
+            FROM install_moves ORDER BY game_id ASC
+            "#,
+        )
+        .map_err(|e| format!("Could not read pending install moves: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(InstallMove {
+                game_id: row.get(0)?,
+                source: row.get(1)?,
+                destination: row.get(2)?,
+                staging: row.get(3)?,
+                state: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Could not read pending install moves: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Could not read pending install moves: {e}"))
+}
+
+/// Forgets a finished (or abandoned) move.
+pub fn delete_install_move(connection: &Connection, game_id: i64) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM install_moves WHERE game_id = ?1",
+            params![game_id],
+        )
+        .map(|_| ())
+        .map_err(|e| format!("Could not clear the install move: {e}"))
+}
+
+/// Sets (or clears) the pending verification of a moved install (#290).
+pub fn set_install_verify_state(
+    connection: &Connection,
+    game_id: i64,
+    state: Option<&str>,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE installed_games SET verify_state = ?2 WHERE game_id = ?1",
+            params![game_id, state],
+        )
+        .map(|_| ())
+        .map_err(|e| format!("Could not update the install verify state: {e}"))
+}
+
+/// The pending verification flag of an install, `None` when it is ready.
+pub fn install_verify_state(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<String>, String> {
+    connection
+        .query_row(
+            "SELECT verify_state FROM installed_games WHERE game_id = ?1",
+            params![game_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(|value| value.flatten())
+        .map_err(|e| format!("Could not read the install verify state: {e}"))
 }
 
 pub fn installed_game_ids(connection: &Connection) -> Result<Vec<i64>, String> {
@@ -4164,6 +4326,70 @@ mod tests {
         // Always the real runner: a hand-written list of `SCHEMA_Vn` drifts the
         // moment a migration is added.
         open_in_memory_for_tests()
+    }
+
+    #[test]
+    fn the_move_journal_round_trips_and_clears() {
+        let connection = memory_database();
+        let record = InstallMove {
+            game_id: 12,
+            source: "/games/doom/1.0".into(),
+            destination: "/mnt/nas/games/doom/1.0".into(),
+            staging: "/mnt/nas/games/doom/.1.0.ludex-move".into(),
+            state: "copying".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_install_move(&connection, &record).unwrap();
+        let stored = install_move(&connection, 12)
+            .unwrap()
+            .expect("a journal row");
+        assert_eq!(stored.destination, record.destination);
+        assert_eq!(pending_install_moves(&connection).unwrap().len(), 1);
+
+        // A retry updates the state without duplicating the row.
+        let mut updated = record.clone();
+        updated.state = "copied".into();
+        upsert_install_move(&connection, &updated).unwrap();
+        assert_eq!(pending_install_moves(&connection).unwrap().len(), 1);
+        assert_eq!(
+            install_move(&connection, 12).unwrap().unwrap().state,
+            "copied"
+        );
+
+        delete_install_move(&connection, 12).unwrap();
+        assert!(install_move(&connection, 12).unwrap().is_none());
+        assert!(pending_install_moves(&connection).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_verify_state_is_pending_then_cleared() {
+        let connection = memory_database();
+        let game = InstalledGame {
+            game_id: 21,
+            version_id: 4,
+            title: "Doom".into(),
+            version: Some("1.0".into()),
+            install_path: "/mnt/nas/games/doom/1.0".into(),
+            executable: None,
+            size_bytes: 2,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            last_launched_at: None,
+            archive_hash: None,
+            install_root: Some("/mnt/nas/games".into()),
+            source: SOURCE_LUDEX.into(),
+            launch_uri: None,
+        };
+        upsert_installed(&connection, &game).unwrap();
+        assert_eq!(install_verify_state(&connection, 21).unwrap(), None);
+
+        set_install_verify_state(&connection, 21, Some("pending")).unwrap();
+        assert_eq!(
+            install_verify_state(&connection, 21).unwrap().as_deref(),
+            Some("pending")
+        );
+        set_install_verify_state(&connection, 21, None).unwrap();
+        assert_eq!(install_verify_state(&connection, 21).unwrap(), None);
     }
 
     #[test]

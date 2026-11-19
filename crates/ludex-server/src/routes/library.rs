@@ -33,6 +33,7 @@ pub fn router() -> Router<AppState> {
             patch(update_root).delete(delete_root),
         )
         .route("/library/roots/{id}/scan", post(scan_root))
+        .route("/library/roots/{id}/mount", post(mount_root))
         .route("/library/watcher", get(watcher_status))
 }
 
@@ -93,7 +94,9 @@ async fn create_root(
     };
     let enabled = request.enabled.unwrap_or(true);
     let kind = validate_root_kind(request.kind.as_deref())?;
-    let id = roots::create(&state.core.pool, &label, &path, enabled, &kind).await?;
+    let min_free = validate_floor(request.min_free_bytes)?;
+    let id =
+        roots::create_with_floor(&state.core.pool, &label, &path, enabled, &kind, min_free).await?;
     state.core.events.emit(
         Event::new(actions::LIBRARY_ROOT_CREATED, user.actor())
             .target("library_root", id.to_string())
@@ -144,6 +147,12 @@ async fn update_root(
         Some(kind) => validate_root_kind(Some(kind))?,
         None => current.kind.clone(),
     };
+    let min_free = match request.min_free_bytes {
+        Some(value) => validate_floor(Some(value))?,
+        None => u64::try_from(current.min_free_bytes).unwrap_or(0),
+    };
+    let path_changed = path != current.path;
+    let reset = i64::from(path_changed);
     if kind != current.kind {
         let versions = roots::version_count(&state.core.pool, id).await?;
         if versions > 0 {
@@ -154,15 +163,29 @@ async fn update_root(
         }
     }
 
+    // Moving the root to a new path invalidates both the mount fingerprint and
+    // the availability flag; a label or floor edit leaves them alone (#290).
     db::query(
         "UPDATE library_roots SET label = ?, path = ?, enabled = ?, position = ?, kind = ?,
-            available = 1, last_error = NULL, updated_at = ? WHERE id = ?",
+            min_free_bytes = ?,
+            available = CASE WHEN ? = 1 THEN 1 ELSE available END,
+            offline = CASE WHEN ? = 1 THEN 0 ELSE offline END,
+            last_error = CASE WHEN ? = 1 THEN NULL ELSE last_error END,
+            mount_device_id = CASE WHEN ? = 1 THEN NULL ELSE mount_device_id END,
+            mount_marker = CASE WHEN ? = 1 THEN NULL ELSE mount_marker END,
+            updated_at = ? WHERE id = ?",
     )
     .bind(&label)
     .bind(&path)
     .bind(i64::from(enabled))
     .bind(position)
     .bind(&kind)
+    .bind(i64::try_from(min_free).unwrap_or(i64::MAX))
+    .bind(reset)
+    .bind(reset)
+    .bind(reset)
+    .bind(reset)
+    .bind(reset)
     .bind(db::db_time(db::now()))
     .bind(id)
     .execute(&state.core.pool)
@@ -256,6 +279,36 @@ async fn scan_root(
     ))
 }
 
+/// `POST /api/library/roots/{id}/mount` (#290)
+///
+/// Re-checks the root's mount and tries its automount once, so a user who
+/// plugged the drive back in does not have to restart the server or wait for
+/// the next scheduled scan.
+async fn mount_root(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+) -> Result<Json<LibraryRootView>, ApiError> {
+    user.require_admin_access()?;
+    let root = roots::get(&state.core.pool, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("root_not_found", "Library root not found"))?;
+    let path = std::path::PathBuf::from(&root.path);
+    let mount = tokio::task::spawn_blocking(move || {
+        crate::mounts::ensure(&crate::mounts::HostProbe, &path)
+    })
+    .await
+    .map_err(|error| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "mount_check_failed",
+            format!("mount check failed: {error}"),
+        )
+    })?;
+    roots::record_mount(&state.core.pool, id, &mount.status).await?;
+    Ok(Json(root_view(&state, id).await?))
+}
+
 async fn watcher_status(
     State(state): State<AppState>,
     user: AuthUser,
@@ -289,6 +342,18 @@ async fn root_view(state: &AppState, id: i64) -> Result<LibraryRootView, ApiErro
         .ok_or_else(|| ApiError::not_found("root_not_found", "Library root not found"))?;
     let versions = roots::version_count(&state.core.pool, id).await?;
     Ok(root.to_view(versions))
+}
+
+/// Caps the floor at 1 TiB: a larger value would refuse every install forever.
+fn validate_floor(min_free_bytes: Option<u64>) -> Result<u64, ApiError> {
+    match min_free_bytes {
+        None => Ok(ludex_core::mount::DEFAULT_MIN_FREE_BYTES),
+        Some(value) if value <= 1024 * 1024 * 1024 * 1024 => Ok(value),
+        Some(_) => Err(ApiError::bad_request(
+            "invalid_min_free_bytes",
+            "The free-space floor must be at most 1 TiB",
+        )),
+    }
 }
 
 fn validate_label(label: &str) -> Result<String, ApiError> {
@@ -390,6 +455,14 @@ pub(crate) const DOCS: &[RouteDoc] = &[
         "Scan one library root",
         Auth::Editor,
         Payload::Schema("RootScanResponse"),
+    ),
+    route(
+        HttpMethod::Post,
+        "/library/roots/{id}/mount",
+        "Library",
+        "Re-check a library root mount and trigger its automount",
+        Auth::Admin,
+        Payload::Schema("LibraryRootView"),
     ),
     route(
         HttpMethod::Get,

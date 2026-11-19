@@ -19,6 +19,7 @@ struct TestServer {
     temp: TempDir,
     games_dir: PathBuf,
     media_dir: PathBuf,
+    data_dir: PathBuf,
 }
 
 impl TestServer {
@@ -27,7 +28,7 @@ impl TestServer {
         let games_dir = temp.path().join("games");
         let data_dir = temp.path().join("data");
         let media_dir = temp.path().join("media");
-        let mut config = Config::for_local(games_dir.clone(), data_dir, media_dir.clone());
+        let mut config = Config::for_local(games_dir.clone(), data_dir.clone(), media_dir.clone());
         config.local_mode = false;
         config.bind = "127.0.0.1:0".parse().expect("bind");
         let handle = start(config).await.expect("server starts");
@@ -38,6 +39,7 @@ impl TestServer {
             temp,
             games_dir,
             media_dir,
+            data_dir,
         }
     }
 
@@ -237,6 +239,9 @@ async fn roots_can_be_added_scanned_updated_and_removed() {
     assert_eq!(created["label"], "Retro");
     assert_eq!(created["enabled"], true);
     assert_eq!(created["versionCount"], 0);
+    // #290: the default free-space floor is 5 GiB, the root is online.
+    assert_eq!(created["minFreeBytes"], 5_u64 * 1024 * 1024 * 1024);
+    assert_eq!(created["offline"], false);
 
     // Duplicate path and relative paths are rejected.
     let (status, body) = server
@@ -291,6 +296,40 @@ async fn roots_can_be_added_scanned_updated_and_removed() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["label"], "Retro archive");
     assert_eq!(updated["enabled"], false);
+
+    // #290: the floor is configurable per root and a mount re-check answers
+    // with the refreshed view without rescanning.
+    let (status, floored) = server
+        .patch(
+            &format!("/api/library/roots/{root_id}"),
+            &token,
+            json!({ "minFreeBytes": 1024_u64 * 1024 * 1024 }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{floored}");
+    assert_eq!(floored["minFreeBytes"], 1024_u64 * 1024 * 1024);
+    // A floor edit must not flip an offline root back online by itself; this
+    // root lives on the test's root filesystem, so it stays online.
+    assert_eq!(floored["enabled"], false);
+    let (status, remounted) = server
+        .post(
+            &format!("/api/library/roots/{root_id}/mount"),
+            Some(&token),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{remounted}");
+    assert_eq!(remounted["minFreeBytes"], 1024_u64 * 1024 * 1024);
+    assert_eq!(remounted["offline"], false);
+    let (status, body) = server
+        .patch(
+            &format!("/api/library/roots/{root_id}"),
+            &token,
+            json!({ "minFreeBytes": 2_000_000_000_000_u64 }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], "invalid_min_free_bytes");
 
     // A non-empty root requires an explicit force.
     let (status, body) = server
@@ -534,4 +573,97 @@ fn age_file(path: &Path, age: Duration) {
         .expect("open");
     file.set_modified(SystemTime::now() - age)
         .expect("set modification time");
+}
+
+/// #290: a root that was offline and reconnects with the same mount identity
+/// reuses its index. The missing sweep must not touch its versions: it did not
+/// walk them, so they are not gone.
+#[tokio::test]
+async fn a_reconnected_root_reuses_its_index_without_marking_versions_missing() {
+    let server = TestServer::start().await;
+    let token = server.setup().await;
+    wait_for_scan(&server, &token).await;
+
+    let nas = server.temp.path().join("nas-games");
+    std::fs::create_dir_all(&nas).expect("mkdir");
+    server.write_archive(&nas, "Celeste (2018).zip", 4);
+    let (status, created) = server
+        .post(
+            "/api/library/roots",
+            Some(&token),
+            Some(json!({ "path": nas.display().to_string(), "label": "NAS" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let root_id = created["id"].as_i64().expect("id");
+    trigger_root_scan(&server, &token, root_id).await;
+    let after = roots(&server, &token).await;
+    let root = after
+        .iter()
+        .find(|root| root["id"].as_i64() == Some(root_id))
+        .expect("root");
+    assert_eq!(root["versionCount"], 1, "{root}");
+    let last_scan = root["lastScanAt"].as_str().expect("lastScanAt").to_string();
+
+    // Simulate the drive being unplugged: the app marked the root offline and
+    // its versions root_unavailable. The mount identity is unchanged.
+    let ensured = ludex_server::mounts::ensure(&ludex_server::mounts::HostProbe, &nas);
+    let identity = match ensured.status {
+        ludex_server::mounts::MountStatus::Online { identity, .. } => identity,
+        other => panic!("expected an online root, got {other:?}"),
+    };
+    let pool = ludex_server::db::connect_with(
+        &ludex_server::config::default_database_url(&server.data_dir),
+        1,
+    )
+    .await
+    .expect("database");
+    ludex_server::db::query(
+        "UPDATE library_roots SET offline = 1, available = 0,
+            last_error = 'The library at /nas-games is offline', mount_device_id = ?,
+            mount_marker = ?, last_scan_at = ? WHERE id = ?",
+    )
+    .bind(identity.device_id.to_string())
+    .bind(identity.marker.map(|value| value.to_string()))
+    .bind(&last_scan)
+    .bind(root_id)
+    .execute(&pool)
+    .await
+    .expect("mark offline");
+    ludex_server::db::query(
+        "UPDATE game_versions SET root_unavailable = 1, missing = 0 WHERE root_id = ?",
+    )
+    .bind(root_id)
+    .execute(&pool)
+    .await
+    .expect("flag versions");
+
+    // A scheduled full scan sees the root back, with the same identity.
+    trigger_full_scan(&server, &token).await;
+
+    let roots_after = roots(&server, &token).await;
+    let root_after = roots_after
+        .iter()
+        .find(|root| root["id"].as_i64() == Some(root_id))
+        .expect("root");
+    assert_eq!(root_after["offline"], false, "{root_after}");
+    assert_eq!(
+        root_after["lastScanAt"].as_str(),
+        Some(last_scan.as_str()),
+        "a resumed root must not be recorded as rescanned: {root_after}"
+    );
+
+    let (missing, unavailable) = ludex_server::db::query_as::<(i64, i64)>(
+        "SELECT missing, root_unavailable FROM game_versions WHERE root_id = ?",
+    )
+    .bind(root_id)
+    .fetch_one(&pool)
+    .await
+    .expect("version state");
+    assert_eq!(
+        (missing, unavailable),
+        (0, 0),
+        "the reconnected index kept its versions"
+    );
+    pool.close().await;
 }

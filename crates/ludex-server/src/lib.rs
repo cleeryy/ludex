@@ -59,6 +59,7 @@ pub mod metadata;
 pub mod metrics;
 pub mod mfa;
 pub mod models;
+pub mod mounts;
 pub mod observability;
 pub mod oidc;
 pub mod openapi;

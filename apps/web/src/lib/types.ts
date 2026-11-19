@@ -1157,6 +1157,11 @@ export interface InstallLocation {
   kind: LocationKind;
   /** At most one default per kind. */
   default: boolean;
+  /**
+   * Free space kept free on this library, in bytes (#290). Omitted payloads
+   * keep the backend default of 5 GiB; `0` disables the floor.
+   */
+  minFreeBytes?: number;
 }
 
 /** Live probe for a location (#99). */
@@ -1168,6 +1173,12 @@ export interface LocationStatus extends InstallLocation {
   note: string | null;
   requiredBytes?: number | null;
   freeSpaceOk?: boolean | null;
+  /** Free space kept free on this library, in bytes (#290). */
+  minFreeBytes?: number;
+  /** Mount point serving the folder, when a mount is mounted (#290). */
+  mountPoint?: string | null;
+  /** Message when the folder's mount is absent: offline, not deleted (#290). */
+  offline?: string | null;
 }
 
 /** Volume kind reported by `suggest_storage_locations` (#145). */

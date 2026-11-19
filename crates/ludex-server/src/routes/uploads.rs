@@ -235,6 +235,14 @@ async fn complete(
         }
     }
 
+    // #290: refuse before assembling when the library is below its floor.
+    let min_free = crate::roots::default_min_free_bytes(&state.core.pool, &state.core.config).await;
+    crate::mounts::preflight(
+        &state.core.config.games_dir,
+        u64::try_from(row.size).unwrap_or(0),
+        min_free,
+    )?;
+
     let destination = uploads::unique_destination(&state.core.config.games_dir, &row.file_name)?;
     let temporary = uploads::temporary_destination(&state.core.config.games_dir, &id)?;
     // Resolve symlinks before writing: the lexical join above already confines

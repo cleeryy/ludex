@@ -91,7 +91,9 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
     // click with a clear message instead of the worker after a long queue wait.
     let install_root = absolute_path(plan.install_root.clone())?;
     let download_dir = absolute_path(plan.download_dir.clone())?;
-    let install_status = crate::locations::probe_path(&install_root.to_string_lossy())?;
+    // #290: an install start is an explicit moment: try the library's
+    // automount before declaring the folder missing.
+    let install_status = crate::locations::ensure_path(&install_root)?;
     if !install_status.writable {
         return Err(format!(
             "The install location {} is not writable.{}",
@@ -103,7 +105,7 @@ pub fn begin(app: &AppHandle, params: InstallParams) -> Result<InstallJob, Strin
         ));
     }
     if !stream_requested_now {
-        let download_status = crate::locations::probe_path(&download_dir.to_string_lossy())?;
+        let download_status = crate::locations::ensure_path(&download_dir)?;
         if !download_status.writable {
             return Err(format!(
                 "The download location {} is not writable.{}",
@@ -1408,6 +1410,9 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
         Err(Failure::Failed(message)) => {
             finalize_error(&app, &entry, message);
         }
+        Err(Failure::Offline(message)) => {
+            finalize_offline(&app, &entry, &job_paths, message).await;
+        }
         Err(Failure::StreamUnavailable(message)) => {
             finalize_error(&app, &entry, message);
         }
@@ -1417,6 +1422,27 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
 /// Stop a job while keeping its partial archive. The next `install_game` or
 /// `resume_install` continues from `bytesDone` with a Range request.
 async fn finalize_paused(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths) {
+    finalize_pause(app, entry, job_paths, "Paused".to_string()).await;
+}
+
+/// Pause a job whose library mount went away (#290). The staging folder and the
+/// `.part` are always kept: replugging the drive and resuming continues exactly
+/// where the transfer stopped.
+async fn finalize_offline(
+    app: &AppHandle,
+    entry: &JobEntry,
+    job_paths: &JobPaths,
+    message: String,
+) {
+    tracing::warn!(
+        job_id = %entry.snapshot().job_id,
+        %message,
+        "install paused: the library mount is offline"
+    );
+    finalize_pause(app, entry, job_paths, message).await;
+}
+
+async fn finalize_pause(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths, message: String) {
     // A cancel that raced with the pause must win: the user asked for the
     // partial archive to be discarded.
     if entry.cancel.is_cancelled() {
@@ -1436,7 +1462,10 @@ async fn finalize_paused(app: &AppHandle, entry: &JobEntry, job_paths: &JobPaths
         job.speed_bps = 0;
         job.prefetching = false;
         job.clear_reconnect();
-        job.message = Some("Paused".to_string());
+        job.message = Some(message);
+        // An offline pause is resumable whatever the transport: the partial
+        // archive is on the (temporarily absent) volume.
+        job.resumable = true;
     });
     persist(app, entry);
     let _ = app.emit("install://progress", entry.snapshot());

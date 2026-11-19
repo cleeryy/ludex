@@ -654,6 +654,10 @@ pub struct CreateLibraryRootRequest {
     /// game archives.
     #[serde(default)]
     pub kind: Option<String>,
+    /// Free-space floor kept free on the root (#290), in bytes. Defaults to
+    /// 5 GiB when omitted.
+    #[serde(default)]
+    pub min_free_bytes: Option<u64>,
 }
 
 /// `PATCH /api/library/roots/{id}` request.
@@ -675,6 +679,9 @@ pub struct UpdateLibraryRootRequest {
     /// `game` or `rom`; cannot be changed while the root holds versions.
     #[serde(default)]
     pub kind: Option<String>,
+    /// New free-space floor in bytes (#290). `0` disables the floor.
+    #[serde(default)]
+    pub min_free_bytes: Option<u64>,
 }
 
 /// `POST /api/integrity/check` request.

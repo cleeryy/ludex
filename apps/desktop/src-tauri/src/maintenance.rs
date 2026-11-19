@@ -129,6 +129,18 @@ pub async fn move_install(
         return Err("Choose a folder outside the current install folder.".to_string());
     }
 
+    // #290: a move writes into the destination library, so its mount has to be
+    // up and its free-space floor has to survive the copy.
+    let target_mount = crate::mounts::ensure(&target_root);
+    if let Some(message) = target_mount.status.message() {
+        return Err(message.to_string());
+    }
+    let size = paths::dir_size(&source);
+    let floor = state.settings_snapshot().floor_for_path(&target_root);
+    if let Ok(free) = fs2::available_space(&target_root) {
+        crate::locations::guard_free_space_with(size, free, floor)?;
+    }
+
     std::fs::create_dir_all(&target_root).map_err(|e| {
         format!(
             "Could not create the target folder {}: {e}",
@@ -136,15 +148,41 @@ pub async fn move_install(
         )
     })?;
 
-    // Recompute the size: the index value can be stale if the user added files.
-    let size = paths::dir_size(&source);
+    // The journal lets a restart resume the copy instead of deleting it; the
+    // source is only removed after the staging tree verified and the rename
+    // published the destination (#290).
+    let staging = staging_for(&destination);
+    let manifest = load_manifest(&state, game_id, &installed)?;
+    {
+        let now = now_rfc3339();
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        let created_at = db::install_move(&connection, game_id)?
+            .map(|record| record.created_at)
+            .unwrap_or_else(|| now.clone());
+        db::upsert_install_move(
+            &connection,
+            &db::InstallMove {
+                game_id,
+                source: source.to_string_lossy().to_string(),
+                destination: destination.to_string_lossy().to_string(),
+                staging: staging.to_string_lossy().to_string(),
+                state: "copying".to_string(),
+                created_at,
+                updated_at: now,
+            },
+        )?;
+    }
 
     let handle = app.clone();
     let from = source.clone();
     let to = destination.clone();
-    tokio::task::spawn_blocking(move || {
+    let verify_handle = handle.clone();
+    let moved = tokio::task::spawn_blocking(move || {
         let mut last = Instant::now();
-        let result = move_install_dir(&from, &to, size, &mut |done, total| {
+        let staging = stage_install_copy(&from, &to, size, &mut |done, total| {
             if last.elapsed() < Duration::from_millis(250) {
                 return;
             }
@@ -158,22 +196,62 @@ pub async fn move_install(
                     message: format!("Moving files ({})", human_bytes(done)),
                 },
             );
-        });
-        if result.is_ok() {
-            let _ = handle.emit(
+        })?;
+        if let Some(manifest) = manifest {
+            let _ = verify_handle.emit(
                 "install://move-progress",
                 MoveProgress {
                     game_id,
                     bytes_done: size,
                     bytes_total: size,
-                    message: "Move complete".to_string(),
+                    message: "Verifying files…".to_string(),
                 },
             );
+            let mut last = Instant::now();
+            let outcome = manifest::verify_tree(&staging, &manifest, &mut |progress| {
+                if last.elapsed() < Duration::from_millis(500) {
+                    return;
+                }
+                last = Instant::now();
+                let _ = verify_handle.emit(
+                    "install://verify-progress",
+                    VerifyProgress {
+                        game_id,
+                        files_done: progress.files_done,
+                        files_total: progress.files_total,
+                        bytes_done: progress.bytes_done,
+                        bytes_total: progress.bytes_total,
+                        message: format!(
+                            "Verifying files… ({} of {})",
+                            progress.files_done, progress.files_total
+                        ),
+                    },
+                );
+            })?;
+            if outcome.has_damage() {
+                return Err(format!(
+                    "The copied files do not match the install manifest ({} missing, {} corrupt). The game was left in its original folder; try the move again.",
+                    outcome.missing.len(),
+                    outcome.corrupt.len()
+                ));
+            }
         }
-        result
+        finalize_staged_move(&from, &to, &staging)?;
+        Ok::<(), String>(())
     })
     .await
-    .map_err(|e| format!("The move task failed: {e}"))??;
+    .map_err(|e| format!("The move task failed: {e}"))?;
+
+    if let Err(error) = moved {
+        // Keep the journal and the verified staging folder when the copy is
+        // resumable; drop them when the destination is unusable.
+        if !staging.exists() {
+            if let Ok(connection) = state.db.lock() {
+                let _ = db::delete_install_move(&connection, game_id);
+            }
+        }
+        return Err(error);
+    }
 
     let updated = InstalledGame {
         install_path: destination.to_string_lossy().to_string(),
@@ -190,10 +268,177 @@ pub async fn move_install(
             .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
         db::upsert_installed(&connection, &updated)?;
         db::update_manifest_path(&connection, game_id, &updated.install_path, &now_rfc3339())?;
+        // #290: the first launch of a moved install checks the digests before
+        // the game starts, so a bad copy never runs.
+        db::set_install_verify_state(&connection, game_id, Some("pending"))?;
+        db::delete_install_move(&connection, game_id)?;
     }
 
+    let _ = app.emit(
+        "install://move-progress",
+        MoveProgress {
+            game_id,
+            bytes_done: size,
+            bytes_total: size,
+            message: "Move complete".to_string(),
+        },
+    );
     tracing::info!(game_id, from = %source.display(), to = %destination.display(), "install moved");
     Ok(updated)
+}
+
+/// Deterministic staging folder next to the destination (#290).
+///
+/// A random suffix would strand an interrupted copy; the same name lets the
+/// next attempt resume the files that are already there.
+pub fn staging_for(destination: &Path) -> PathBuf {
+    let name = destination
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "game".to_string());
+    destination
+        .parent()
+        .map(|parent| parent.join(format!(".{name}.ludex-move")))
+        .unwrap_or_else(|| PathBuf::from(format!(".{name}.ludex-move")))
+}
+
+/// Copies `source` into the deterministic staging folder and returns it.
+///
+/// Resumable: files already present in staging with the same size are kept.
+/// The source is never touched.
+pub fn stage_install_copy(
+    source: &Path,
+    destination: &Path,
+    expected_bytes: u64,
+    on_progress: &mut dyn FnMut(u64, u64),
+) -> Result<PathBuf, String> {
+    if destination.exists() {
+        return Err(format!(
+            "{} already exists. Choose another folder or remove it first.",
+            destination.display()
+        ));
+    }
+    let staging = staging_for(destination);
+    let parent = staging
+        .parent()
+        .ok_or_else(|| format!("Invalid destination path: {}", destination.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| {
+        format!(
+            "Could not create the target folder {}: {e}",
+            parent.display()
+        )
+    })?;
+
+    let manifest = tree_sizes(source)?;
+    let total: u64 = manifest.values().sum();
+    let mut done = 0u64;
+    let mut last = Instant::now();
+    for (relative, size) in &manifest {
+        let from = manifest::join_relative(source, relative)
+            .ok_or_else(|| format!("Refusing an unsafe install path: {relative}"))?;
+        let to = manifest::join_relative(&staging, relative)
+            .ok_or_else(|| format!("Refusing an unsafe install path: {relative}"))?;
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Could not create {}: {e}", parent.display()))?;
+        }
+        let already = std::fs::metadata(&to)
+            .map(|metadata| metadata.len() == *size)
+            .unwrap_or(false);
+        if !already {
+            paths::copy_file(&from, &to, |_, _| {}).map_err(|e| {
+                format!("Could not copy {} to {}: {e}", from.display(), to.display())
+            })?;
+        }
+        done = done.saturating_add(*size);
+        if last.elapsed() >= Duration::from_millis(100) {
+            last = Instant::now();
+            on_progress(done, total);
+        }
+    }
+    on_progress(total, total);
+
+    let staged = tree_sizes(&staging)?;
+    let incomplete: Vec<&String> = manifest
+        .iter()
+        .filter(|(relative, size)| staged.get(*relative) != Some(*size))
+        .map(|(relative, _)| relative)
+        .collect();
+    if !incomplete.is_empty() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(format!(
+            "The copy is incomplete ({} files, {} bytes; expected {} files, {}). The game was left in its original folder.",
+            staged.len(),
+            staged.values().sum::<u64>(),
+            manifest.len(),
+            expected_bytes.max(total),
+        ));
+    }
+    // Drop leftovers from an interrupted attempt at the same staging path so
+    // the published folder is exactly the source tree.
+    for relative in staged
+        .keys()
+        .filter(|relative| !manifest.contains_key(*relative))
+    {
+        if let Some(path) = manifest::join_relative(&staging, relative) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    Ok(staging)
+}
+
+/// Renames a verified staging folder into place and removes the source.
+pub fn finalize_staged_move(
+    source: &Path,
+    destination: &Path,
+    staging: &Path,
+) -> Result<(), String> {
+    if destination.exists() {
+        return Err(format!(
+            "{} already exists. Choose another folder or remove it first.",
+            destination.display()
+        ));
+    }
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Could not create {}: {e}", parent.display()))?;
+    }
+    std::fs::rename(staging, destination).map_err(|e| {
+        format!(
+            "Could not finish the move to {}: {e}. The game was left in its original folder.",
+            destination.display()
+        )
+    })?;
+    if let Err(error) = std::fs::remove_dir_all(source) {
+        // The destination is complete; a stale copy is better than losing the
+        // install. The next uninstall/move can clean it up.
+        tracing::warn!(error = %error, path = %source.display(), "could not delete the old install folder");
+    }
+    Ok(())
+}
+
+/// Relative-path → size map of a tree, symlinks skipped.
+fn tree_sizes(root: &Path) -> Result<std::collections::BTreeMap<String, u64>, String> {
+    let mut sizes = std::collections::BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let entries = std::fs::read_dir(&current)
+            .map_err(|e| format!("Could not read {}: {e}", current.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if metadata.is_dir() {
+                stack.push(path);
+            } else if metadata.is_file() {
+                if let Some(relative) = manifest::relative_slash(root, &path) {
+                    sizes.insert(relative, metadata.len());
+                }
+            }
+        }
+    }
+    Ok(sizes)
 }
 
 /// Relative `slug/version` path of an install, used to reproduce the layout
@@ -285,6 +530,7 @@ fn rebase_executable(
 /// Cross-device moves copy into a hidden sibling of the destination, verify the
 /// byte count, rename it into place and only then delete the source. Any
 /// failure removes the partial copy and leaves the original untouched.
+#[cfg(test)]
 pub fn move_install_dir(
     source: &Path,
     destination: &Path,
@@ -306,7 +552,8 @@ pub fn move_install_dir(
         })?;
     }
 
-    // Same filesystem: a rename is atomic and needs no extra space.
+    // Same filesystem: a rename is atomic and needs no extra space. It is also
+    // resumable if interrupted, because the source only moves once.
     match std::fs::rename(source, destination) {
         Ok(()) => {
             on_progress(expected_bytes, expected_bytes);
@@ -321,70 +568,173 @@ pub fn move_install_dir(
             );
         }
     }
+    let staging = stage_install_copy(source, destination, expected_bytes, on_progress)?;
+    finalize_staged_move(source, destination, &staging)
+}
 
-    let parent = destination
-        .parent()
-        .ok_or_else(|| format!("Invalid destination path: {}", destination.display()))?;
-    if expected_bytes > 0 {
-        match fs2::available_space(parent) {
-            Ok(free) if free < expected_bytes => {
-                return Err(format!(
-                    "Not enough free space in {}: {} needed, {} available.",
-                    parent.display(),
-                    human_bytes(expected_bytes),
-                    human_bytes(free)
-                ));
-            }
-            Ok(_) => {}
+/// Resumes the moves a previous app run left in the journal (#290).
+///
+/// The source is still the indexed path until the swap, so the normal move
+/// path is safe to re-run: staging resumes by size, the tree is verified
+/// again, and only then does the destination replace the source.
+pub async fn resume_moves(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let pending = {
+        let Ok(connection) = state.db.lock() else {
+            tracing::warn!("could not read the move journal: database unavailable");
+            return;
+        };
+        match db::pending_install_moves(&connection) {
+            Ok(rows) => rows,
             Err(error) => {
-                tracing::warn!(error = %error, path = %parent.display(), "could not check free disk space");
+                tracing::warn!(%error, "could not read the move journal");
+                return;
             }
         }
+    };
+    for record in pending {
+        // A swap that completed just before the crash only needs the cleanup.
+        let indexed = {
+            let Ok(connection) = state.db.lock() else {
+                return;
+            };
+            db::get_installed(&connection, record.game_id)
+                .ok()
+                .flatten()
+        };
+        let Some(indexed) = indexed else {
+            if let Ok(connection) = state.db.lock() {
+                let _ = db::delete_install_move(&connection, record.game_id);
+            }
+            continue;
+        };
+        if indexed.install_path == record.destination {
+            // The index points at the destination: finish the cleanup.
+            if Path::new(&record.source).is_dir() {
+                let _ = std::fs::remove_dir_all(&record.source);
+            }
+            if let Ok(connection) = state.db.lock() {
+                let _ = db::delete_install_move(&connection, record.game_id);
+                let _ = db::set_install_verify_state(&connection, record.game_id, Some("pending"));
+            }
+            tracing::info!(
+                game_id = record.game_id,
+                destination = %record.destination,
+                "finished an interrupted install move"
+            );
+            continue;
+        }
+        let target_root = Path::new(&record.destination)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(&record.destination));
+        tracing::info!(
+            game_id = record.game_id,
+            to = %record.destination,
+            "resuming an interrupted install move"
+        );
+        if let Err(error) = move_install(
+            app,
+            record.game_id,
+            target_root.to_string_lossy().to_string(),
+        )
+        .await
+        {
+            tracing::warn!(game_id = record.game_id, %error, "could not resume the install move");
+        }
     }
+}
 
-    let name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "game".to_string());
-    let temp = parent.join(format!(
-        ".{name}.moving-{}",
-        short_id(&uuid::Uuid::new_v4().to_string())
-    ));
-    if temp.exists() {
-        let _ = std::fs::remove_dir_all(&temp);
+/// Verifies a freshly moved install before its first launch (#290).
+pub async fn verify_moved_install(
+    app: &AppHandle,
+    game_id: i64,
+    installed: &InstalledGame,
+    install_path: &Path,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let pending = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::install_verify_state(&connection, game_id)?.as_deref() == Some("pending")
+    };
+    if !pending {
+        return Ok(());
     }
+    let Some(manifest) = load_manifest(&state, game_id, installed)? else {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::set_install_verify_state(&connection, game_id, None)?;
+        return Ok(());
+    };
 
-    if let Err(error) = paths::copy_dir_recursive(source, &temp, on_progress) {
-        let _ = std::fs::remove_dir_all(&temp);
+    let _ = app.emit(
+        "install://verify-progress",
+        VerifyProgress {
+            game_id,
+            files_done: 0,
+            files_total: manifest.entries.len() as u64,
+            bytes_done: 0,
+            bytes_total: manifest.total_bytes,
+            message: "Verifying files…".to_string(),
+        },
+    );
+    let root = install_path.to_path_buf();
+    let verify_handle = app.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        let mut last = Instant::now();
+        manifest::verify_tree(&root, &manifest, &mut |progress| {
+            if last.elapsed() < Duration::from_millis(250) {
+                return;
+            }
+            last = Instant::now();
+            let _ = verify_handle.emit(
+                "install://verify-progress",
+                VerifyProgress {
+                    game_id,
+                    files_done: progress.files_done,
+                    files_total: progress.files_total,
+                    bytes_done: progress.bytes_done,
+                    bytes_total: progress.bytes_total,
+                    message: format!(
+                        "Verifying files… ({} of {})",
+                        progress.files_done, progress.files_total
+                    ),
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|e| format!("The verification task failed: {e}"))??;
+
+    if outcome.has_damage() {
         return Err(format!(
-            "Could not copy the game files to {}: {error}",
-            destination.display()
+            "This game was just moved and {} file(s) do not match their digest. Run Repair from the game page, or reinstall it.",
+            outcome.missing.len() + outcome.corrupt.len()
         ));
     }
-
-    let copied_bytes = paths::dir_size(&temp);
-    if expected_bytes > 0 && copied_bytes != expected_bytes {
-        let _ = std::fs::remove_dir_all(&temp);
-        return Err(format!(
-            "The copy is incomplete ({} of {}). The game was left in its original folder.",
-            human_bytes(copied_bytes),
-            human_bytes(expected_bytes)
-        ));
+    {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::set_install_verify_state(&connection, game_id, None)?;
     }
-    if let Err(error) = std::fs::rename(&temp, destination) {
-        let _ = std::fs::remove_dir_all(&temp);
-        return Err(format!(
-            "Could not finish the move to {}: {error}",
-            destination.display()
-        ));
-    }
-
-    if let Err(error) = std::fs::remove_dir_all(source) {
-        // The destination is complete; a stale copy is better than losing the
-        // install. The next uninstall/move can clean it up.
-        tracing::warn!(error = %error, path = %source.display(), "could not delete the old install folder");
-    }
-
+    let _ = app.emit(
+        "install://verify-progress",
+        VerifyProgress {
+            game_id,
+            files_done: outcome.files_checked,
+            files_total: outcome.files_checked,
+            bytes_done: outcome.bytes_checked,
+            bytes_total: outcome.bytes_checked,
+            message: "Files verified".to_string(),
+        },
+    );
     Ok(())
 }
 
@@ -868,6 +1218,7 @@ fn failure_message(failure: &Failure) -> String {
     match failure {
         Failure::Cancelled => "the download was cancelled".to_string(),
         Failure::Paused => "the download was paused".to_string(),
+        Failure::Offline(message) => message.clone(),
         Failure::Failed(message) => message.clone(),
         Failure::StreamUnavailable(message) => message.clone(),
     }
@@ -1039,6 +1390,90 @@ mod tests {
         let copied = paths::copy_dir_recursive(&source, &destination, |_, _| {}).unwrap();
         assert_eq!(copied, size);
         assert_eq!(paths::dir_size(&destination), size);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn staged_copy_resumes_a_partial_staging_folder() {
+        let root = temp_root("resume");
+        let source = root.join("source");
+        fs::create_dir_all(source.join("bin")).unwrap();
+        fs::write(source.join("game.exe"), vec![1_u8; 1024]).unwrap();
+        fs::write(source.join("bin/data.bin"), vec![2_u8; 4096]).unwrap();
+        let destination = root.join("target/doom/1.0");
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+
+        // A previous run copied one file and left another truncated.
+        let staging = staging_for(&destination);
+        fs::create_dir_all(staging.join("bin")).unwrap();
+        fs::write(staging.join("game.exe"), vec![1_u8; 1024]).unwrap();
+        fs::write(staging.join("bin/data.bin"), b"trunc").unwrap();
+
+        let size = paths::dir_size(&source);
+        let staged = stage_install_copy(&source, &destination, size, &mut |_, _| {}).unwrap();
+        assert_eq!(staged, staging);
+        // Nothing is published and the source is untouched while staging.
+        assert!(!destination.exists());
+        assert!(source.is_dir());
+        assert_eq!(
+            fs::read(staging.join("bin/data.bin")).unwrap(),
+            vec![2_u8; 4096]
+        );
+
+        finalize_staged_move(&source, &destination, &staging).unwrap();
+        assert_eq!(
+            fs::read(destination.join("game.exe")).unwrap(),
+            vec![1_u8; 1024]
+        );
+        assert!(!source.exists());
+        assert!(!staging.exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_damaged_staging_copy_never_replaces_the_source() {
+        let root = temp_root("damaged");
+        let source = root.join("source");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("game.exe"), vec![3_u8; 512]).unwrap();
+        let destination = root.join("target/doom/1.0");
+        let staging = staging_for(&destination);
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("game.exe"), vec![3_u8; 128]).unwrap();
+
+        // The manifest of the source is the yardstick: a truncated staging file
+        // is damage, and the move must not publish it.
+        let manifest = manifest::build_manifest(&source, &mut |_| {}).unwrap();
+        let outcome = manifest::verify_tree(&staging, &manifest, &mut |_| {}).unwrap();
+        assert!(outcome.has_damage());
+        assert_eq!(outcome.corrupt.len(), 1);
+        assert!(source.is_dir());
+        assert!(!destination.exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn finalize_refuses_an_existing_destination_and_keeps_every_copy() {
+        let root = temp_root("finalize");
+        let source = root.join("source");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("game.exe"), b"MZ").unwrap();
+        let destination = root.join("target/doom/1.0");
+        let staging = stage_install_copy(&source, &destination, 2, &mut |_, _| {}).unwrap();
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join("other.bin"), b"user data").unwrap();
+
+        let error = finalize_staged_move(&source, &destination, &staging).unwrap_err();
+        assert!(error.contains("already exists"), "{error}");
+        assert!(source.is_dir());
+        assert_eq!(
+            fs::read(destination.join("other.bin")).unwrap(),
+            b"user data"
+        );
+        assert!(staging.is_dir());
+
         let _ = fs::remove_dir_all(&root);
     }
 

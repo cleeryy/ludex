@@ -24,7 +24,7 @@ use crate::file_manifest::{self, FileCheckpoints};
 use crate::manifest;
 use crate::space::{self, SpacePlan};
 use crate::state::{AppState, JobEntry};
-use crate::util::{human_bytes, non_empty, now_rfc3339};
+use crate::util::{non_empty, now_rfc3339};
 
 use super::job::{Failure, InstallParams, InstallPhase};
 use super::plan::free_space;
@@ -163,7 +163,11 @@ pub(super) async fn manifest_install(
             return Err(Failure::Failed(status.message()));
         }
     }
-    ensure_manifest_space(&install_root, plan.total_bytes)?;
+    ensure_manifest_space(
+        &install_root,
+        plan.total_bytes,
+        settings.floor_for_path(&install_root),
+    )?;
 
     entry.update(|job| {
         job.file_manifest = true;
@@ -331,7 +335,11 @@ fn note_manifest_fallback(app: &AppHandle, entry: &Arc<JobEntry>, reason: &str) 
 }
 
 /// Disk preflight of the manifest peak, before the first byte (#222/#231).
-fn ensure_manifest_space(install_root: &Path, extracted_bytes: u64) -> Result<(), Failure> {
+fn ensure_manifest_space(
+    install_root: &Path,
+    extracted_bytes: u64,
+    min_free_bytes: u64,
+) -> Result<(), Failure> {
     if extracted_bytes == 0 {
         return Ok(());
     }
@@ -339,15 +347,14 @@ fn ensure_manifest_space(install_root: &Path, extracted_bytes: u64) -> Result<()
         return Ok(());
     };
     let required = space::with_margin(extracted_bytes);
-    if free < required {
-        return Err(Failure::Failed(format!(
-            "Not enough free space in {}: {} needed for the downloaded files (plus a safety margin), {} available. Free space on that volume and resume the install.",
-            install_root.display(),
-            human_bytes(required),
-            human_bytes(free)
-        )));
+    // #290: the per-library floor applies to the file transport too.
+    match crate::bridge::mount::check_free_space(free, required, min_free_bytes) {
+        Ok(()) => Ok(()),
+        Err(shortfall) => Err(Failure::Failed(format!(
+            "{} Free space on that volume and resume the install.",
+            shortfall.message(install_root)
+        ))),
     }
-    Ok(())
 }
 
 /// Job-scoped parallel budget: the server's `parallelPartsMax`, clamped to the

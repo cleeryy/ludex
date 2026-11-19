@@ -456,6 +456,10 @@ pub(crate) enum Failure {
     /// The user paused the job: the `.part` file is kept for a Range resume.
     Paused,
     Failed(String),
+    /// The destination library's mount disappeared (#290): the job pauses with
+    /// this message, keeps its partial archive and resumes when the drive is
+    /// back.
+    Offline(String),
     /// The per-entry stream path is unusable (a proxy rejects every attempt
     /// before a single byte arrives). The caller falls back to the classic
     /// resumable download instead of failing the install (#204).

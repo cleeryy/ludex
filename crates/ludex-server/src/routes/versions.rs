@@ -280,6 +280,14 @@ async fn extract(
         })?
         .to_string();
 
+    // #290: the cache has to fit the extracted tree plus the library floor.
+    let min_free = crate::roots::default_min_free_bytes(&state.core.pool, &state.core.config).await;
+    crate::mounts::preflight(
+        state.transfer.extracted.root(),
+        u64::try_from(version.size.max(0)).unwrap_or(0),
+        min_free,
+    )?;
+
     match state.transfer.extracted.submit(&sha256, version_id) {
         Submission::Ready(status) | Submission::Running(status) => Ok(Json(status)),
         Submission::Started(job) => {
