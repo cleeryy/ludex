@@ -287,9 +287,13 @@ jobs:
           - platform: windows-latest
             label: Windows x64 (NSIS)
             args: "--bundles nsis"
+          # #281: the AppImage exports its /.mount_* paths through PYTHONHOME,
+          # PYTHONPATH, LD_LIBRARY_PATH and LD_PRELOAD, which leaks into the
+          # games it spawns (#278). The rpm installs real files under /usr, so
+          # no mount prefix can leak; it is the recommended Fedora/RHEL build.
           - platform: ubuntu-24.04
-            label: Linux x64 (AppImage, deb)
-            args: "--bundles appimage,deb"
+            label: Linux x64 (AppImage, deb, rpm)
+            args: "--bundles appimage,deb,rpm"
           - platform: macos-latest
             label: macOS universal (dmg)
             args: "--target universal-apple-darwin --bundles app,dmg"
@@ -303,13 +307,14 @@ jobs:
           for attempt in 1 2 3; do
             sudo apt-get update && sudo apt-get install -y --no-install-recommends \
               libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
-              libxdo-dev libssl-dev libudev-dev libfuse2t64 libayatana-appindicator3-dev && break
+              libxdo-dev libssl-dev libudev-dev libfuse2t64 libayatana-appindicator3-dev rpm && break
             echo "apt attempt $attempt failed; retrying in 15s" >&2
             sleep 15
           done
+          # `rpm` provides rpmbuild, which the Tauri rpm bundler needs (#281).
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
-            libxdo-dev libssl-dev libudev-dev libfuse2t64 libayatana-appindicator3-dev
+            libxdo-dev libssl-dev libudev-dev libfuse2t64 libayatana-appindicator3-dev rpm
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

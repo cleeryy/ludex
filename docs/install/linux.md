@@ -36,6 +36,10 @@ sh install.sh --channel edge     # early build, always a prerelease
 sh install.sh --version v0.4.22  # pin an exact release
 ```
 
+Every stable release publishes the same Linux bundles — AppImage, `.deb` and
+`.rpm`; `edge` builds only the AppImage and the `.deb`. They differ in how they
+are verified, not in what they install.
+
 `--version` accepts `v0.4.22` or `0.4.22` and skips the manifest entirely.
 GitHub resolves `/releases/latest` to the newest non-prerelease, so an edge
 build is never installed by the default command.
@@ -153,6 +157,26 @@ APPIMAGE_EXTRACT_AND_RUN=1 ~/.local/bin/ludex
 `sudo dpkg -i`. It is the right choice on Debian/Xubuntu images where FUSE is
 unavailable, and it is the only path that needs sudo. When dpkg reports unmet
 dependencies, finish with `sudo apt-get install -f`. `--dir` does not apply.
+
+## .rpm instead of the AppImage
+
+Tauri builds `Ludex-<version>-1.x86_64.rpm` next to the AppImage and the `.deb`.
+`install.sh` does not handle it: verify it like any other asset (see
+[Verification](#verification)), then install the local file so dnf resolves the
+dependencies.
+
+```sh
+version=0.4.22   # the release you verified
+sudo dnf install "./Ludex-${version}-1.x86_64.rpm"
+# or, with the dependencies already present
+sudo rpm -i "Ludex-${version}-1.x86_64.rpm"
+```
+
+It is the right choice on Fedora/RHEL, and on any host where games run through
+Python-based compatibility tools: the AppImage exports `PYTHONHOME`,
+`PYTHONPATH`, `LD_LIBRARY_PATH` and `LD_PRELOAD` pointing into `/.mount_*`, and
+those values leak into every process it spawns (#278). A native rpm installs
+real files under `/usr` and exports none of them.
 
 ## Uninstall
 
