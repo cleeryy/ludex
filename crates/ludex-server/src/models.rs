@@ -636,6 +636,21 @@ pub struct StreamQuery {
     /// Short-lived download ticket, accepted instead of a Bearer token.
     #[serde(default)]
     pub token: Option<String>,
+    /// `restart=1`: serve the entry from byte 0 and ignore `Range` (#309).
+    /// Used by the client when the server refuses to decompress a compressed
+    /// entry up to a large offset.
+    #[serde(default)]
+    pub restart: Option<String>,
+}
+
+impl StreamQuery {
+    /// Whether `?restart=1` (also `true`/`yes`) was requested.
+    pub fn restart_requested(&self) -> bool {
+        matches!(
+            self.restart.as_deref().map(str::trim),
+            Some("1" | "true" | "yes")
+        )
+    }
 }
 
 /// `POST /api/library/roots` request.

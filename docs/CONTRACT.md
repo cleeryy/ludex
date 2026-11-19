@@ -510,7 +510,7 @@ payload are ignored. New and existing accounts default to
 | GET | `/api/games/{id}/download?versionId=&token=` | file stream, single Range under a matching `If-Range` (a stale/missing validator match returns the full `200`, per RFC 9110 §13.1.5), `Content-Disposition`, strong `ETag`, and `X-Ludex-Archive-Sha256: <hex>` when the version has a full hash (#216). Optional `jobId`/`partIndex` (or `X-Ludex-Job-Id`) size a parallel download; see *Parallel ranged downloads (#217)* |
 | GET | `/api/games/{id}/versions/{versionId}/stream?token=` | Compatibility tar stream: an uncompressed `application/x-tar` of the archive entries, no archive stored on the client. ZIP, 7z and RAR (RAR4/RAR5) are supported; unsupported files return 415, encrypted archives return 409. Exact `Content-Length`, `X-Accel-Buffering: no`, `X-Ludex-Archive-Sha256` when known. The desktop installs through the per-entry manifest instead, because a tar cannot be checkpointed (#203). Same auth rules as download. |
 | GET | `/api/games/{id}/versions/{versionId}/stream/manifest?token=` | Ordered ZIP manifest for resumable per-entry installs (#115): `{ format: "zip", entryCount, totalBytes, totalCompressedBytes, entries: [{ index, path, size, compressedSize, mode, crc32, isDir }] }`. Same auth as `/stream` (Bearer or download ticket). Non-ZIP → `415 stream_unsupported`. |
-| GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
+| GET | `/api/games/{id}/versions/{versionId}/stream/entries/{index}?token=` | Raw content of one ZIP entry, single HTTP `Range` supported (`206` + `Content-Range`, `416` + `Content-Range: bytes */size`). A compressed entry resumed past 1 MiB answers `409 entry_resume_restart` + `X-Ludex-Entry-Resume: restart` instead of walking the prefix; `?restart=1` serves it from byte 0 with the normal `200` (#309). `Content-Length` is exact. Unknown index → `404 entry_not_found`; directories → `404 entry_not_found`. Same auth as `/stream`. |
 | GET | `/api/games/{id}/versions/latest` | preferred version (`games.defaultVersionId`, else the newest non-missing version) → `LatestVersion`; 404 `no_versions` when the game has none |
 | GET | `/api/games/{id}/versions` | editor; every version, newest first, including missing archives → `GameVersionsResponse` (`gameId`, `defaultVersionId`, `versions: GameVersionInfo[]`) |
 | PUT | `/api/games/{id}/versions/default` | editor; `{ versionId }` pins the version used by downloads, fresh installs and `/versions/latest`; returns `GameVersionsResponse`. Pinning an older version is a rollback and keeps newer archives available. 404 `version_not_found`, 409 `version_missing` / `root_unavailable` |
@@ -4150,11 +4150,27 @@ a stable `index` (its central-directory position), a sanitized relative `path`,
 uncompressed/compressed sizes, permission bits, CRC-32 and `isDir`.
 `GET …/stream/entries/{index}` serves the raw entry with single-Range support:
 stored entries seek directly to their data offset; DEFLATE/Zstd entries are
-decompressed from the start and the offset is skipped. Directories answer 404;
-out-of-range indexes answer 404 `entry_not_found`; unsatisfiable or malformed
-ranges answer 416 with `Content-Range: bytes */<size>`. Path validation is
-identical to the tar stream: absolute paths, `..`, drive letters, NUL bytes and
-symlinks are rejected.
+decompressed from the start and the offset is skipped. That walk is bounded: a
+compressed entry past `MAX_COMPRESSED_RESUME_SKIP` (1 MiB, in
+`crates/ludex-server/src/transfer/zip.rs`) is not answered with a `206` that
+would stay silent for minutes. The server answers `409 entry_resume_restart`
+immediately, with `X-Ludex-Entry-Resume: restart` and the usual error body
+`{"error":{"code":"entry_resume_restart","message":"…"}}`. The client discards
+that entry's `.part` file and re-requests the same URL with `?restart=1`, which
+ignores any `Range` header and streams the entry from byte 0 as a `200` with
+the full `Content-Length`; offsets grow from there. A second refusal for the
+same entry fails, it never restarts a multi-gigabyte entry in a loop. Stored
+entries never answer the signal and keep the direct-seek `206`. Directories
+answer 404; out-of-range indexes answer 404 `entry_not_found`; unsatisfiable or
+malformed ranges answer 416 with `Content-Range: bytes */<size>`. Path
+validation is identical to the tar stream: absolute paths, `..`, drive letters,
+NUL bytes and symlinks are rejected.
+
+Every entry response, the tar stream and the extracted-cache file route carry
+`Cache-Control: private, no-store, no-transform`, `X-Accel-Buffering: no` and
+`Incremental: ?1` (RFC 10036), so a reverse proxy neither re-encodes the body
+nor withholds the response head (#310). `no-store` means `?restart=1` and a
+`Range` are never served from a cache.
 
 The desktop persists the manifest and a completed-entry bitset in its SQLite
 index. On retry, pause/resume or app restart it verifies the manifest
@@ -4171,26 +4187,42 @@ per-entry path.
 Every entry response is read with a stall timeout (45 s without a chunk). A
 stalled body, a dropped connection, a proxy 502/504 or a short body is retried
 for that entry only, with exponential backoff (0.5 s, 1 s, 2 s, 4 s; five
-attempts), resuming at the exact `.part` byte with `Range`. 401/403/404/415 are
-not retried. Each attempt logs the entry index, path, bytes kept, elapsed time
-and error; a completed entry logs its index, bytes and duration. When the whole
-job has received zero bytes and every attempt fails at the transport level, the
-stream path is declared unavailable and the job falls back once to the classic
-resumable download (same job id, one history row). Otherwise the job fails with
-a resumable error that names the entry and the kept offset, and Resume
+attempts), resuming at the exact `.part` byte with `Range`. A compressed entry
+the server refuses to walk (`409 entry_resume_restart`) is restarted once: the
+client drops that `.part`, logs the entry index, name and reason, and requests
+`?restart=1` from byte 0. A second refusal fails the entry (the job stays
+resumable) instead of looping. 401/403/404/415 are not retried. Each attempt
+logs the entry index, path, bytes kept, elapsed time and error; a completed
+entry logs its index, bytes and duration. When the whole job has received zero
+bytes and every attempt fails at the transport level, the stream path is
+declared unavailable and the job falls back once to the classic resumable
+download (same job id, one history row). Otherwise the job fails with a
+resumable error that names the entry and the kept offset, and Resume
 continues from there.
 
 **Reverse proxy.** `Caddyfile` for the stream endpoints:
 
 ```caddy
 example.com {
-    @stream path /api/games/*/versions/*/stream* /api/games/*/download
-    reverse_proxy @stream 127.0.0.1:8080 {
-        flush_interval -1
-        transport http {
-            read_timeout 0
-            write_timeout 0
+    # Never pass the archive streams through `encode`: it withholds the
+    # response head until the first body byte, which can be minutes away on a
+    # compressed entry (#310). Keep this matcher even though the server sends
+    # `Incremental: ?1` and `Cache-Control: no-transform`: Caddy only honours
+    # those from 2.11.7 on, and other proxies need the same exclusion.
+    @ludex_stream path /api/games/*/versions/*/stream/* /api/versions/*/files/*
+    handle @ludex_stream {
+        reverse_proxy 127.0.0.1:8080 {
+            flush_interval -1
+            transport http {
+                read_timeout 0
+                write_timeout 0
+            }
         }
+    }
+
+    handle {
+        encode zstd gzip
+        reverse_proxy 127.0.0.1:8080
     }
 }
 ```

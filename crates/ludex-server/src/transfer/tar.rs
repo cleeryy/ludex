@@ -92,13 +92,21 @@ pub(crate) async fn serve(
         .header(header::CONTENT_DISPOSITION, disposition)
         .header(
             header::CACHE_CONTROL,
-            HeaderValue::from_static("private, no-store"),
+            // `no-transform` stops Caddy/nginx from re-encoding the tar (#310).
+            HeaderValue::from_static("private, no-store, no-transform"),
         )
         // A reverse proxy must not buffer a multi-gigabyte stream: the client
-        // needs each chunk as it is produced (#204).
+        // needs each chunk as it is produced (#204). Caddy ignores this
+        // header; `Incremental` below covers it.
         .header(
             HeaderName::from_static("x-accel-buffering"),
             HeaderValue::from_static("no"),
+        )
+        // RFC 10036 incremental forwarding: Caddy 2.11.7+ forwards the
+        // response head before the first body byte (#310).
+        .header(
+            HeaderName::from_static("incremental"),
+            HeaderValue::from_static("?1"),
         );
     if let Some(digest) = version.content_sha256.as_deref() {
         builder = builder.header(crate::content_hash::ARCHIVE_SHA256_HEADER, digest);

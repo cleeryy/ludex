@@ -81,24 +81,49 @@ downloader, which writes `.part` files and renames completed archives.
 
 ## Reverse proxy and TLS
 
-Caddy obtains and renews certificates automatically:
+Caddy obtains and renews certificates automatically. Keep the archive streams
+out of `encode`: Caddy withholds the response head until it can choose an
+encoding, and the first body byte of a compressed entry can legitimately be
+minutes away (#310).
 
 ```caddyfile
 ludex.example.com {
-    encode zstd gzip
+    # Per-entry stream, tar stream and extracted-cache files: no
+    # `Content-Encoding`, and the response head is forwarded immediately.
+    @ludex_stream path /api/games/*/versions/*/stream/* /api/versions/*/files/*
+    handle @ludex_stream {
+        reverse_proxy 127.0.0.1:8080 {
+            # Do not buffer downloads: archives are large and Range requests
+            # should reach the server immediately.
+            flush_interval -1
+            transport http {
+                # A large transfer may pause between chunks; a proxy write
+                # deadline shorter than the client's stall timeout (30 s
+                # default) would kill a healthy download. 0 disables it; see
+                # docs/PERFORMANCE.md.
+                read_timeout 0
+                write_timeout 0
+            }
+        }
+    }
 
-    reverse_proxy 127.0.0.1:8080 {
-        # Do not buffer downloads: archives are large and Range requests
-        # should reach the server immediately.
-        flush_interval -1
-        # A large transfer may pause between chunks; a proxy write deadline
-        # shorter than the client's stall timeout (30 s default) would kill a
-        # healthy download. 0 disables it; see docs/PERFORMANCE.md.
-        read_timeout 0
-        write_timeout 0
+    handle {
+        encode zstd gzip
+        reverse_proxy 127.0.0.1:8080 {
+            transport http {
+                read_timeout 0
+                write_timeout 0
+            }
+        }
     }
 }
 ```
+
+The server also sends `Cache-Control: no-transform`, `X-Accel-Buffering: no`
+and `Incremental: ?1` on those routes, so a Caddy ≥ 2.11.7 front end keeps the
+head moving even when the matcher is missing; the matcher remains required for
+older Caddy builds and other proxies. See `docs/REMOTE-ACCESS.md` for the
+before/after check.
 
 If Caddy runs in another container, proxy to the service name
 (`ludex:8080`) on a shared Docker network instead of `127.0.0.1`.

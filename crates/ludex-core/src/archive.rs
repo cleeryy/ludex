@@ -2726,12 +2726,29 @@ pub fn zip_entry_info(path: &Path, index: usize) -> Result<StreamEntry, ArchiveE
     })
 }
 
+/// Whether one ZIP entry is stored (compression method 0).
+///
+/// A stored entry is resumed with a direct seek to `data_start + offset`. Any
+/// other method can only be resumed by decompressing the whole prefix, so the
+/// cost is linear in `offset` (#309); callers use this to refuse an expensive
+/// resume instead of leaving the client without a body byte.
+pub fn zip_entry_is_stored(path: &Path, index: usize) -> Result<bool, ArchiveError> {
+    if detect_format(path)? != ArchiveFormat::Zip {
+        return Err(ArchiveError::UnsupportedFormat);
+    }
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(map_zip_error)?;
+    let entry = archive.by_index_raw(index).map_err(map_zip_error)?;
+    Ok(entry.compression() == zip::CompressionMethod::Stored)
+}
+
 /// Writes `length` bytes of one ZIP entry starting at uncompressed `offset`.
 ///
 /// Stored (uncompressed) entries seek straight to `data_start + offset`, so a
 /// ranged resume costs one seek. Compressed entries are decompressed from the
 /// start and the first `offset` bytes are skipped; that keeps memory bounded
 /// but makes a resume of a large DEFLATE/Zstd entry proportional to its offset.
+/// The HTTP transport refuses the expensive case instead of calling it (#309).
 /// Returns the number of bytes written (`0` for directories).
 pub fn write_zip_entry_range<W: Write>(
     path: &Path,

@@ -52,6 +52,10 @@ const DEFAULT_STALL_TIMEOUT: Duration = Duration::from_secs(45);
 const DEFAULT_ENTRY_ATTEMPTS: u32 = 5;
 /// First backoff; doubles per attempt up to eight seconds.
 const RETRY_BACKOFF: Duration = Duration::from_millis(500);
+/// Explicit entry restarts allowed per entry download (#309). The server
+/// refuses to walk a compressed entry to a large offset; the client drops the
+/// `.part` and fetches it from zero again, exactly once.
+const MAX_ENTRY_RESTARTS: u32 = 1;
 /// A stream entry must start its body within this budget before the attempt is
 /// abandoned (#211). Cloudflare answers a 524 at ~100 s; 20 s per attempt keeps
 /// the whole `DEFAULT_ENTRY_ATTEMPTS` burst inside that proxy budget, so a job
@@ -102,21 +106,26 @@ pub(crate) struct EntryResponse {
     pub status: reqwest::StatusCode,
     /// Start offset of a `206` response, parsed from `Content-Range`.
     pub content_range_start: Option<u64>,
+    /// The server refused to resume a compressed entry at this offset
+    /// (`X-Ludex-Entry-Resume: restart`, #309): the `.part` must be dropped and
+    /// the entry fetched from byte 0 with `?restart=1`.
+    pub restart_required: bool,
     pub body: EntryChunks,
 }
 
 /// Injectable HTTP transport for the per-entry stream.
 ///
 /// Production uses [`HttpTransport`] (reqwest). Tests implement this trait to
-/// close a body mid-entry, stall without sending a chunk, or answer 502/504
-/// without a socket, and then assert the next request resumes at the exact
-/// offset.
+/// close a body mid-entry, stall without sending a chunk, answer 502/504
+/// without a socket, or answer the compressed-resume signal (#309), and then
+/// assert the next request resumes at the exact offset.
 pub(crate) trait EntryTransport: Send + Sync {
     fn fetch<'a>(
         &'a self,
         url: &'a str,
         token: Option<&'a str>,
         offset: u64,
+        restart: bool,
     ) -> Pin<Box<dyn Future<Output = Result<EntryResponse, String>> + Send + 'a>>;
 }
 
@@ -130,6 +139,7 @@ impl EntryTransport for HttpTransport<'_> {
         url: &'a str,
         token: Option<&'a str>,
         offset: u64,
+        restart: bool,
     ) -> Pin<Box<dyn Future<Output = Result<EntryResponse, String>> + Send + 'a>> {
         Box::pin(async move {
             let mut request = self
@@ -142,6 +152,10 @@ impl EntryTransport for HttpTransport<'_> {
             if offset > 0 {
                 request = request.header(reqwest::header::RANGE, format!("bytes={offset}-"));
             }
+            if restart {
+                // #309: ignore any Range and stream the entry from byte 0.
+                request = request.query(&[("restart", "1")]);
+            }
             let response = request.send().await.map_err(|e| e.to_string())?;
             let status = response.status();
             let content_range_start = response
@@ -149,12 +163,18 @@ impl EntryTransport for HttpTransport<'_> {
                 .get(reqwest::header::CONTENT_RANGE)
                 .and_then(|value| value.to_str().ok())
                 .and_then(parse_content_range_start);
+            let restart_required = response
+                .headers()
+                .get("x-ludex-entry-resume")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.eq_ignore_ascii_case("restart"));
             let body = response
                 .bytes_stream()
                 .map(|item| item.map(|bytes| bytes.to_vec()).map_err(|e| e.to_string()));
             Ok(EntryResponse {
                 status,
                 content_range_start,
+                restart_required,
                 body: Box::pin(body),
             })
         })
@@ -895,6 +915,12 @@ async fn download_entry(
 
     let started = Instant::now();
     let mut last_error = String::new();
+    // One explicit restart per entry download (#309). The server refuses a
+    // compressed entry resumed past its decompression budget; the first
+    // refusal drops the `.part` and fetches the entry from zero. A second
+    // refusal fails this entry (still resumable) instead of restarting a
+    // multi-gigabyte download forever.
+    let mut restarts = 0_u32;
     for attempt in 1..=tuning.attempts {
         // #212: never burn an attempt while the OS reports no network.
         wait_for_network(&tuning, cancel, pause).await?;
@@ -931,8 +957,18 @@ async fn download_entry(
         };
         let attempt_started = Instant::now();
         let outcome = download_entry_once(
-            transport, &url, token, item, &partial, throttle, cancel, pause, progress, tuning,
+            transport,
+            &url,
+            token,
+            item,
+            &partial,
+            throttle,
+            cancel,
+            pause,
+            progress,
+            tuning,
             &mut info,
+            &mut restarts,
         )
         .await;
         info.elapsed_ms = attempt_started.elapsed().as_millis() as u64;
@@ -1032,6 +1068,9 @@ pub(crate) fn is_permanent_stream_failure(message: &str) -> bool {
             "Could not create the staging folder",
             "Could not create the folder",
             "No archive was available",
+            // #309: the server will refuse the same compressed resume again;
+            // a later Start/Resume resets the restart budget.
+            "refused to resume",
         ]
         .iter()
         .any(|fragment| message.contains(fragment))
@@ -1080,7 +1119,9 @@ async fn wait_for_network(
 ///
 /// The body is read with a stall timeout: a decompress-and-skip that stops
 /// sending chunks, an idle proxy or a half-closed connection is treated as a
-/// retryable failure and the next attempt resumes at the exact byte.
+/// retryable failure and the next attempt resumes at the exact byte. A
+/// compressed entry the server refuses to walk (`X-Ludex-Entry-Resume:
+/// restart`) is restarted from byte 0 once, via `?restart=1` (#309).
 #[allow(clippy::too_many_arguments)]
 async fn download_entry_once(
     transport: &dyn EntryTransport,
@@ -1094,6 +1135,7 @@ async fn download_entry_once(
     progress: &ProgressState,
     tuning: StreamTuning<'_>,
     info: &mut EntryAttemptInfo,
+    restarts: &mut u32,
 ) -> Result<Option<String>, Failure> {
     if item.size == 0 {
         let _ = tokio::fs::write(partial, []).await;
@@ -1111,6 +1153,7 @@ async fn download_entry_once(
     progress.set_current(&item.path);
 
     let mut restarted = false;
+    let mut request_restart = false;
     loop {
         info.offset = offset;
         let response = tokio::select! {
@@ -1119,7 +1162,7 @@ async fn download_entry_once(
             _ = pause.cancelled() => return Err(Failure::Paused),
             // #211: a proxy that never answers must not hang the job; the
             // first-byte budget keeps the attempt inside the 524 window.
-            response = tokio::time::timeout(tuning.first_byte_timeout, transport.fetch(url, token, offset)) => match response {
+            response = tokio::time::timeout(tuning.first_byte_timeout, transport.fetch(url, token, offset, request_restart)) => match response {
                 Err(_elapsed) => {
                     return Err(Failure::Failed(format!(
                         "Entry {} did not start within {} s (HTTP timeout). Retrying from the saved offset.",
@@ -1136,10 +1179,35 @@ async fn download_entry_once(
                 item.path
             ))
         })?;
+        request_restart = false;
 
         let status = response.status;
         info.status = Some(status.as_u16());
         progress.set_status(status.as_u16());
+        if response.restart_required && offset > 0 {
+            // #309: a compressed entry cannot be resumed at this offset
+            // without decompressing the whole prefix. Drop the partial file
+            // and stream the entry from byte 0 with `?restart=1`, once.
+            if *restarts >= MAX_ENTRY_RESTARTS {
+                return Err(Failure::Failed(format!(
+                    "The server refused to resume {} again after restarting it (compressed entry). The job keeps its other entries; retry this entry later.",
+                    item.path
+                )));
+            }
+            *restarts += 1;
+            tracing::warn!(
+                index = item.index,
+                path = %item.path,
+                offset,
+                reason = "compressed_entry_resume",
+                "restarting stream entry from byte 0"
+            );
+            progress.subtract_bytes(offset);
+            let _ = tokio::fs::remove_file(partial).await;
+            offset = 0;
+            request_restart = true;
+            continue;
+        }
         if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             // The `.part` may already hold the whole entry (completed just
             // before the app stopped) or be bogus.
@@ -1832,6 +1900,10 @@ mod tests {
             /// Keep the body open after the chunks so the stall timeout fires.
             stall: bool,
         },
+        /// `409 entry_resume_restart` with `X-Ludex-Entry-Resume: restart`:
+        /// the server refuses to decompress a compressed entry up to the
+        /// requested offset (#309).
+        Restart,
         Error(String),
         /// Never answers: models a proxy that holds the request until its own
         /// 524 budget expires (#211).
@@ -1846,7 +1918,8 @@ mod tests {
     struct ScriptedTransport {
         contents: Arc<Vec<Vec<u8>>>,
         handler: ScriptHandler,
-        requests: Mutex<Vec<(usize, u64)>>,
+        /// `(entry index, requested offset, restart requested)` per request.
+        requests: Mutex<Vec<(usize, u64, bool)>>,
         counts: Mutex<std::collections::HashMap<usize, usize>>,
     }
 
@@ -1863,7 +1936,7 @@ mod tests {
             }
         }
 
-        fn requests(&self) -> Vec<(usize, u64)> {
+        fn requests(&self) -> Vec<(usize, u64, bool)> {
             self.requests.lock().unwrap().clone()
         }
     }
@@ -1874,6 +1947,7 @@ mod tests {
             url: &'a str,
             _token: Option<&'a str>,
             offset: u64,
+            restart: bool,
         ) -> Pin<Box<dyn Future<Output = Result<EntryResponse, String>> + Send + 'a>> {
             Box::pin(async move {
                 let index = url
@@ -1887,12 +1961,18 @@ mod tests {
                     *entry += 1;
                     *entry
                 };
-                self.requests.lock().unwrap().push((index, offset));
+                self.requests.lock().unwrap().push((index, offset, restart));
                 match (self.handler)(index, offset, attempt, &self.contents) {
                     ScriptedResult::Error(message) => Err(message),
                     ScriptedResult::Hang => {
                         std::future::pending::<Result<EntryResponse, String>>().await
                     }
+                    ScriptedResult::Restart => Ok(EntryResponse {
+                        status: reqwest::StatusCode::CONFLICT,
+                        content_range_start: None,
+                        restart_required: true,
+                        body: Box::pin(futures_util::stream::empty()),
+                    }),
                     ScriptedResult::Response {
                         status,
                         content_range_start,
@@ -1908,6 +1988,7 @@ mod tests {
                         Ok(EntryResponse {
                             status: reqwest::StatusCode::from_u16(status).unwrap(),
                             content_range_start,
+                            restart_required: false,
                             body,
                         })
                     }
@@ -2004,7 +2085,7 @@ mod tests {
 
         let requests = transport.requests();
         assert!(
-            requests.contains(&(big_index, half)),
+            requests.contains(&(big_index, half, false)),
             "the retry must resume at the half-written byte, got {requests:?}"
         );
         assert_eq!(completed.count(), files(&manifest).len());
@@ -2034,6 +2115,247 @@ mod tests {
             .collect();
         expected.sort();
         assert_eq!(digests, expected, "resume still produces every digest");
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    /// #309: the server refuses to decompress a compressed entry up to a large
+    /// offset. The client drops the `.part` and fetches the entry from zero
+    /// once, with `?restart=1`; the job then finishes instead of parking at
+    /// 99 % on the same offset.
+    #[tokio::test]
+    async fn a_refused_compressed_resume_restarts_the_entry_once() {
+        let (manifest, contents) = zip_fixture("restart-signal");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let big_index = big.index;
+        let half = (contents[big_index].len() / 2) as u64;
+        let (staging, partial_root) = scripted_staging("restart-signal-staging");
+        // A previous attempt already wrote half of the entry.
+        std::fs::write(
+            partial_root.join(format!("{big_index}.part")),
+            &contents[big_index][..half as usize],
+        )
+        .unwrap();
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(half, 0));
+        let transport = ScriptedTransport::new(
+            contents.clone(),
+            move |index, offset, _attempt, contents| {
+                if index != big_index {
+                    return full_entry(contents, index);
+                }
+                if offset > 0 {
+                    // Compressed entry: the server will not walk to `offset`.
+                    ScriptedResult::Restart
+                } else {
+                    full_entry(contents, index)
+                }
+            },
+        );
+
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(3),
+            |_, _| {},
+        )
+        .await
+        .expect("the restarted entry must finish");
+
+        // One refused Range, then exactly one request from zero with the
+        // restart query — no repeated request at the refused offset.
+        let requests = transport.requests();
+        assert_eq!(
+            requests.len(),
+            4,
+            "one refused attempt plus one restart for 3 entries, got {requests:?}"
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(index, offset, restart)| *index == big_index
+                    && *offset == half
+                    && !*restart)
+                .count(),
+            1,
+            "the refused offset must be requested exactly once, got {requests:?}"
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(index, offset, restart)| *index == big_index && *offset == 0 && *restart)
+                .count(),
+            1,
+            "the entry must be restarted once with ?restart=1, got {requests:?}"
+        );
+        assert_eq!(
+            requests.iter().filter(|(_, _, restart)| *restart).count(),
+            1,
+            "only the restarted entry may carry the query, got {requests:?}"
+        );
+        assert!(
+            !partial_root.join(format!("{big_index}.part")).exists(),
+            "the partial file must be discarded"
+        );
+        assert_eq!(
+            std::fs::read(staging.join(&big.path)).unwrap(),
+            contents[big_index]
+        );
+        assert_eq!(completed.count(), files(&manifest).len());
+        // The half already counted is subtracted before the restart, so the
+        // progress never exceeds the manifest total.
+        assert_eq!(
+            progress.bytes.load(Ordering::Relaxed),
+            manifest.total_bytes,
+            "the restart must not double-count bytes"
+        );
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    /// #309: a second refusal is a failure, never an endless restart loop. The
+    /// partial file is left untouched so a later Resume can try again.
+    #[tokio::test]
+    async fn a_second_restart_signal_fails_instead_of_looping() {
+        let (manifest, contents) = zip_fixture("restart-limit");
+        let big = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("big.bin"))
+            .expect("big entry");
+        let half = (contents[big.index].len() / 2) as u64;
+        let (staging, partial_root) = scripted_staging("restart-limit-staging");
+        let partial = partial_root.join(format!("{}.part", big.index));
+        std::fs::write(&partial, &contents[big.index][..half as usize]).unwrap();
+
+        let transport = ScriptedTransport::new(contents.clone(), move |index, offset, _, _| {
+            if index == big.index && offset > 0 {
+                ScriptedResult::Restart
+            } else {
+                ScriptedResult::Hang
+            }
+        });
+        let mut info = EntryAttemptInfo::default();
+        let mut restarts = MAX_ENTRY_RESTARTS;
+        let err = download_entry_once(
+            &transport,
+            &format!("http://test/{}", big.index),
+            None,
+            &big,
+            &partial,
+            &Arc::new(Mutex::new(None)),
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &ProgressState::new(half, 0),
+            fast_tuning(2),
+            &mut info,
+            &mut restarts,
+        )
+        .await
+        .unwrap_err();
+
+        let message = match &err {
+            Failure::Failed(message) => message.clone(),
+            other => panic!("expected a bounded failure, got {other:?}"),
+        };
+        assert!(message.contains("refused to resume"), "{message}");
+        assert!(
+            is_permanent_stream_failure(&message),
+            "a second refusal must not be retried"
+        );
+        assert_eq!(
+            transport.requests(),
+            vec![(big.index, half, false)],
+            "one request, no restart loop"
+        );
+        assert!(partial.exists(), "the checkpoint must survive the refusal");
+        assert_eq!(std::fs::metadata(&partial).unwrap().len(), half);
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+
+    /// Stored entries keep resuming with a plain `Range`, no restart signal.
+    #[tokio::test]
+    async fn a_stored_entry_still_resumes_with_a_range() {
+        let (manifest, contents) = zip_fixture("stored-resume");
+        let exe = files(&manifest)
+            .into_iter()
+            .find(|item| item.path.ends_with("game.exe"))
+            .expect("exe entry");
+        let split = 5_u64;
+        let (staging, partial_root) = scripted_staging("stored-resume-staging");
+        std::fs::write(
+            partial_root.join(format!("{}.part", exe.index)),
+            &contents[exe.index][..split as usize],
+        )
+        .unwrap();
+        let mut completed = CompletedEntries::new(manifest.entry_count);
+        let progress = Arc::new(ProgressState::new(split, 0));
+        let transport = ScriptedTransport::new(
+            contents.clone(),
+            move |index, offset, _attempt, contents| {
+                if index == exe.index && offset > 0 {
+                    ScriptedResult::Response {
+                        status: 206,
+                        content_range_start: Some(offset),
+                        chunks: vec![Ok(contents[index][offset as usize..].to_vec())],
+                        stall: false,
+                    }
+                } else {
+                    full_entry(contents, index)
+                }
+            },
+        );
+        let pending: Vec<StreamEntry> = files(&manifest)
+            .into_iter()
+            .filter(|item| !completed.contains(item.index))
+            .collect();
+        download_entries(
+            &transport,
+            "http://test",
+            None,
+            7,
+            9,
+            pending,
+            &staging,
+            &partial_root,
+            &mut completed,
+            0,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            &progress,
+            fast_tuning(2),
+            |_, _| {},
+        )
+        .await
+        .expect("the stored entry must resume");
+
+        assert_eq!(
+            std::fs::read(staging.join(&exe.path)).unwrap(),
+            contents[exe.index]
+        );
+        assert!(
+            transport.requests().contains(&(exe.index, split, false)),
+            "a stored entry resumes with Range and no restart"
+        );
+        assert!(
+            !transport.requests().iter().any(|(_, _, restart)| *restart),
+            "no restart request for a stored entry"
+        );
         let _ = std::fs::remove_dir_all(&staging);
     }
 
@@ -2098,7 +2420,7 @@ mod tests {
         .await
         .expect("the dropped entry must resume");
 
-        assert!(transport.requests().contains(&(big_index, half)));
+        assert!(transport.requests().contains(&(big_index, half, false)));
         assert_eq!(
             std::fs::read(staging.join(&big.path)).unwrap(),
             contents[big_index]
@@ -2139,6 +2461,7 @@ mod tests {
         // the offset requested and the time it took (#211).
         let partial = temp_dir("proxy-524-partial").join("entry.part");
         let mut info = EntryAttemptInfo::default();
+        let mut restarts = 0;
         let entry_url = format!("http://test/{}", big.index);
         let err = download_entry_once(
             &transport,
@@ -2155,6 +2478,7 @@ mod tests {
                 ..fast_tuning(3)
             },
             &mut info,
+            &mut restarts,
         )
         .await
         .unwrap_err();
@@ -2325,6 +2649,7 @@ mod tests {
         // answers must fail the attempt, not hang the job forever (#211).
         let partial = temp_dir("hang-partial").join("big.part");
         let mut info = EntryAttemptInfo::default();
+        let mut restarts = 0;
         let started = Instant::now();
         let entry_url = format!("http://test/{}", big.index);
         let err = download_entry_once(
@@ -2342,6 +2667,7 @@ mod tests {
                 ..fast_tuning(2)
             },
             &mut info,
+            &mut restarts,
         )
         .await
         .unwrap_err();
@@ -2411,7 +2737,7 @@ mod tests {
         let big_requests = transport
             .requests()
             .into_iter()
-            .filter(|(index, _)| *index == big_index)
+            .filter(|(index, _, _)| *index == big_index)
             .count();
         assert_eq!(
             big_requests, 3,
@@ -2528,7 +2854,7 @@ mod tests {
         )
         .await
         .expect("the paused entry must resume");
-        assert!(transport.requests().contains(&(big_index, half)));
+        assert!(transport.requests().contains(&(big_index, half, false)));
         assert_eq!(
             std::fs::read(staging.join(&big.path)).unwrap(),
             contents[big_index]

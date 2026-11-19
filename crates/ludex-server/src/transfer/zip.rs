@@ -6,7 +6,8 @@ use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use ludex_core::archive::{
-    detect_format, zip_entry_info, zip_stream_manifest, ArchiveError, ArchiveFormat, StreamManifest,
+    detect_format, zip_entry_info, zip_entry_is_stored, zip_stream_manifest, ArchiveError,
+    ArchiveFormat, StreamEntry, StreamManifest,
 };
 
 use crate::error::ApiError;
@@ -156,6 +157,11 @@ pub(crate) fn resolve_entry_range(raw: Option<&str>, size: u64) -> Result<EntryR
 /// entry resumes at its byte offset (direct seek for stored entries,
 /// decompress-and-skip for DEFLATE/Zstd).
 ///
+/// A compressed entry cannot be resumed past [`MAX_COMPRESSED_RESUME_SKIP`]:
+/// the server answers `409 entry_resume_restart` instead of spending minutes
+/// decompressing the prefix before the first body byte, and `restart=1`
+/// streams the entry from 0 with the normal headers (#309).
+///
 /// The response is a plain byte stream; the client already knows the size and
 /// CRC-32 from the manifest.
 pub(crate) async fn entry(
@@ -164,6 +170,7 @@ pub(crate) async fn entry(
     version: &VersionRow,
     index: usize,
     headers: &HeaderMap,
+    restart: bool,
 ) -> Result<Response, ApiError> {
     let started = std::time::Instant::now();
     let source = resolve_stream_source(state, version).await?;
@@ -201,26 +208,36 @@ pub(crate) async fn entry(
         }
     };
 
-    let requested = headers
-        .get(header::RANGE)
-        .and_then(|value| value.to_str().ok());
-    let range = match resolve_entry_range(requested, info.size) {
-        Ok(range) => range,
-        Err(()) => {
-            cleanup_staged(&source.path, source.staged).await;
-            let mut response = ApiError::new(
-                StatusCode::RANGE_NOT_SATISFIABLE,
-                "invalid_range",
-                "The requested byte range cannot be satisfied",
-            )
-            .into_response();
-            if let Ok(value) = HeaderValue::from_str(&format!("bytes */{}", info.size)) {
-                response.headers_mut().insert(header::CONTENT_RANGE, value);
+    // `restart=1` ignores the Range header by contract: the client asks for
+    // the whole entry with the normal headers (#309).
+    let range = if restart {
+        EntryRange {
+            start: 0,
+            length: info.size,
+            partial: false,
+        }
+    } else {
+        let requested = headers
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok());
+        match resolve_entry_range(requested, info.size) {
+            Ok(range) => range,
+            Err(()) => {
+                cleanup_staged(&source.path, source.staged).await;
+                let mut response = ApiError::new(
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    "invalid_range",
+                    "The requested byte range cannot be satisfied",
+                )
+                .into_response();
+                if let Ok(value) = HeaderValue::from_str(&format!("bytes */{}", info.size)) {
+                    response.headers_mut().insert(header::CONTENT_RANGE, value);
+                }
+                response
+                    .headers_mut()
+                    .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+                return Ok(response);
             }
-            response
-                .headers_mut()
-                .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-            return Ok(response);
         }
     };
 
@@ -230,6 +247,44 @@ pub(crate) async fn entry(
             "entry_not_found",
             "Directories have no content",
         ));
+    }
+
+    // A compressed entry is walked from byte 0 to `offset` before the first
+    // body byte. Past a few milliseconds of work that is worse than asking
+    // the client to restart the entry, so say so instead of stalling (#309).
+    if range.start > MAX_COMPRESSED_RESUME_SKIP {
+        let check_path = source.path.clone();
+        let stored = match tokio::task::spawn_blocking(move || {
+            zip_entry_is_stored(&check_path, index)
+        })
+        .await
+        {
+            Ok(Ok(stored)) => stored,
+            Ok(Err(error)) => {
+                cleanup_staged(&source.path, source.staged).await;
+                return Err(map_archive_error(error));
+            }
+            Err(error) => {
+                cleanup_staged(&source.path, source.staged).await;
+                return Err(ApiError::unprocessable(
+                    "stream_failed",
+                    format!("Entry task failed: {error}"),
+                ));
+            }
+        };
+        if !stored {
+            cleanup_staged(&source.path, source.staged).await;
+            tracing::info!(
+                game_id,
+                version_id,
+                index,
+                path = %info.path,
+                start = range.start,
+                threshold = MAX_COMPRESSED_RESUME_SKIP,
+                "stream entry resume refused: compressed entry"
+            );
+            return Ok(resume_restart(&info, range.start));
+        }
     }
 
     let file_name = info
@@ -250,13 +305,23 @@ pub(crate) async fn entry(
         .header(header::CONTENT_LENGTH, range.length)
         .header(
             header::CACHE_CONTROL,
-            HeaderValue::from_static("private, no-store"),
+            // `no-transform` tells Caddy, nginx and other intermediaries that
+            // the body must not be re-encoded (#310).
+            HeaderValue::from_static("private, no-store, no-transform"),
         )
-        // Never let Caddy/nginx buffer an entry: a buffered multi-hundred-MB
-        // entry looks like a stalled download to the client (#204).
+        // Never let nginx buffer an entry: a buffered multi-hundred-MB entry
+        // looks like a stalled download to the client (#204). Caddy ignores
+        // this header; `Incremental` below covers it.
         .header(
             HeaderName::from_static("x-accel-buffering"),
             HeaderValue::from_static("no"),
+        )
+        // RFC 10036 incremental forwarding: Caddy 2.11.7+ sends the response
+        // head immediately instead of waiting for the first body byte to
+        // decide on an encoding (#310).
+        .header(
+            HeaderName::from_static("incremental"),
+            HeaderValue::from_static("?1"),
         );
     if let Ok(value) = HeaderValue::from_str(&content_disposition(file_name)) {
         builder = builder.header(header::CONTENT_DISPOSITION, value);
@@ -283,6 +348,7 @@ pub(crate) async fn entry(
         start = range.start,
         length = range.length,
         partial = range.partial,
+        restart,
         elapsed_ms = started.elapsed().as_millis() as u64,
         "stream entry response"
     );
@@ -297,4 +363,40 @@ pub(crate) async fn entry(
             version_id,
         ))
         .map_err(|_| ApiError::internal())
+}
+
+/// Decompression work a compressed-entry resume may cost before the server
+/// refuses it (#309): 1 MiB is a few milliseconds of DEFLATE/Zstd, while the
+/// cost grows linearly, so a 14.9 GiB offset means minutes without a body byte.
+pub(crate) const MAX_COMPRESSED_RESUME_SKIP: u64 = 1024 * 1024;
+
+/// Response header of the per-entry restart signal (#309).
+pub(crate) const ENTRY_RESUME_HEADER: &str = "x-ludex-entry-resume";
+
+/// `409 entry_resume_restart`: the entry is compressed and the requested
+/// offset would require decompressing more than
+/// [`MAX_COMPRESSED_RESUME_SKIP`] before the first body byte.
+///
+/// The body is the usual `{"error":{"code","message"}}` JSON. Both the code
+/// and `X-Ludex-Entry-Resume: restart` tell the client to discard the entry's
+/// partial file and re-request the same URL with `?restart=1`, which streams
+/// the entry from byte 0 with a normal `200` and the full `Content-Length`.
+fn resume_restart(info: &StreamEntry, offset: u64) -> Response {
+    let mut response = ApiError::conflict(
+        "entry_resume_restart",
+        format!(
+            "Entry {} is compressed and cannot resume at byte {offset}; restart it from byte 0 with ?restart=1",
+            info.path
+        ),
+    )
+    .into_response();
+    response.headers_mut().insert(
+        HeaderName::from_static(ENTRY_RESUME_HEADER),
+        HeaderValue::from_static("restart"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response
 }
