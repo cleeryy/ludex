@@ -1635,6 +1635,10 @@ export interface ProviderTestResponse {
   statusCode?: number | null;
 }
 
+export interface PruneSavesRequest {
+  keep?: number | null;
+}
+
 export interface PublicProfile {
   avatarUrl?: string | null;
   bio?: string | null;
@@ -1774,6 +1778,16 @@ export interface RestoreBackupResponse {
   versions: number;
 }
 
+export interface RestoreSnapshotRequest {
+  deviceId?: string | null;
+  kind?: string | null;
+}
+
+export interface RestoreSnapshotResponse {
+  receipt: SaveRestoreReceipt;
+  snapshot: SaveSnapshot;
+}
+
 export type Role = "admin" | "editor" | "user";
 
 export interface RootScanResponse {
@@ -1786,6 +1800,27 @@ export interface SaveControllerProfileRequest {
   profile: ControllerProfile;
 }
 
+export interface SaveHistory {
+  autoRetention: number;
+  receipts: SaveRestoreReceipt[];
+  snapshots: SaveSnapshot[];
+}
+
+export interface SavePruneReport {
+  kept: number;
+  protected: number;
+  removed: number;
+}
+
+export interface SaveRestoreReceipt {
+  deviceId?: string | null;
+  gameId: number;
+  id: number;
+  kind: string;
+  restoredAt: string;
+  snapshotId: number;
+}
+
 export interface SaveSnapshot {
   createdAt: string;
   deviceId?: string | null;
@@ -1793,6 +1828,7 @@ export interface SaveSnapshot {
   gameId: number;
   id: number;
   label: string;
+  pinned: boolean;
   sha256: string;
   size: number;
   source: string;

@@ -38,6 +38,7 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { EmptyState, SectionHeader } from "@/components/page";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
+import { MySavesPanel } from "@/components/game/my-saves";
 
 const MAX_SAVE_BYTES = 2 * 1024 ** 3;
 
@@ -455,6 +456,16 @@ export function CloudSavesPanel({
       />
 
       <div className="border-t border-line">
+        {/* Local save manager (#295) */}
+        <MySavesPanel
+          gameId={gameId}
+          status={status}
+          onChanged={() => {
+            void invalidate();
+            void invalidateStatus();
+          }}
+        />
+
         {/* Automatic sync (#108) */}
         <div className="border-b border-line px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-4">

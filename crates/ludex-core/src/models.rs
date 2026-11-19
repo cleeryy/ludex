@@ -615,6 +615,9 @@ pub struct SaveSnapshot {
     pub source: String,
     /// Opaque identifier of the device that uploaded the archive (#108).
     pub device_id: Option<String>,
+    /// Promoted to a restore point by the owner (#295). Pinned snapshots are
+    /// never removed by retention, including the automatic pass after upload.
+    pub pinned: bool,
 }
 
 /// Scanner status exposed by `GET /api/library/scan`.

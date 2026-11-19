@@ -214,6 +214,9 @@ pub struct SaveSnapshotRow {
     pub created_at: String,
     pub source: String,
     pub device_id: Option<String>,
+    /// `1` once the snapshot is a restore point (#295). Kept as an integer so
+    /// the same row decodes from SQLite INTEGER and PostgreSQL BIGINT.
+    pub pinned: i64,
 }
 
 impl SaveSnapshotRow {
@@ -231,8 +234,110 @@ impl SaveSnapshotRow {
             created_at: crate::db::parse_time(&self.created_at).unwrap_or_else(Utc::now),
             source: self.source,
             device_id: self.device_id,
+            pinned: self.pinned != 0,
         }
     }
+}
+
+/// One recorded restore of a snapshot (#295).
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveRestoreReceipt {
+    /// Receipt id.
+    pub id: i64,
+    /// Game the restored snapshot belongs to.
+    pub game_id: i64,
+    /// Snapshot that was restored.
+    pub snapshot_id: i64,
+    /// Device that performed the restore, when the client reported one.
+    pub device_id: Option<String>,
+    /// `server` for a cloud snapshot, `local` for a device restore point.
+    pub kind: String,
+    /// Restore timestamp.
+    pub restored_at: DateTime<Utc>,
+}
+
+/// Row of `save_restore_receipts`.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SaveRestoreReceiptRow {
+    pub id: i64,
+    pub game_id: i64,
+    pub snapshot_id: i64,
+    pub device_id: Option<String>,
+    pub kind: String,
+    pub restored_at: String,
+}
+
+impl SaveRestoreReceiptRow {
+    /// Public representation, hiding the owning account.
+    #[must_use]
+    pub fn to_public(self) -> SaveRestoreReceipt {
+        SaveRestoreReceipt {
+            id: self.id,
+            game_id: self.game_id,
+            snapshot_id: self.snapshot_id,
+            device_id: self.device_id,
+            kind: self.kind,
+            restored_at: crate::db::parse_time(&self.restored_at).unwrap_or_else(Utc::now),
+        }
+    }
+}
+
+/// Snapshot history and restore receipts for one game (#295).
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveHistory {
+    /// Snapshots, newest first, including pinned restore points.
+    pub snapshots: Vec<SaveSnapshot>,
+    /// Restore receipts, newest first.
+    pub receipts: Vec<SaveRestoreReceipt>,
+    /// Automatic snapshots the server keeps outside the pinned ones.
+    pub auto_retention: i64,
+}
+
+/// Body of `POST /api/saves/{id}/restore` (#295).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreSnapshotRequest {
+    /// Device that performed the restore; stored for the history.
+    #[serde(default)]
+    pub device_id: Option<String>,
+    /// `server` (default) or `local`.
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
+/// Result of `POST /api/saves/{id}/restore`: the snapshot is now a restore
+/// point and the receipt is stored in the history.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreSnapshotResponse {
+    /// Pinned snapshot.
+    pub snapshot: SaveSnapshot,
+    /// Stored restore receipt.
+    pub receipt: SaveRestoreReceipt,
+}
+
+/// Body of `POST /api/games/{id}/saves/prune` (#295).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PruneSavesRequest {
+    /// Automatic snapshots to keep besides the pinned ones. Clamped to 1–50.
+    #[serde(default)]
+    pub keep: Option<i64>,
+}
+
+/// Result of a retention pass (#295). The newest snapshot and every pinned
+/// restore point are never removed.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePruneReport {
+    /// Snapshots removed by this pass.
+    pub removed: i64,
+    /// Snapshots still stored for the game.
+    pub kept: i64,
+    /// Pinned restore points protected from the pass.
+    pub protected: i64,
 }
 
 /// Login request.

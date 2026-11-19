@@ -59,6 +59,7 @@ import type {
   LauncherImportReport,
   LauncherPreview,
   LaunchOptions,
+  LocalSaveRestoreOutcome,
   LocalSettings,
   LocationStatus,
   ManifestProgress,
@@ -95,6 +96,9 @@ import type {
   RuntimeImportReport,
   RuntimeProgress,
   RuntimeRemovalReport,
+  SavePruneReport,
+  SaveRestorePoint,
+  SaveRestorePointsView,
   ServerList,
   ServerTest,
   SteamImportReport,
@@ -1195,6 +1199,32 @@ export const native = {
   /** Save detection ran again (first page open or after a game exit, #158). */
   async onCloudSaveDetected(handler: (gameId: number) => void): Promise<() => void> {
     return listen<number>("cloud-save://detected", handler);
+  },
+
+  /* ---------------------------- save manager (#295) ------------------------ */
+
+  async listSaveRestorePoints(gameId: number): Promise<SaveRestorePointsView> {
+    return invoke<SaveRestorePointsView>("list_save_restore_points", { gameId });
+  },
+
+  /** `null` when the save files already match the newest restore point. */
+  async captureSaveRestorePoint(
+    gameId: number,
+    label?: string,
+  ): Promise<SaveRestorePoint | null> {
+    return invoke<SaveRestorePoint | null>("capture_save_restore_point", { gameId, label });
+  },
+
+  async restoreSavePoint(gameId: number, pointId: number): Promise<LocalSaveRestoreOutcome> {
+    return invoke<LocalSaveRestoreOutcome>("restore_save_point", { gameId, pointId });
+  },
+
+  async pruneSaveRestorePoints(gameId: number, keep?: number): Promise<SavePruneReport> {
+    return invoke<SavePruneReport>("prune_save_restore_points", { gameId, keep });
+  },
+
+  async setSaveRestoreRetention(sessions: number): Promise<number> {
+    return invoke<number>("set_save_restore_retention", { sessions });
   },
 
   /**

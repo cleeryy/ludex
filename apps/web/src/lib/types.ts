@@ -189,6 +189,8 @@ export interface SaveSnapshot {
   source: "manual" | "auto";
   /** Opaque device identifier that uploaded the snapshot (#108). */
   deviceId: string | null;
+  /** Promoted to a restore point; retention never prunes it (#295). */
+  pinned: boolean;
 }
 
 /** Effective automatic cloud-save state for one game (#108). */
@@ -274,6 +276,45 @@ export interface CloudSaveRestoreOutcome {
   snapshotId: number | null;
   backupPath: string | null;
   message: string;
+}
+
+/** One local, per-session restore point (#295). */
+export interface SaveRestorePoint {
+  id: number;
+  gameId: number;
+  /** Launch session that produced the save, `null` for manual captures. */
+  sessionId: string | null;
+  /** `session` after an exit, `manual` from the panel, `pre_restore` before a rollback. */
+  source: "session" | "manual" | "pre_restore" | string;
+  label: string;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+  deviceId: string | null;
+  createdAt: string;
+}
+
+export interface SaveRestorePointsView {
+  points: SaveRestorePoint[];
+  /** Sessions kept per game (1–50, default 5). */
+  retention: number;
+  totalBytes: number;
+  /** Last capture on this device, including unchanged sessions. */
+  lastCaptureAt: string | null;
+}
+
+export interface LocalSaveRestoreOutcome {
+  restored: boolean;
+  pointId: number;
+  /** Point created from the files that were replaced, when any. */
+  backupPointId: number | null;
+  restoredAt: string;
+  message: string;
+}
+
+export interface SavePruneReport {
+  removed: number;
+  kept: number;
 }
 
 export type IngestStatus = "queued" | "downloading" | "verifying" | "done" | "error" | "cancelled";

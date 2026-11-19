@@ -440,9 +440,10 @@ Server-side snapshots carry sync metadata (#108):
 - `sha256` — content hash; automatic uploads with a hash that already exists for
   the user and game return the existing snapshot (`200`) instead of creating a
   duplicate.
-- Retention keeps the newest **10 automatic** snapshots per user and game and
-  never prunes manual snapshots. Pruning removes rows first, then files, so a
-  crash cannot leave a row pointing at a missing archive.
+- Retention keeps the newest **10 automatic** snapshots per user and game, never
+  prunes manual snapshots, and never removes a pinned restore point or the
+  newest snapshot of a game (#295). Pruning removes rows first, then files, so
+  a crash cannot leave a row pointing at a missing archive.
 - The existing size limit and per-user isolation are unchanged; uploads are
   multipart `file`, `label`, `source` and `deviceId` fields.
 
@@ -613,9 +614,74 @@ See the command table in `docs/CONTRACT.md`:
 - `sync_cloud_save_now { gameId }` — archive + upload immediately.
 - `restore_cloud_save { gameId, strategy: "remote" | "keep_local" }`.
 - `resolve_cloud_save_conflict { gameId, strategy }`.
+- `list_save_restore_points { gameId }` — local points, retention, total size
+  and last capture.
+- `capture_save_restore_point { gameId, label? }` — manual point; `null` when
+  the save already matches the newest one.
+- `restore_save_point { gameId, pointId }` — one-click rollback with a
+  `pre_restore` safety copy.
+- `prune_save_restore_points { gameId, keep? }`.
+- `set_save_restore_retention { sessions }`.
 
 The first four are local. No host path is ever included in an API request, log
 line sent to the server, telemetry or error report.
+
+## Save manager: history and restore points (#295)
+
+Sync moves bytes; the save manager answers "what do I have, from when, from
+which device" and makes a bad session recoverable.
+
+### Local per-session restore points (desktop)
+
+After the exit debounce, before any upload, `saves::history::snapshot_after_exit`
+archives the detected save paths into
+`{appDataDir}/restore-points/game-<id>/<timestamp>-<id>.zip` and records the row
+in `save_restore_points` (desktop schema **V26**): game, session, source
+(`session`, `manual`, `pre_restore`), label, archive name, size, SHA-256, device
+and creation time. It runs even when automatic sync is off.
+
+- **Unchanged sessions are not duplicated.** The archive hash is compared with
+  the newest point; equal bytes delete the fresh zip and only refresh the "last
+  local change" timestamp.
+- **Retention** is `saveRestoreRetention` (default **5**, clamped to 1–50). The
+  window is applied after each capture and by an explicit prune. The newest
+  point is the last known-good copy and is never removed, even when the window
+  is lowered or read as 0.
+- **Pruning order** is the server's: rows are deleted first, then archives. A
+  crash can leave an orphaned zip, never a row pointing at a missing file.
+  The panel warns with the number of points that will be deleted before calling
+  `prune_save_restore_points`.
+- **Restore** verifies the archive SHA-256 before extraction, then archives the
+  current files as a `pre_restore` point. If that safety copy fails, nothing is
+  overwritten; a rollback is itself reversible. Extraction follows the same
+  archive layout and traversal rules as a server restore (#108).
+- **Status fields** shown in "My saves": last local change
+  (`save_paths` scan, falling back to the last capture), last synced (upload
+  timestamp or newest snapshot), device that produced it, save size, restore
+  point count, and the sync engine's conflict state. Conflict *policy* is #296;
+  this panel only reports whether a conflict is currently detected.
+
+Tauri commands: `list_save_restore_points`, `capture_save_restore_point`,
+`restore_save_point`, `prune_save_restore_points`,
+`set_save_restore_retention`.
+
+### Server snapshot history and receipts
+
+Migration **0036** adds `save_snapshots.pinned` and the
+`save_restore_receipts` table (user, game, snapshot, device, kind, restored
+at). The server never writes local files; its restore API promotes a snapshot
+to a restore point, records the receipt from the device that performed the
+restore, and keeps it out of every retention pass.
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET | `/api/games/{id}/saves/history` | snapshots (newest first, with `pinned`) + restore receipts + `autoRetention` |
+| POST | `/api/saves/{id}/restore` | body `deviceId?`, `kind?` (`server` \| `local`); pins the snapshot, stores a receipt and returns both (`201`) |
+| POST | `/api/games/{id}/saves/prune` | body `keep?` (1–50); removes unpinned automatic snapshots beyond the window, keeps the newest snapshot and every pinned point; returns `removed`, `kept`, `protected` |
+
+`keep` counts automatic snapshots and includes the newest one, so a game whose
+latest session is its only copy never loses it. Explicit `DELETE /api/saves/{id}`
+remains a user action and is not blocked by pinning.
 
 ## Security
 
@@ -672,6 +738,19 @@ For automatic sync (#108), still with temporary trees and no network:
 - restore into an empty folder and backup-before-overwrite;
 - path traversal and symlink-mode rejection during extraction;
 - SQLite pending-retry bookkeeping, restore-once state and migration to v9.
+
+For the save manager (#295):
+
+- a session snapshot is created on exit and restores the previous progress
+  after the save was corrupted by hand;
+- an unchanged session does not duplicate a point;
+- retention prunes old sessions and never the newest point;
+- a damaged restore-point archive is refused before any file is overwritten;
+- V26 round-trips `save_restore_points` and `cloud_save_prefs.last_local_change_at`
+  across a database reopen;
+- server: history lists snapshots and receipts, a restore pins the snapshot,
+  and prune keeps the pinned point plus the newest copy while deleting the
+  older sessions' rows and files.
 
 A real server is not exercised by unit tests; the upload/download paths are
 covered by type-checking and the server's own route tests.

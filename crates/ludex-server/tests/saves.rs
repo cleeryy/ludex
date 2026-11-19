@@ -704,3 +704,168 @@ async fn auto_upload_rejects_invalid_sources_and_device_ids() {
 
     server.stop().await;
 }
+
+#[tokio::test]
+async fn history_restore_and_prune_protect_the_last_good_copy() {
+    let server = TestServer::start().await;
+    let token = server.admin_token();
+    let user_id = server.current_user_id(&token).await;
+    let game_id = server.insert_game("Save Manager Game").await;
+
+    let (status, manual) = server
+        .upload(
+            game_id,
+            &token,
+            "manual.zip",
+            b"manual-before-session".to_vec(),
+            Some("keep forever"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{manual}");
+    let manual_id = manual["id"].as_i64().expect("manual id");
+    assert_eq!(manual["pinned"], false);
+
+    // Twelve distinct automatic snapshots: the upload-time retention keeps 10.
+    let mut auto_ids = Vec::new();
+    for index in 0..12 {
+        let (status, body) = server
+            .upload_as(
+                game_id,
+                &token,
+                "auto.zip",
+                format!("session-{index}").into_bytes(),
+                "auto",
+                Some("device-a"),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        auto_ids.push(body["id"].as_i64().expect("auto id"));
+    }
+    let (status, list) = server
+        .get(&format!("/api/games/{game_id}/saves"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list.as_array().expect("array").len(), 11, "{list}");
+
+    // Promoting the oldest surviving automatic snapshot to a restore point
+    // records a receipt and pins it.
+    let oldest_auto = auto_ids[2];
+    let newest_auto = auto_ids[11];
+    let (status, restored) = server
+        .post(
+            &format!("/api/saves/{oldest_auto}/restore"),
+            Some(&token),
+            json!({"deviceId": "device-b"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{restored}");
+    assert_eq!(restored["snapshot"]["pinned"], true);
+    assert_eq!(restored["snapshot"]["id"], oldest_auto);
+    assert_eq!(restored["receipt"]["snapshotId"], oldest_auto);
+    assert_eq!(restored["receipt"]["deviceId"], "device-b");
+    assert_eq!(restored["receipt"]["kind"], "server");
+
+    // History lists every snapshot with its pin state plus the receipt.
+    let (status, history) = server
+        .get(&format!("/api/games/{game_id}/saves/history"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{history}");
+    let snapshots = history["snapshots"].as_array().expect("snapshots");
+    assert_eq!(snapshots.len(), 11, "{history}");
+    assert_eq!(
+        snapshots
+            .iter()
+            .filter(|item| item["pinned"] == true)
+            .count(),
+        1,
+        "{history}"
+    );
+    let receipts = history["receipts"].as_array().expect("receipts");
+    assert_eq!(receipts.len(), 1, "{history}");
+    assert_eq!(receipts[0]["snapshotId"], oldest_auto);
+    assert_eq!(history["autoRetention"], 10);
+
+    // Prune keeps the pinned restore point, the newest snapshot and three
+    // automatic snapshots on top of it. The other sessions are removed.
+    let (status, report) = server
+        .post(
+            &format!("/api/games/{game_id}/saves/prune"),
+            Some(&token),
+            json!({"keep": 3}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["removed"], 6, "{report}");
+    assert_eq!(report["kept"], 5, "{report}");
+    assert_eq!(report["protected"], 1, "{report}");
+
+    let (status, after) = server
+        .get(&format!("/api/games/{game_id}/saves"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{after}");
+    let ids: Vec<i64> = after
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|item| item["id"].as_i64().expect("id"))
+        .collect();
+    assert!(
+        ids.contains(&manual_id),
+        "manual snapshots survive: {after}"
+    );
+    assert!(
+        ids.contains(&oldest_auto),
+        "pinned restore point survives: {after}"
+    );
+    assert!(
+        ids.contains(&newest_auto),
+        "newest snapshot survives: {after}"
+    );
+    assert_eq!(ids.len(), 5, "{after}");
+    // Files follow their rows: the pruned session archive is gone from disk.
+    assert!(
+        !server
+            .snapshot_path(user_id, game_id, auto_ids[3], "auto.zip")
+            .exists(),
+        "pruned archive removed"
+    );
+    assert!(
+        server
+            .snapshot_path(user_id, game_id, newest_auto, "auto.zip")
+            .exists(),
+        "newest archive kept"
+    );
+
+    // Another user sees an empty history for the same game, never the rows.
+    let other_id = server.create_user(&token, "save-other", "user").await;
+    assert!(other_id > 0);
+    let other_token = server.login("save-other").await;
+    let (status, other_history) = server
+        .get(
+            &format!("/api/games/{game_id}/saves/history"),
+            Some(&other_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{other_history}");
+    assert_eq!(
+        other_history["snapshots"].as_array().expect("array").len(),
+        0
+    );
+    assert_eq!(
+        other_history["receipts"].as_array().expect("array").len(),
+        0
+    );
+
+    // Restore validation: unknown kinds are refused before any write.
+    let (status, error) = server
+        .post(
+            &format!("/api/saves/{newest_auto}/restore"),
+            Some(&token),
+            json!({"kind": "sneaky"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+    assert_eq!(error["error"]["code"], "invalid_restore_kind");
+
+    server.stop().await;
+}

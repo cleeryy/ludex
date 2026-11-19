@@ -33,6 +33,9 @@ use crate::presence::{self, PresenceStatus};
 use crate::profiles;
 use crate::protondb::{self, ProtonDbRating};
 use crate::saves::detect::{self as saves_detect, SavePathInput, SavePaths};
+use crate::saves::history::{
+    self as saves_history, LocalRestoreOutcome, PruneReport, RestorePointsView,
+};
 use crate::saves::manifest::{self as saves_manifest, ManifestStatus, ManifestUpdate};
 use crate::saves::registry::{self as saves_registry, SaveCandidateGroup, SaveCandidateOverview};
 use crate::saves::sync::{self as saves_sync, CloudSaveStatus, RestoreOutcome, SyncToggleResponse};
@@ -3766,6 +3769,53 @@ pub async fn resolve_cloud_save_conflict(
     strategy: String,
 ) -> Result<RestoreOutcome, String> {
     saves_sync::resolve_conflict(&app, game_id, &strategy).await
+}
+
+/* ----------------------------- save manager (#295) ----------------------- */
+
+/// Local per-session restore points for the "My saves" panel.
+#[tauri::command]
+pub fn list_save_restore_points(app: AppHandle, game_id: i64) -> Result<RestorePointsView, String> {
+    saves_history::list(&app, game_id)
+}
+
+/// Store a manual restore point right now. Returns `null` when the save files
+/// already match the newest point (nothing new to keep).
+#[tauri::command]
+pub async fn capture_save_restore_point(
+    app: AppHandle,
+    game_id: i64,
+    label: Option<String>,
+) -> Result<Option<crate::db::SaveRestorePoint>, String> {
+    saves_history::capture_now(app, game_id, label).await
+}
+
+/// One-click rollback to a local restore point. The current files are archived
+/// first, so the action is reversible.
+#[tauri::command]
+pub async fn restore_save_point(
+    app: AppHandle,
+    game_id: i64,
+    point_id: i64,
+) -> Result<LocalRestoreOutcome, String> {
+    saves_history::restore(app, game_id, point_id).await
+}
+
+/// Explicit retention pass. The panel shows how many points will be removed
+/// before calling it; the newest point is always kept.
+#[tauri::command]
+pub fn prune_save_restore_points(
+    app: AppHandle,
+    game_id: i64,
+    keep: Option<i64>,
+) -> Result<PruneReport, String> {
+    saves_history::prune(&app, game_id, keep)
+}
+
+/// Change the per-game session window (1–50, default 5).
+#[tauri::command]
+pub fn set_save_restore_retention(app: AppHandle, sessions: i64) -> Result<i64, String> {
+    saves_history::set_retention(&app, sessions)
 }
 
 /* ------------------------- locations (#99) ------------------------------- */
