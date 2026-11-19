@@ -17,7 +17,9 @@ bridge, how to add a spec), [PERFORMANCE.md](PERFORMANCE.md) (TV boot, rail
 frames, long tasks, heap, rAF loops), [WEBKITGTK.md](WEBKITGTK.md) (engine spike,
 not verified on hardware) and [NATIVE-CHECKLIST.md](NATIVE-CHECKLIST.md)
 (Windows + Sunshine/Moonlight, with evidence rules) — #270, #302, #303, #304,
-#308.
+#308. The boot target itself — the Wayland session entry, autologin for each
+display manager, backups and rollback — is in
+[CONSOLE-SESSION.md](../CONSOLE-SESSION.md) (#286).
 
 ## Verdict
 

@@ -4251,3 +4251,80 @@ export interface VirusTotalRescanInput {
   intervalHours: number;
   includeMalicious: boolean;
 }
+
+/* --------------------- Console session boot target (#286) ---------------- */
+
+export type ConsoleSessionManagerId = "sddm" | "gdm" | "greetd" | "lightdm";
+
+/** A display manager Ludex can configure, and the files it would write. */
+export interface ConsoleSessionManager {
+  id: ConsoleSessionManagerId;
+  name: string;
+  configPaths: string[];
+}
+
+/**
+ * The seat as `loginctl` reports it. Sunshine's KMS capture needs
+ * `Type=wayland` and `Active=yes`, so the panel warns before a black stream.
+ */
+export interface ConsoleSessionSeat {
+  sessionType: string | null;
+  active: boolean | null;
+  compatible: boolean;
+  note: string;
+}
+
+/** What Settings shows before the user touches the toggle. */
+export interface ConsoleSessionStatus {
+  platform: string;
+  supported: boolean;
+  manager: ConsoleSessionManager | null;
+  /** Human refusal sentence when no manager was detected. */
+  managerReason: string | null;
+  user: string | null;
+  session: string;
+  entryPath: string;
+  entryState: ConsoleSessionEntryState;
+  entryInstalled: boolean;
+  enabled: boolean;
+  managedFiles: string[];
+  seat: ConsoleSessionSeat;
+  pkexecAvailable: boolean;
+  message: string;
+}
+
+export type ConsoleSessionEntryState = "missing" | "installed" | "differs";
+
+/** One file in the consent plan, with its exact contents. */
+export interface ConsoleSessionPlannedFile {
+  path: string;
+  action: "write" | "remove";
+  contents: string;
+  existed: boolean;
+  backup: string | null;
+  mode: number;
+  description: string;
+}
+
+/** The dry-run: files, contents and the commands the elevated script runs. */
+export interface ConsoleSessionPlan {
+  enable: boolean;
+  manager: ConsoleSessionManager | null;
+  user: string | null;
+  session: string;
+  files: ConsoleSessionPlannedFile[];
+  stateFile: string;
+  commands: string[];
+  warnings: string[];
+  message: string;
+}
+
+/** The standalone session entry, installable without autologin. */
+export interface ConsoleSessionEntryPlan {
+  state: ConsoleSessionEntryState;
+  destination: string;
+  contents: string;
+  installCommand: string;
+  uninstallCommand: string;
+  message: string;
+}

@@ -31,6 +31,7 @@ import {
   UpdatesBody,
 } from "@/components/settings/sections-device";
 import { useDesktopSettings } from "@/components/settings/use-desktop-settings";
+import { ConsoleSessionPanel } from "@/components/settings/console-session-panel";
 import { settingsSectionDescription, settingsSectionLabel } from "@/components/settings/settings-copy";
 
 /**
@@ -89,6 +90,8 @@ export function SettingsScreen() {
         return <SavesBody desktop={desktop} />;
       case "streaming":
         return <StreamingBody desktop={desktop} />;
+      case "console":
+        return <ConsoleSessionPanel />;
       case "compatibility":
         return <CompatibilityBody desktop={desktop} />;
       case "host":

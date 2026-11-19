@@ -8,7 +8,14 @@ packaging/
   aur/ludex-bin/
     PKGBUILD    pinned release, verified digest, installs the AppImage
     .SRCINFO    generated: makepkg --printsrcinfo, committed for the AUR web UI
+  sessions/
+    ludex-console.desktop   Wayland session: Exec=ludex --console
 ```
+
+The session entry is embedded in the desktop binary and copied to
+`/usr/share/wayland-sessions/` by Settings → Console; it is not part of the
+package, so uninstalling the package never leaves an autologin behind. See
+[`docs/CONSOLE-SESSION.md`](../docs/CONSOLE-SESSION.md).
 
 The package is `-bin` on purpose: the client is a Tauri shell over WebKitGTK, and
 a source build would drag a full Rust + Node toolchain onto every user's machine

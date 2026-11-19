@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Ludex Console
+Comment=Play your Ludex library from the couch
+Exec=ludex --console
+TryExec=ludex
+DesktopNames=Ludex

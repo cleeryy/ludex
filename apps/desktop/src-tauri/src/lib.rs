@@ -9,6 +9,7 @@ mod compat;
 mod config_adapters;
 mod config_fields;
 mod console;
+mod console_session;
 mod crash_guard;
 mod db;
 mod diagnostics;
@@ -410,6 +411,12 @@ pub fn run() {
             power::quit_app,
             power::system_sleep,
             power::sleep_capability,
+            console_session::console_session_status,
+            console_session::console_session_plan,
+            console_session::console_session_apply,
+            console_session::console_session_entry_plan,
+            console_session::console_session_install_entry,
+            console_session::console_session_uninstall_entry,
             commands::sunshine_status,
             commands::sunshine_preview,
             commands::sunshine_sync,

@@ -22,6 +22,8 @@ export function settingsSectionLabel(id: SettingsSectionId): string {
       return t("Saves and cloud");
     case "streaming":
       return t("Streaming");
+    case "console":
+      return t("Console");
     case "compatibility":
       return t("Compatibility");
     case "host":
@@ -53,6 +55,8 @@ export function settingsSectionDescription(id: SettingsSectionId): string {
       return t("Back up save folders to your server and teach Ludex where each game keeps its saves.");
     case "streaming":
       return t("Sunshine and Moonlight: publish the library and start a stream.");
+    case "console":
+      return t("Install the console session and boot this machine straight into it.");
     case "compatibility":
       return t("Steam, Proton, UMU and Wine detection for Linux launches.");
     case "host":
