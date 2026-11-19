@@ -1,0 +1,115 @@
+# Settings: one surface, three tiers (#299)
+
+Ludex used to spread per-game settings across launch options, compatibility,
+display, saves and integration pages, each with its own vocabulary. This
+document is the contract for the replacement: **one surface, three tiers**, and
+one source of truth behind all of them.
+
+The UI lives in `apps/web/src/components/game/settings-tiers.tsx`; the rules are
+pure functions in `apps/web/src/lib/settings-tiers.ts`.
+
+## The tiers
+
+| Tier | What the user sees | What they decide |
+|---|---|---|
+| 1 — Just works | A computed "ready / needs a fix" verdict and exactly one primary action. | Nothing. Every cause and every fix is computed. |
+| 2 — Per game | Six curated switches, each with a one-line "why it is on or off". | At most six binary/simple choices. |
+| 3 — Advanced | The existing launch-options panel: raw environment, Wine overrides, prefix path, Proton pin, working directory, display details — plus the custom launch command for editors. | Everything, at their own risk. |
+
+Tier 3 is **locked on a first run**. "Unlock advanced view" stores
+`ludex.settings.tiers.advanced = "1"` in `localStorage`; the choice is
+device-local (like the console shell flag) because it belongs to the machine in
+front of the user, not to the account. "Lock advanced view" removes the key. The
+same flag survives a reload, and a locked surface never mounts the raw panel.
+
+## Tier 1: the computed verdict
+
+`tierOneState()` reads `RuntimeDiagnosis` from `make_it_run_diagnose` — the same
+plan "Make it run" already owned — and returns one of:
+
+- `checking` while the check is running;
+- `ready` when the diagnosis says so;
+- `needsFix` with a **cause**: `runtime`, `prefix`, `vulkan`, `disk`, `arch`,
+  `mode`, `manual` or `generic`.
+
+The cause is derived from the first blocking issue (`missing-umu` →
+`runtime`, `prefix-unsafe` → `prefix`, …). If there is no issue and a Windows
+game is explicitly set to `native` on Linux, the cause is `mode`.
+
+One action, in order of preference:
+
+1. `ready` → **Start game**;
+2. `needsFix` with installable steps → **Fix this game** (a consent dialog lists
+   the downloads and their licences; nothing is downloaded without the click);
+3. `needsFix` with only manual/blocked steps → **Show me what to do**, which
+   opens the plan.
+
+The full plan (sources, checksums, manual commands, per-step status) stays
+reachable under "See exactly what Ludex will do" and is the existing
+`MakeItRunPanel`, not a copy of it.
+
+## Tier 2: six switches, one field each
+
+A switch never owns storage. Each one reads and writes a field the existing
+desktop features already use, so tier 3 shows the same value and there is no
+second copy anywhere. The surface derives the six switches from
+`TIER2_SWITCHES`; `changedFields()` (a leaf diff) is how the tests prove that a
+toggle moves exactly the documented fields.
+
+| Switch | Writes | Effect |
+|---|---|---|
+| Game window (wrapper) | `display.mode` (`desktop` ↔ `gamescope`) | Runs the game in a Gamescope nested window. Enabling seeds `display.width`/`display.height` at 1920×1080 **only when the profile has no resolution yet**; disabling keeps the resolution. |
+| Frame limit | `display.refresh` (`0` = none) | Sets the Gamescope nested refresh rate, which paces the game inside that window. `0` follows the display. |
+| HDR | `display.hdr` | Adds `--hdr-enabled` when the installed Gamescope advertises it and the active output is not explicitly incapable. |
+| Adaptive sync | `display.adaptiveSync` | Adds `--adaptive-sync` under the same capability rules (see [`HDR-VRR.md`](HDR-VRR.md)). |
+| In-game overlay | `overlayDisabledGames` via `set_overlay_game_disabled` | Per-game overlay opt-out. The store is the overlay settings document, because that is where the overlay already keeps it; no flag is duplicated in the profile. |
+| Audio device | `env.PULSE_SINK` | Sends the game's sound to a named PulseAudio/PipeWire sink instead of the system default. Turning it off removes the entry. |
+
+Notes:
+
+- The three display switches (frame limit, HDR, adaptive sync) are disabled
+  until the game window is on, because there is nothing to apply them to. The
+  explanation line says so.
+- HDR and adaptive sync additionally follow the capability probe from
+  [`HDR-VRR.md`](HDR-VRR.md): an explicit "incapable" output or a Gamescope
+  build without the flag disables the switch with the reason.
+- The overlay switch is the only one that is not a launch-option field, and the
+  only one available outside Linux.
+- Everything else is Linux-only and hidden where it does not apply (the raw
+  values remain editable in tier 3).
+
+## Copy discipline
+
+Tiers 1 and 2 never show:
+
+- an exit code or exit status;
+- a `PROTON_*` variable name;
+- a `winetricks` verb.
+
+Those words only appear in tier 3, behind the unlock, where the user asked for
+raw settings. A cause is always a human sentence ("The compatibility layer this
+game needs is not installed yet"), never a log line. `settings-tiers.test.ts`
+asserts the rule against every string the two tiers can render, and
+`settings-tiers-copy.ts` keeps them as literal `t("…")` ids so the i18n
+extractor and the top-10 catalogs cover them.
+
+Every tier-2 switch has an explanation in both states (`on` and `off`), plus a
+blocked reason when it cannot move. The ids are translated in the ten top-10
+catalogs (`i18n:strict` covers parity, placeholders and the 95 % floor).
+
+## Tests
+
+| File | Covers |
+|---|---|
+| `apps/web/src/lib/settings-tiers.test.ts` | first-run visibility, unlock persistence, the six-switch table, one documented change per switch, explanations, copy discipline, tier-1 causes |
+| `apps/web/src/components/game/settings-tiers.test.tsx` | render: tier 3 locked on a first run, unlock persistence across a remount, switch → single save, overlay goes through the overlay command, audio device writes one env entry |
+
+## Out of scope
+
+- Declarative TOML profiles, export/import/share/diff (#300).
+- The shipped, updatable compatibility rules database (#301).
+- Per-game audio routing through `pactl`/virtual sinks (#289); tier 2 only
+  writes the existing `PULSE_SINK` override.
+- Moving any Rust command or storage: this surface is web-only and reads/writes
+  fields that already existed. The API/Tauri contract is unchanged; see
+  [`CONTRACT.md`](CONTRACT.md).
