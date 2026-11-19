@@ -364,6 +364,32 @@ export function useNativeEvents() {
       if (cancelled) offFocus();
       else unlisteners.push(offFocus);
 
+      // #289: a launch fell back to the profile default because the saved
+      // output is gone (headset unplugged, HDMI renegotiated). The game keeps
+      // its sound; the notice explains which device took over.
+      const offAudio = await native.onAudioNotice(({ kind, used }) => {
+        if (kind === "noSink") {
+          push({
+            title: t("No audio output is available"),
+            description: t("The game will play without a selected device until one is connected."),
+            tone: "danger",
+          });
+          return;
+        }
+        push({
+          title:
+            kind === "defaultSinkMissing"
+              ? t("The default audio device is not connected")
+              : t("The game's audio device is not connected"),
+          description: used
+            ? t("Falling back to {device}.", { device: used })
+            : t("Falling back to the system default."),
+          tone: "danger",
+        });
+      });
+      if (cancelled) offAudio();
+      else unlisteners.push(offAudio);
+
       // Tray menu (#15): navigate to a route or launch a recent game.
       const offNavigate = await native.onNavigate((path) => navigate(path));
       if (cancelled) offNavigate();

@@ -156,6 +156,10 @@ export const qk = {
   controllerInventory: ["controller-inventory"] as const,
   gameControllers: (gameId: number) => key("game-controllers", gameId),
   prefixInfo: (gameId: number) => key("prefix-info", gameId),
+  /** Audio output devices and the global override (#289). */
+  audioSinks: ["audio-sinks"] as const,
+  /** Live volume/mute state of the console's selected sink (#289). */
+  audioVolume: ["audio-volume"] as const,
   makeItRun: (gameId: number) => key("make-it-run", gameId),
   virustotal: {
     forGame: (gameId: number) => key("game-virustotal", gameId),

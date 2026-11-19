@@ -6,6 +6,9 @@ import type {
   AdapterReport,
   AdoptInstallArgs,
   AdoptPreview,
+  AudioNotice,
+  AudioSinks,
+  AudioVolumeState,
   CloudSaveRestoreOutcome,
   CloudSaveStatus,
   CloudSaveStrategy,
@@ -972,6 +975,36 @@ export const native = {
     return invoke<LaunchOptions>("set_launch_options", { gameId, options });
   },
 
+  /* ---------------------- audio output routing (#289) ------------------- */
+
+  /** Output devices, the OS default and Ludex's global override. */
+  async audioSinks(): Promise<AudioSinks> {
+    return invoke<AudioSinks>("audio_sinks");
+  },
+
+  /** Play a short tone on one device; returns the player that handled it. */
+  async audioTestSink(sink: string): Promise<string> {
+    return invoke<string>("audio_test_sink", { sink });
+  },
+
+  /** Live volume/mute state for `sink`, or the resolved default when omitted. */
+  async audioVolumeState(sink?: string | null): Promise<AudioVolumeState> {
+    return invoke<AudioVolumeState>("audio_volume_state", { sink: sink ?? null });
+  },
+
+  /** Step one sink's volume or mute; the new state drives the console OSD. */
+  async audioVolumeStep(
+    direction: "up" | "down" | "toggleMute",
+    sink?: string | null,
+  ): Promise<AudioVolumeState> {
+    return invoke<AudioVolumeState>("audio_volume_step", { direction, sink: sink ?? null });
+  },
+
+  /** Store (or clear, with an empty string) the global output override. */
+  async setAudioDefaultSink(sink: string): Promise<void> {
+    await invoke<null>("set_audio_default_sink", { sink });
+  },
+
   async winePrefixInfo(gameId: number): Promise<PrefixInfo> {
     return invoke<PrefixInfo>("wine_prefix_info", { gameId });
   },
@@ -1145,6 +1178,14 @@ export const native = {
   /** Tray navigation: the menu asked the UI to open a route. */
   async onNavigate(handler: (path: string) => void): Promise<() => void> {
     return listen<string>("ui://navigate", handler);
+  },
+
+  /**
+   * #289: a launch could not use the saved sink and fell back to the profile
+   * default. Emitted at most once per reason per launch.
+   */
+  async onAudioNotice(handler: (notice: AudioNotice) => void): Promise<() => void> {
+    return listen<AudioNotice>("audio://notice", handler);
   },
 
   /** Tray "Recent games": launch this game immediately. */

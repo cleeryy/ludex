@@ -2,6 +2,7 @@
 
 mod adopt;
 mod archive_verify;
+mod audio;
 mod bridge;
 mod chrome;
 mod commands;
@@ -371,6 +372,11 @@ pub fn run() {
             host_preflight::host_preflight_install,
             commands::get_launch_options,
             commands::set_launch_options,
+            audio::audio_sinks,
+            audio::audio_test_sink,
+            audio::audio_volume_state,
+            audio::audio_volume_step,
+            audio::set_audio_default_sink,
             commands::wine_prefix_info,
             commands::reset_wine_prefix,
             commands::run_winetricks,

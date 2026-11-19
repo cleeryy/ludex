@@ -46,6 +46,7 @@ const REQUIRED_PANELS = [
   "settings-tiers",
   "make-it-run",
   "linux-launch",
+  "audio",
   "controller",
   "game-configs",
   "cloud-saves",

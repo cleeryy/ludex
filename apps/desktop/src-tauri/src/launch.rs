@@ -105,6 +105,23 @@ pub(crate) fn exit_code_hex(code: u32) -> String {
     format!("0x{code:08X}")
 }
 
+/// The per-game sink for the router (#289): the dedicated Audio output field,
+/// then a `PULSE_SINK` environment entry written by the older tier-2 switch
+/// (#299), so both surfaces route the same stream instead of fighting.
+pub(crate) fn launch_audio_sink(options: &crate::linux_gaming::LaunchOptions) -> String {
+    let dedicated = options.audio_sink.trim();
+    if !dedicated.is_empty() {
+        return dedicated.to_string();
+    }
+    options
+        .env
+        .get(crate::audio::PULSE_SINK_ENV)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// Exit code of a game that died inside the immediate-exit window (#187).
 ///
 /// Returns `None` once the window elapsed, or when the platform did not report
@@ -474,6 +491,9 @@ pub async fn launch(
     // #219: bring the game's window forward once it exists. Off-thread and
     // fire-and-forget: a slow or windowless game never delays the launch.
     spawn_focus_watch(app.clone(), game_id, session_id.clone(), pid);
+    // #289: the game opens its audio stream after the process starts, so the
+    // router waits for it off-thread and moves it to the per-game sink.
+    crate::audio::spawn_route(app.clone(), game_id, pid, launch_audio_sink(&options));
     // The tray lists recent games by last launch.
     crate::tray::refresh_menu(app);
     announce_presence(app, game_id, &installed.title, started_at);
@@ -2325,6 +2345,21 @@ mod tests {
             .map(|arg| arg.to_string_lossy().to_string())
             .collect();
         assert_eq!(args, vec!["--windowed"]);
+    }
+
+    /// #289: the dedicated Audio output field wins, and the older tier-2
+    /// `PULSE_SINK` switch still names a sink when the field is empty. Both
+    /// surfaces then route the same stream instead of overriding each other.
+    #[test]
+    fn the_launch_sink_merges_the_audio_field_and_pulse_sink() {
+        let mut options = crate::linux_gaming::LaunchOptions::default();
+        assert_eq!(launch_audio_sink(&options), "");
+        options
+            .env
+            .insert("PULSE_SINK".into(), " alsa_output.hdmi ".into());
+        assert_eq!(launch_audio_sink(&options), "alsa_output.hdmi");
+        options.audio_sink = "alsa_output.headset".into();
+        assert_eq!(launch_audio_sink(&options), "alsa_output.headset");
     }
 
     /// #187: the immediate-exit mapping feeds the `game://exited` payload. An

@@ -120,7 +120,7 @@ describe("console app level", () => {
 
 describe("settings sections", () => {
   it("keeps the four categories in shoulder order", () => {
-    expect([...SETTINGS_SECTIONS]).toEqual(["language", "appearance", "controllers", "streaming"]);
+    expect([...SETTINGS_SECTIONS]).toEqual(["language", "appearance", "controllers", "audio", "streaming"]);
   });
 
   it("wraps with LB/RB", () => {

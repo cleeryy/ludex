@@ -95,6 +95,7 @@ export const SETTINGS_SECTIONS = [
   "language",
   "appearance",
   "controllers",
+  "audio",
   "streaming",
 ] as const;
 

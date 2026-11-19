@@ -33,6 +33,8 @@ import { ConsoleOverlayInputScope } from "@/components/console/input/overlay-sco
 import { consolePathFor, type ConsoleSurface } from "@/components/console/routes/surface";
 import { useConsoleSession } from "@/components/console/shell/use-console-session";
 import { useConsoleSettings } from "@/components/console/shell/use-console-settings";
+import { useConsoleAudio } from "@/components/console/shell/use-console-audio";
+import { ConsoleVolumeOsd } from "@/components/console/surfaces/console-volume";
 import { ENTRANCE_MS } from "@/components/big-picture/entrance";
 import {
   AUTO_PROFILE_ID,
@@ -141,6 +143,7 @@ import {
 import { useBigPictureLayout, useViewportWidth } from "@/components/big-picture/use-layout";
 import { usePointerIdle } from "@/components/big-picture/pointer-idle";
 import { t, tn, useI18n } from "@/lib/i18n";
+import { volumeKeyAction } from "@/lib/volume-osd";
 import { qk } from "@/lib/query-keys";
 
 /** Ask the server once per open; a quick round trip through the route is free. */
@@ -1607,6 +1610,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   }, [layout, level, nav, focusSurface, focusActions]);
 
   // #267: the settings app's model is a module now (shell/use-console-settings).
+  const audio = useConsoleAudio();
   const settings = useConsoleSettings({
     section: settingsSection,
     layout,
@@ -1630,6 +1634,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     pulse: (cue) => pulseRef.current(cue),
     openProfiles: () => openOverlay("profiles"),
     openRemotePlay: () => navigate("/remote"),
+    audio,
   });
   const settingsRows = settings.rows;
   const activateSetting = settings.activate;
@@ -1741,6 +1746,17 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   const onConsoleKey = (event: KeyboardEvent): void => {
     if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const key = event.key;
+
+      // #289: media keys drive the app-owned OSD on the selected sink. They
+      // are consumed only when the desktop can actually route audio; a web
+      // build keeps the browser/OS behaviour.
+      const volumeKey = volumeKeyAction(key);
+      if (volumeKey && isNative() && audio.supported) {
+        event.preventDefault();
+        if (volumeKey === "toggleMute") audio.toggleMute();
+        else audio.step(volumeKey === "up" ? 1 : -1);
+        return;
+      }
 
       // #220: a held key (auto-repeat) lands on the final frame; a fresh press
       // animates. The attribute covers the CSS focus move for this commit only.
@@ -2145,6 +2161,8 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
           haptics={haptics}
         />
       )}
+
+      <ConsoleVolumeOsd osd={audio.osd} reduceMotion={Boolean(reduceMotion)} />
 
       <ConsoleOverlays
         overlay={overlay}

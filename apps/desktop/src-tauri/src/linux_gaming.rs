@@ -66,6 +66,9 @@ pub struct LaunchOptions {
     /// Per-game display profile through Gamescope (#287). Default is the
     /// desktop, untouched.
     pub display: DisplayProfile,
+    /// Audio output sink for this game (#289). Empty follows the profile
+    /// default: the global override, then the sound server's own default.
+    pub audio_sink: String,
 }
 
 impl Default for LaunchOptions {
@@ -79,6 +82,7 @@ impl Default for LaunchOptions {
             steam_app_id: None,
             working_dir: String::new(),
             display: DisplayProfile::default(),
+            audio_sink: String::new(),
         }
     }
 }
@@ -89,6 +93,7 @@ impl LaunchOptions {
         self.tool_id = self.tool_id.trim().to_string();
         self.prefix_path = self.prefix_path.trim().to_string();
         self.working_dir = self.working_dir.trim().to_string();
+        self.audio_sink = self.audio_sink.trim().to_string();
         self.display.filter = self.display.filter.trim().to_ascii_lowercase();
         self.env = self
             .env

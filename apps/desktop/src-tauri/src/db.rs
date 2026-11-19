@@ -132,7 +132,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 25;
+const SCHEMA_VERSION: i64 = 26;
 
 /// Pre-migration snapshots kept next to the database (`<name>-backup-<stamp>.db`).
 const BACKUP_RETENTION: usize = 3;
@@ -982,7 +982,21 @@ const MIGRATIONS: &[Migration] = &[
         sql: SCHEMA_V25,
         context: "add the install-move journal and the moved-install verify state",
     },
+    Migration {
+        version: 26,
+        sql: SCHEMA_V26,
+        context: "add the per-game audio output to the desktop database",
+    },
 ];
+
+/// Per-game audio output (#289).
+///
+/// The sink name is the full PulseAudio/PipeWire name, stored verbatim; an
+/// empty value means the game follows the profile default. Nothing here is
+/// synced to the server: a sink name belongs to this machine.
+const SCHEMA_V26: &str = r#"
+ALTER TABLE game_launch_options ADD COLUMN audio_sink TEXT NOT NULL DEFAULT '';
+"#;
 
 /// Applies every pending step in one transaction.
 ///
@@ -1470,7 +1484,7 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
     let row = connection
         .query_row(
             "SELECT mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id, working_dir,
-                    display
+                    display, audio_sink
              FROM game_launch_options WHERE game_id = ?1",
             params![game_id],
             |row| {
@@ -1483,13 +1497,16 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
                     row.get::<_, Option<i64>>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| format!("Could not read the launch options: {e}"))?;
 
-    let Some((mode, tool_id, prefix_path, env, verbs, app_id, working_dir, display)) = row else {
+    let Some((mode, tool_id, prefix_path, env, verbs, app_id, working_dir, display, audio_sink)) =
+        row
+    else {
         return Ok(LaunchOptions::default());
     };
 
@@ -1509,6 +1526,8 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
         steam_app_id: app_id.and_then(|value| u32::try_from(value).ok()),
         working_dir: normalize_stored_path(&working_dir),
         display,
+        // #289: a sink name is a host-local opaque string, never a path.
+        audio_sink: audio_sink.trim().to_string(),
     })
 }
 
@@ -1532,8 +1551,8 @@ pub fn save_launch_options(
             r#"
             INSERT INTO game_launch_options
                 (game_id, mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id,
-                 working_dir, display, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 working_dir, display, audio_sink, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(game_id) DO UPDATE SET
                 mode             = excluded.mode,
                 tool_id          = excluded.tool_id,
@@ -1543,6 +1562,7 @@ pub fn save_launch_options(
                 steam_app_id     = excluded.steam_app_id,
                 working_dir      = excluded.working_dir,
                 display          = excluded.display,
+                audio_sink       = excluded.audio_sink,
                 updated_at       = excluded.updated_at
             "#,
             params![
@@ -1555,6 +1575,7 @@ pub fn save_launch_options(
                 options.steam_app_id.map(i64::from),
                 working_dir,
                 display,
+                options.audio_sink.trim(),
                 updated_at,
             ],
         )
@@ -5238,6 +5259,7 @@ mod tests {
                 adaptive_sync: true,
                 hdr: false,
             },
+            audio_sink: "alsa_output.pci-0000_01_00.1.hdmi-stereo".into(),
             ..LaunchOptions::default()
         };
         options.env.insert("DXVK_HUD".into(), "fps".into());
@@ -5262,6 +5284,11 @@ mod tests {
         assert_eq!(
             broken.display,
             crate::linux_gaming::DisplayProfile::default()
+        );
+        // #289: the audio sink is a plain column and survives the bad JSON.
+        assert_eq!(
+            broken.audio_sink,
+            "alsa_output.pci-0000_01_00.1.hdmi-stereo"
         );
     }
 
