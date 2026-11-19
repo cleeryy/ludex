@@ -2116,6 +2116,7 @@ interface LocalSettings {
   overlayScale: number;              // panel scale, 0.6-1.3, default 1.0
   overlayTabs: ("game" | "library" | "downloads" | "achievements")[]; // shown tabs; "game" always drawn
   overlayDisabledGames: number[];    // per-game opt-outs (#144), local to this device
+  gameControllers: Record<string, { deviceId: string; name: string }>; // #314: per-game preferred controller (`vendor:product`), device-local, never synced
 }
 
 interface InstallLocation {
@@ -2401,6 +2402,48 @@ interface DisplayProfile {
   filter: string;                    // linear|nearest|fsr|nis|pixel|sgsr or empty
   adaptiveSync: boolean;             // #292: only when the build advertises --adaptive-sync and the output supports VRR
   hdr: boolean;                      // applied only when the build advertises --hdr-enabled and the output advertises HDR metadata
+}
+
+/** What an input device looks like to the player (#314). */
+type ControllerRole = "wheel" | "gamepad" | "joystick" | "mouse" | "keyboard" | "unknown";
+
+/** One device read from /proc/bus/input/devices (#314). */
+interface InputDevice {
+  name: string;
+  vendor: string | null;             // four lowercase hex digits
+  product: string | null;
+  deviceId: string | null;           // "046d:c260"; null = SDL cannot match it
+  jsIndex: number | null;            // 2 for /dev/input/js2
+  eventIndex: number | null;         // 261 for /dev/input/event261
+  jsPath: string | null;
+  eventPath: string | null;
+  connected: boolean;                // the kernel node still exists
+  role: ControllerRole;
+  isJoystick: boolean;               // SDL presents it as a controller
+}
+
+/** The launch-time device order (#314); Linux only, read-only. */
+interface ControllerInventory {
+  available: boolean;                // false off Linux or in a sandbox
+  source: string;                    // path that was read, for support
+  note: string | null;               // why the list is unavailable
+  devices: InputDevice[];            // joysticks first, in js order
+}
+
+/** The preferred controller of one game (#314); device-local, never synced. */
+interface ControllerPreference { deviceId: string; name: string }
+
+/** What the next launch adds to the environment (#314). */
+interface ControllerLaunch {
+  env: Record<string, string>;       // SDL_GAMECONTROLLER_IGNORE_DEVICES, SDL_GAMEPAD_IGNORE_DEVICES, SDL_JOYSTICK_DEVICE
+  summary: string | null;            // applied, for the launch log
+  warning: string | null;            // missing device: environment untouched
+}
+
+interface GameControllers {
+  inventory: ControllerInventory;
+  preferred: ControllerPreference | null;
+  launch: ControllerLaunch;
 }
 
 /** One detected Steam/Proton/UMU/Wine tool (#90). */
@@ -3139,6 +3182,9 @@ interface RemotePlayCleanup {
 | `list_game_executables` | `{ gameId, refresh? }` | `GameExecutables`; scans the game's install folder (depth 4-8, default 6, bounded, loop-safe) for the Launch options pickers. `entries` are `{ path, name, sizeBytes, modifiedAt, kind: "launch" \| "installer" \| "uninstaller" \| "other", recommended }`; `path` is relative to `installPath` and never leaves it, `recommended` marks the `pick_executable` result. Installer kinds are `setup*`, `install*`, `gog*`; uninstallers are `unins*`, `uninstall*`. Works for `ludex` installs, adopted folders and launcher imports that have a folder; a row without a usable folder errors. Cached for 5 s, `refresh: true` rescans (#143) |
 | `check_game_executable` | `{ gameId, path }` | `string`: the normalised forward-slash relative path. Resolves the value inside the install folder and rejects `..`, absolute paths outside it and symlink escapes; used before saving the server launch config (#143) |
 | `compat_scan` | — | `CompatScan`; detects Steam roots, Proton builds, UMU, Wine, winetricks and protonfixes, plus Gamescope capabilities (#90, #287) |
+| `controller_inventory` | — | `ControllerInventory`; launch-time joysticks from `/proc/bus/input/devices` and `/dev/input/js*` with role, `vendor:product`, node index and connection state. Read-only, Linux only; never opens a device (#314) |
+| `game_controllers` | `{ gameId }` | `GameControllers`; the inventory, the stored preference and the environment the next launch adds (#314) |
+| `set_game_controller` | `{ gameId, deviceId }` | `GameControllers`; stores a `vendor:product` pair or clears it with `null`. SDL wildcards (`0000`, `ffff`) are refused (#314) |
 | `runtime_catalog` | — | `RuntimeCatalog`; the shipped, version-pinned "Make it run" manifest (#178). Managed providers carry an allow-listed HTTPS URL, size and SHA-256; `refresh.enabled` stays false until a signing key ships |
 | `make_it_run_diagnose` | `{ gameId }` | `RuntimeDiagnosis`; platform/arch, detections, issues and the numbered plan. Reads filesystem/registry only, never the network (#178) |
 | `make_it_run_apply` | `{ gameId, stepIds, consent }` | `RuntimeApplyReport`; refuses without `consent: true`, accepts only steps the current plan offers, downloads/verifies/installs in order, re-diagnoses after each step. Progress on `runtime://progress` |
@@ -3465,6 +3511,14 @@ the manifest and never streams.
   offline, and supports a manual `steamAppId`. `wine_prefix_info`,
   `reset_wine_prefix` and `run_winetricks` manage the prefix; reset refuses
   while the game runs and never deletes an install folder or its ancestor.
+  Launch-time controllers (#314): `controller_inventory` reads
+  `/proc/bus/input/devices` and `/dev/input/js*`, classifies wheel/pad/mouse/
+  keyboard and shows the order the game gets. A per-game preferred controller
+  (`set_game_controller`, stored in the device settings, never synced) adds
+  `SDL_GAMECONTROLLER_IGNORE_DEVICES`/`SDL_GAMEPAD_IGNORE_DEVICES` for the
+  other connected joysticks and `SDL_JOYSTICK_DEVICE` for the chosen node. A
+  missing device leaves the environment untouched and logs a warning; the
+  overlay and Console mode are untouched. See `docs/CONTROLLERS.md`.
 - **Guided runtime installer (#178).** "Make it run" turns a missing
   compatibility runtime into a numbered, consent-driven plan. The manifest is
   shipped with the app (`schemaVersion`, `manifestVersion`, `generatedAt`), not

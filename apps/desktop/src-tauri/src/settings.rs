@@ -503,6 +503,13 @@ pub struct LocalSettings {
     /// successful package install clears it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_preflight: Option<crate::host_preflight::HostReport>,
+    /// Per-game preferred controller (#314), keyed by game id. The pair and the
+    /// name belong to this machine's hardware, so it lives in the device
+    /// settings and is never synced to the server. An absent key means the
+    /// launch keeps the host order.
+    #[serde(default)]
+    pub game_controllers:
+        std::collections::BTreeMap<String, crate::controllers::ControllerPreference>,
 }
 
 /// The overlay is on by default: it is the Steam-like behaviour players expect,
@@ -845,6 +852,7 @@ impl Default for LocalSettings {
             device_id: String::new(),
             device_name: None,
             host_preflight: None,
+            game_controllers: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -1093,6 +1101,20 @@ impl LocalSettings {
         {
             self.active_server_id.clear();
         }
+        // #314: the per-game controller choice is a device-local preference.
+        // Keep only a usable `vendor:product` and a bounded name; a game id
+        // that is not a number is dropped so a hand-edited file cannot grow
+        // unreachable entries.
+        self.game_controllers = self
+            .game_controllers
+            .iter()
+            .filter_map(|(game_id, preference)| {
+                let game_id = game_id.trim().parse::<i64>().ok()?.to_string();
+                let mut preference = preference.clone().normalized()?;
+                preference.name = preference.name.chars().take(120).collect();
+                Some((game_id, preference))
+            })
+            .collect();
     }
 
     /// Trim, deduplicate and migrate the GameVault roots (#134).
@@ -1864,6 +1886,51 @@ mod tests {
         assert_eq!(json["consolePerGameApps"], false);
         // #145: old settings files and fresh installs are both unconfirmed.
         assert_eq!(json["installRootConfirmed"], false);
+        // #314: no game has a preferred controller until one is picked.
+        assert_eq!(json["gameControllers"], serde_json::json!({}));
+    }
+
+    #[test]
+    fn game_controllers_round_trip_and_drop_invalid_pairs() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.game_controllers.insert(
+            "42".into(),
+            crate::controllers::ControllerPreference {
+                device_id: " 045E:028E ".into(),
+                name: "  Microsoft X-Box 360 pad  ".into(),
+            },
+        );
+        settings.game_controllers.insert(
+            "not-a-game".into(),
+            crate::controllers::ControllerPreference {
+                device_id: "045e:028e".into(),
+                name: String::new(),
+            },
+        );
+        settings.game_controllers.insert(
+            "43".into(),
+            crate::controllers::ControllerPreference {
+                device_id: "0000:0000".into(),
+                name: "wildcard".into(),
+            },
+        );
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.game_controllers.len(), 1);
+        let stored = &settings.game_controllers["42"];
+        assert_eq!(stored.device_id, "045e:028e");
+        assert_eq!(stored.name, "Microsoft X-Box 360 pad");
+
+        let json = serde_json::to_value(&settings).unwrap();
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.game_controllers, settings.game_controllers);
+
+        // A settings file written before #314 has no key at all.
+        let legacy: LocalSettings = serde_json::from_value(serde_json::json!({
+            "installDir": "D:\\Games",
+        }))
+        .unwrap();
+        assert!(legacy.game_controllers.is_empty());
     }
 
     #[test]

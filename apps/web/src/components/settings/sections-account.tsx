@@ -17,6 +17,7 @@ import { Button, Field, Input, Switch, Textarea } from "@/components/ui/controls
 import { AppearancePanel } from "@/components/settings/appearance-panel";
 import { ControllerPanel } from "@/components/settings/controller-panel";
 import { ControllerManager } from "@/components/settings/controller-manager";
+import { ControllerDiagnostics } from "@/components/settings/controller-diagnostics";
 import { OverlayPanel } from "@/components/settings/overlay-panel";
 import { AdminDiagnosticsPanel, DiagnosticsPrivacyPanel } from "@/components/settings/diagnostics-panel";
 import { RomEmulatorsPanel } from "@/components/settings/rom-emulators";
@@ -338,6 +339,7 @@ export function ProfilesBody({ desktop }: { desktop: DesktopSettingsController }
         description={t("Deadzone, sensitivity, remapping and vibration apply in the library and Console mode.")}
       >
         <ControllerManager />
+        <ControllerDiagnostics />
         <ControllerPanel />
       </SettingsGroup>
       <OverlayPanel />

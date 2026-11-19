@@ -113,6 +113,13 @@ Reading a log:
 4. Check the header `tool:`/`GAMEID:`/`prefix:` lines against what you meant to
    run before editing anything.
 
+When a game binds the wheel instead of the pad, the header also carries the
+controller decision: a `controller:` line with `controller env:` entries
+(`SDL_GAMECONTROLLER_IGNORE_DEVICES`, `SDL_JOYSTICK_DEVICE`) or a
+`controller warning:` line when the preferred pad was not connected. The
+enumeration itself is in Settings → Profiles → Controllers; see
+[CONTROLLERS.md](CONTROLLERS.md).
+
 ## Exit codes
 
 Ludex reports the exit code as an unsigned 32-bit value and logs the hex form.

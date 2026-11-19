@@ -16,6 +16,7 @@ use crate::compat::{self, CompatScan};
 use crate::config_adapters::{self, AdapterReport};
 use crate::config_fields::{self, CommonFieldTarget};
 use crate::console;
+use crate::controllers::{ControllerLaunch, ControllerPreference, GameControllers};
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::game_config::{self, ConfigDocument, ConfigEditInput};
 use crate::game_executables::{self, GameExecutables};
@@ -93,6 +94,10 @@ pub fn save_settings(
         // install). A web draft loaded before that must not write a stale
         // report back over the stored one.
         object.remove("hostPreflight");
+        // #314: the preferred controller is written by `set_game_controller`
+        // the moment it is picked. A full-settings draft from another tab must
+        // not resurrect a stale map.
+        object.remove("gameControllers");
         // #235: the download policy replaces `installTransport`. Translate an
         // older payload once and drop the key so a stale draft cannot override
         // the stored choice on every save.
@@ -2631,6 +2636,101 @@ pub async fn compat_scan(app: AppHandle) -> Result<CompatScan, String> {
     tokio::task::spawn_blocking(move || compat::scan(&settings))
         .await
         .map_err(|error| format!("The compatibility scan failed: {error}"))
+}
+
+/// Input devices the game will see (#314): name, vendor:product, js index and
+/// whether the kernel node still exists. Read-only and Linux-only: a game
+/// without a preferred controller never pays for it.
+#[tauri::command]
+pub fn controller_inventory() -> crate::controllers::ControllerInventory {
+    crate::controllers::inventory(Path::new("/"))
+}
+
+/// Diagnostics plus the preferred controller stored for one game (#314).
+#[tauri::command]
+pub fn game_controllers(
+    state: State<'_, AppState>,
+    game_id: i64,
+) -> Result<GameControllers, String> {
+    let settings = state.settings_snapshot();
+    let inventory = crate::controllers::inventory(Path::new("/"));
+    Ok(controllers_snapshot(&settings, game_id, inventory))
+}
+
+/// Store (`deviceId`) or clear (`null`) the preferred controller of one game
+/// (#314). The pair is validated here, so an SDL wildcard can never be saved.
+#[tauri::command]
+pub fn set_game_controller(
+    state: State<'_, AppState>,
+    game_id: i64,
+    device_id: Option<String>,
+) -> Result<GameControllers, String> {
+    let inventory = crate::controllers::inventory(Path::new("/"));
+    let normalized = match device_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(raw) => Some(crate::controllers::normalize_device_id(raw).ok_or_else(|| {
+            "A controller id looks like 046d:c260 (vendor:product, four hex digits each)."
+                .to_string()
+        })?),
+        None => None,
+    };
+    let current = state.settings_snapshot();
+    let name = normalized
+        .as_ref()
+        .map(|id| {
+            inventory
+                .devices
+                .iter()
+                .find(|device| device.device_id.as_deref() == Some(id.as_str()))
+                .map(|device| device.name.clone())
+                // An unplugged device keeps the name it had when it was picked.
+                .or_else(|| {
+                    current
+                        .game_controllers
+                        .get(&game_id.to_string())
+                        .map(|preference| preference.name.clone())
+                })
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    let settings = state.update_settings(|settings| match &normalized {
+        Some(id) => {
+            settings.game_controllers.insert(
+                game_id.to_string(),
+                ControllerPreference {
+                    device_id: id.clone(),
+                    name: name.clone(),
+                },
+            );
+        }
+        None => {
+            settings.game_controllers.remove(&game_id.to_string());
+        }
+    })?;
+    Ok(controllers_snapshot(&settings, game_id, inventory))
+}
+
+/// One game's diagnostics, preference and the environment a launch would add.
+fn controllers_snapshot(
+    settings: &LocalSettings,
+    game_id: i64,
+    inventory: crate::controllers::ControllerInventory,
+) -> GameControllers {
+    let preferred = crate::controllers::preference(&settings.game_controllers, game_id);
+    let launch = match preferred.clone() {
+        Some(preference) => {
+            crate::controllers::launch_for_preference(Some(&preference), &inventory.devices)
+        }
+        None => ControllerLaunch::default(),
+    };
+    GameControllers {
+        inventory,
+        preferred,
+        launch,
+    }
 }
 
 /// Per-game launch options; defaults when nothing was saved yet.
