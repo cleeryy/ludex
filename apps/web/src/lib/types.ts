@@ -1806,6 +1806,201 @@ export interface SunshineStatus {
   message: string;
 }
 
+/* ----------------- Streaming host prerequisites (#291) ------------------ */
+
+export type StreamCheckStatus = "ok" | "warning" | "missing" | "broken" | "unknown";
+
+export interface StreamCheck {
+  id: string;
+  label: string;
+  status: StreamCheckStatus;
+  detail: string;
+  hint?: string;
+}
+
+export interface StreamService {
+  unit: string | null;
+  enabled: boolean;
+  active: boolean;
+  detail: string;
+}
+
+export interface StreamCapture {
+  kms: boolean;
+  drmNodes: number;
+  session: string | null;
+  sessionType: string | null;
+  seat: string | null;
+  sessionActive: boolean | null;
+  detail: string;
+}
+
+export interface DisplayOutput {
+  name: string;
+  connected: boolean;
+  active: boolean | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface NetworkMtu {
+  interface: string;
+  mtu: number;
+  up: boolean;
+  tunnel: boolean;
+}
+
+export interface MtuChoice {
+  interface: string;
+  mtu: number;
+  packetSize: number;
+  source: "override" | "tunnel" | "route" | "lowest";
+  detail: string;
+}
+
+export interface StreamEncoder {
+  available: boolean;
+  hardware: boolean;
+  names: string[];
+  detail: string;
+}
+
+export interface StreamHostReport {
+  supported: boolean;
+  detected: boolean;
+  ready: boolean;
+  binary: string | null;
+  version: string | null;
+  configPath: string | null;
+  configExists: boolean;
+  configuredOutput: string | null;
+  configuredAudio: string | null;
+  configuredPacketSize: number | null;
+  service: StreamService;
+  capture: StreamCapture;
+  outputs: DisplayOutput[];
+  interfaces: NetworkMtu[];
+  mtu: MtuChoice | null;
+  encoder: StreamEncoder;
+  credentialsStored: boolean;
+  configRevertible: boolean;
+  firewallRevertible: boolean;
+  checks: StreamCheck[];
+  warnings: string[];
+  message: string;
+  checkedAt: string;
+  durationMs: number;
+}
+
+export interface StreamSelfTest {
+  ready: boolean;
+  findings: StreamCheck[];
+  message: string;
+}
+
+export interface StreamSelfTestReport {
+  host: StreamHostReport;
+  selfTest: StreamSelfTest;
+}
+
+export interface StreamConfigEdit {
+  key: string;
+  value: string;
+  previous: string | null;
+}
+
+export interface StreamPlannedFile {
+  path: string;
+  action: "write" | "backup" | "delete";
+  bytes: number;
+  mode: string;
+  preview: string;
+}
+
+export interface StreamConfigPlan {
+  path: string;
+  exists: boolean;
+  output: string;
+  packetSize: number;
+  interface: string;
+  edits: StreamConfigEdit[];
+  files: StreamPlannedFile[];
+  commands: string[];
+  backup: string;
+  needsElevation: boolean;
+  applicable: boolean;
+  blocked: string | null;
+  warnings: string[];
+  message: string;
+}
+
+export interface StreamConfigApply {
+  path: string;
+  backup: string;
+  written: boolean;
+  sha256: string;
+  edits: StreamConfigEdit[];
+  restartRequired: boolean;
+  message: string;
+}
+
+export interface StreamConfigRevert {
+  restored: boolean;
+  path: string;
+  removed: boolean;
+  sha256: string | null;
+  message: string;
+}
+
+export interface FirewallRule {
+  protocol: "tcp" | "udp";
+  first: number;
+  last: number;
+  purpose: string;
+}
+
+export interface FirewallPlan {
+  tool: "ufw" | "firewalld" | "nftables" | "none";
+  label: string;
+  rules: FirewallRule[];
+  commands: string[];
+  applied: boolean;
+  needsElevation: boolean;
+  supported: boolean;
+  blocked: string | null;
+  message: string;
+}
+
+export interface FirewallReport {
+  tool: string;
+  opened: string[];
+  skipped: string[];
+  commands: string[];
+  message: string;
+}
+
+export interface StreamPairingOutcome {
+  mode:
+    | "paired"
+    | "pin-rejected"
+    | "credentials-required"
+    | "unreachable"
+    | "invalid-pin"
+    | "browser"
+    | "failed";
+  url: string;
+  status: number | null;
+  apps: number | null;
+  credentialsSaved: boolean;
+  message: string;
+}
+
+export interface StreamHostError {
+  code: string;
+  message: string;
+}
+
+
 export interface SunshinePreviewEntry {
   gameId: number;
   title: string;

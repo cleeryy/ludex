@@ -2869,6 +2869,72 @@ interface StreamTarget {
   message: string;
 }
 
+/* Streaming host prerequisites (#291) */
+
+type StreamCheckStatus = "ok" | "warning" | "missing" | "broken" | "unknown";
+
+interface StreamCheck {
+  id: string; label: string; status: StreamCheckStatus;
+  detail: string; hint?: string;
+}
+
+interface DisplayOutput {
+  name: string; connected: boolean; active: boolean | null;
+  width: number | null; height: number | null;
+}
+
+interface NetworkMtu { interface: string; mtu: number; up: boolean; tunnel: boolean; }
+
+interface MtuChoice {
+  interface: string; mtu: number; packetSize: number;
+  source: "override" | "tunnel" | "route" | "lowest"; detail: string;
+}
+
+interface StreamHostReport {
+  supported: boolean; detected: boolean; ready: boolean;
+  binary: string | null; version: string | null;
+  configPath: string | null; configExists: boolean;
+  configuredOutput: string | null; configuredAudio: string | null;
+  configuredPacketSize: number | null;
+  service: { unit: string | null; enabled: boolean; active: boolean; detail: string };
+  capture: {
+    kms: boolean; drmNodes: number; session: string | null;
+    sessionType: string | null; seat: string | null;
+    sessionActive: boolean | null; detail: string;
+  };
+  outputs: DisplayOutput[]; interfaces: NetworkMtu[]; mtu: MtuChoice | null;
+  encoder: { available: boolean; hardware: boolean; names: string[]; detail: string };
+  credentialsStored: boolean; configRevertible: boolean; firewallRevertible: boolean;
+  checks: StreamCheck[]; warnings: string[];
+  message: string; checkedAt: string; durationMs: number;
+}
+
+interface StreamConfigPlan {
+  path: string; exists: boolean; output: string;
+  packetSize: number; interface: string;
+  edits: { key: string; value: string; previous: string | null }[];
+  files: { path: string; action: "write" | "backup" | "delete"; bytes: number; mode: string; preview: string }[];
+  commands: string[]; backup: string;
+  needsElevation: boolean; applicable: boolean;
+  blocked: string | null; warnings: string[]; message: string;
+}
+
+interface FirewallRule { protocol: "tcp" | "udp"; first: number; last: number; purpose: string; }
+
+interface FirewallPlan {
+  tool: "ufw" | "firewalld" | "nftables" | "none";
+  label: string; rules: FirewallRule[]; commands: string[];
+  applied: boolean; needsElevation: boolean; supported: boolean;
+  blocked: string | null; message: string;
+}
+
+interface PairingOutcome {
+  mode: "paired" | "pin-rejected" | "credentials-required" | "unreachable"
+      | "invalid-pin" | "browser" | "failed";
+  url: string; status: number | null; apps: number | null;
+  credentialsSaved: boolean; message: string;
+}
+
 /* ------------------------- Remote play wizard (#179) ---------------------- */
 
 type RemotePlayProtocol = "tcp" | "udp";
@@ -2942,6 +3008,7 @@ interface RemotePlayAdvertisedAddress {
   reason: string;                   // shown under the Moonlight address field
 }
 
+/** Remote play summary (#179, #206). */
 interface SunshineRemoteStatus {
   running: boolean; configPath: string | null; portBase: number;
   portsOpen: number[];              // TCP ports answering on 127.0.0.1
@@ -3151,6 +3218,16 @@ interface RemotePlayCleanup {
 | `remote_play_verify` | — | `RemotePlayVerification`; one row per planned port with `mapped` from the IGD query and, for TCP, a 1.5 s connect probe to the public address. UDP is `mapped` with `reachable: null` (no protocol-aware echo). Distinguishes `not_mapped`/`conflict` from a mapped port that this machine cannot hairpin (#179) |
 | `remote_play_refresh` | — | `RemotePlayReport`; re-adds mappings whose remaining lease is under half, then verifies. Called every 5 min while the wizard is open; a no-op when nothing is due |
 | `remote_play_disable` | — | `RemotePlayCleanup`; deletes every recorded mapping, queries each back, reports `removed`/`absent`/`failed`, and clears the state file only when every port is gone. Failed entries stay recorded for a retry or the startup sweep (#179) |
+| `stream_host_status` | — | `StreamHostReport`; Sunshine binary/version, `sunshine.service` enabled+active, `/dev/dri` + `loginctl` capture state, connected outputs with DPMS, network interfaces and the MTU→`packet_size` choice, encoder probe, current `output_name`/`stream_audio`/`packet_size`, `configRevertible`/`firewallRevertible` from `{appDataDir}/stream-host.json` (#291) |
+| `stream_host_self_test` | — | `{ host, selfTest }`; the report plus distinct findings (`sunshine-missing`, `sunshine-disabled`, `capture-unavailable`, `no-output`, `display-blanked`, `wrong-output`, `encoder-unavailable`, `mtu-low`). No frame is captured (#291) |
+| `stream_host_config_plan` | `{ output?, interface? }` | `StreamConfigPlan`; dry run for `sunshine.conf`: only `output_name`, `stream_audio` and `packet_size` change, every other byte is preserved. Lists edits, files, backup path, mode, commands and `needsElevation`. Never writes (#291) |
+| `stream_host_config_apply` | `{ output?, interface?, consent }` | `StreamConfigApply`; `consent: false` is refused with `consent_required`. Recomputes the plan, copies the original to `sunshine.conf.ludex.bak`, records its SHA-256 in `{appDataDir}/stream-host.json`, writes atomically and verifies the read-back. `pkexec` only when the file is not writable; the service is never restarted (#291) |
+| `stream_host_config_revert` | — | `ConfigRevert`; restores the backup byte for byte when its SHA-256 still matches, deletes a file Ludex created, then clears the record. Refuses `nothing_to_revert`/`backup_missing`/`backup_mismatch` (#291) |
+| `stream_host_firewall_plan` | — | `FirewallPlan`; detected tool (`ufw`/`firewalld`/`nftables` or `none`), the exact rules (TCP 47984-47990 and 48010, UDP 47998-48010), commands, whether Ludex rules are recorded, and `blocked` when no tool or `pkexec` exists (#291) |
+| `stream_host_firewall_apply` | `{ consent }` | `FirewallReport`; `consent: false` is refused. Queries the existing rules as root first, opens only the missing ones through one `pkexec sh -c`, and records their ids. No blanket allow, no caller-supplied port (#291) |
+| `stream_host_firewall_revert` | — | `FirewallReport`; closes only the rule ids Ludex recorded (or drops the `ludex_stream` table it created). Refuses when the active tool changed (#291) |
+| `stream_host_pair` | `{ pin, username?, password?, remember? }` | `PairingOutcome`; `POST http://127.0.0.1:<port>/api/pin` with HTTP Basic, then `GET /api/apps`. Modes: `paired`, `pin-rejected`, `credentials-required`, `unreachable`, `invalid-pin`. `remember` stores the credentials in the secret store (`stream-host.sunshine-user`, `stream-host.sunshine-password`); the password is never returned (#291) |
+| `stream_host_pairing_page` | — | `PairingOutcome`; opens `http://127.0.0.1:47990/` in a Ludex window (system browser on failure) with a `browser` mode and the reason. Used when the API has no credentials yet (#291) |
 | `list_servers` | — | `ServerList`; saved servers, active profile and token-storage backend (#24) |
 | `save_server` | `{ id?, label, url, username?, token? }` | `ServerList`; validates and normalises the URL, stores the token in the secret store |
 | `remove_server` | `{ id }` | `ServerList`; deletes the saved token. When the active profile is removed the first remaining one becomes active |
@@ -3198,6 +3275,21 @@ silently showing the LAN address. A CGNAT WAN address, a Docker/veth bridge,
 loopback, link-local and IPv6 ULA are never advertised. The selected
 interface/address/source is logged at debug level; no credential, PIN or token
 is involved.
+
+**Streaming host prerequisites (#291).** `stream_host_*` cover the host side of
+a Moonlight stream; `docs/STREAMING.md` is the operator guide. Detection reads
+`sunshine.conf`, `/sys/class/drm`, `/dev/dri`, `/sys/class/net`,
+`/proc/net/route`, the systemd unit and `loginctl`; command probes
+(`systemctl`, `loginctl`, `sunshine --version`, `vainfo`, `ffmpeg`) are bounded
+by 4 s. The config write owns exactly three keys (`output_name`,
+`stream_audio`, `packet_size`) and preserves every other byte; a backup plus a
+SHA-256 in `{appDataDir}/stream-host.json` makes the revert byte-identical. The
+firewall rules are the fixed Sunshine ranges (TCP 47984-47990 and 48010, UDP
+47998-48010) — never a blanket allow — and only rule ids recorded as added are
+closed. Pairing uses `POST /api/pin` and `GET /api/apps` over plain HTTP on
+`127.0.0.1:47989`, with the admin credentials from the secret store; any failure
+falls back to opening `127.0.0.1:47990` in a window. Nothing here restarts the
+Sunshine service or captures a frame.
 
 Events:
 

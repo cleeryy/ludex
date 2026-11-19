@@ -57,6 +57,7 @@ mod space;
 mod state;
 mod steam;
 mod storage_suggest;
+mod stream_host;
 mod stream_install;
 mod streaming;
 #[cfg(test)]
@@ -442,6 +443,16 @@ pub fn run() {
             remote_play::remote_play_verify,
             remote_play::remote_play_refresh,
             remote_play::remote_play_disable,
+            stream_host::stream_host_status,
+            stream_host::stream_host_self_test,
+            stream_host::stream_host_config_plan,
+            stream_host::stream_host_config_apply,
+            stream_host::stream_host_config_revert,
+            stream_host::stream_host_firewall_plan,
+            stream_host::stream_host_firewall_apply,
+            stream_host::stream_host_firewall_revert,
+            stream_host::stream_host_pair,
+            stream_host::stream_host_pairing_page,
             commands::list_servers,
             commands::save_server,
             commands::remove_server,

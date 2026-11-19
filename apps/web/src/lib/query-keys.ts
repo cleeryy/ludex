@@ -197,6 +197,12 @@ export const qk = {
     previewRoot: ["sunshine-preview"] as const,
     preview: (appsPath: string) => key("sunshine-preview", appsPath),
   },
+  streamHost: {
+    status: ["stream-host-status"] as const,
+    selfTest: ["stream-host-self-test"] as const,
+    firewall: ["stream-host-firewall"] as const,
+    configPlan: ["stream-host-config-plan"] as const,
+  },
   moonlightStatus: ["moonlight-status"] as const,
 
   overlay: {
