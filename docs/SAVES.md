@@ -381,6 +381,10 @@ Distinct states reported in `message`:
 
 - `N save path(s) detected with the Ludusavi manifest/CLI.`
 - `N save path(s): X detected … and Y configured manually.`
+- `N save folder candidate(s) match this save on this machine; choose one to
+  sync it.` (#294 ambiguous identity)
+- `This save root only exists on the other platform; nothing is missing on this
+  machine.` (#294 one-platform root)
 - `No save files exist yet for this game. Launch it once so it creates them,
   then re-detect.` (missing-save retry)
 - `This game is not in the Ludusavi manifest. …`
@@ -583,6 +587,110 @@ rule. Pending retry state survives a restart. Download and backup archives live
 under `{appDataDir}/cloud-saves/` and temporary archives are deleted after each
 attempt.
 
+### Cross-platform save identity (#294)
+
+A save path is a host path, and a Windows host path does not exist on Linux.
+Instead of syncing that path, Ludex derives a **logical identity** from it:
+
+```text
+ludex-save:1/<game id>/<root kind>/<relative path>
+ludex-save:1/42/documents/My Games/Hades/profile.sav
+```
+
+The game id, the root kind and the path below the root are all it contains —
+never a drive letter, a user name or a prefix path. The identity is computed
+from the path at read time; no schema column and no server field stores it.
+`CloudSaveStatus.paths[].identity` carries it next to the usual local path,
+which stays local.
+
+#### Root kinds and the Windows ↔ Proton table
+
+| Root kind | Windows | Wine/Proton prefix |
+|---|---|---|
+| `documents` | `FOLDERID_Documents` (OneDrive/GPO redirection honoured), `…\My Games` kept in the relative path | `drive_c/users/<user>/Documents` |
+| `saved-games` | `FOLDERID_SavedGames` | `drive_c/users/<user>/Saved Games` |
+| `roaming-app-data` | `%APPDATA%` | `drive_c/users/<user>/AppData/Roaming` |
+| `local-app-data` | `%LOCALAPPDATA%` | `drive_c/users/<user>/AppData/Local` |
+| `local-app-data-low` | `FOLDERID_LocalAppDataLow` | `drive_c/users/<user>/AppData/LocalLow` |
+| `program-data` | `%PROGRAMDATA%` | `drive_c/ProgramData` |
+| `public` | `%PUBLIC%` | `drive_c/users/Public` |
+| `home`, `xdg-data`, `xdg-config`, `xdg-state`, `application-support` | none | none (POSIX only) |
+
+- Both `Documents/<title>` and `Documents/My Games/<title>` are the
+  `documents` root; `My Games` is part of the relative path, so the two shapes
+  do not become different saves.
+- `C:\Users\<user>\OneDrive\Documents\…` and
+  `C:\Users\<user>\OneDrive - <org>\Documents\…` are classified as
+  `documents`. On Windows the known-folder resolver already returns the
+  redirected path; the structural fallback covers a mounted drive or an
+  unregistered root.
+- A Proton prefix is discovered from the per-game launch prefix, the
+  `winePrefix` setting, `$WINEPREFIX`, `~/.wine` and
+  `steamapps/compatdata/<appid>/pfx` under the configured Steam root.
+  `drive_c/users` folders other than `public`/`default` are enumerated;
+  `steamuser` is preferred, then the other users, and `steamuser` is the
+  fallback when the folder has not been created yet.
+
+Resolution is **case-insensitive under a Windows or Proton root** (NTFS
+semantics) and **case-sensitive under a native POSIX root**. The resolver walks
+the existing tree and uses the casing found on disk, so `documents/my
+games/hades` and `Documents/My Games/Hades` are the same identity and a
+case-only difference is not a second save.
+
+#### Validation and ambiguity
+
+A candidate is trusted only when it looks like the same save:
+
+1. the path classifies to the same root kind and relative path (case-folded);
+2. the file-name sets match case-insensitively;
+3. the extension sets are not disjoint (engine signature);
+4. the byte totals stay within 0.5×–2× plus 4 KiB (a CRLF/LF difference is a
+   few percent; a different save slot is not).
+
+When the stored path is absent on this machine, the identity is resolved under
+the local roots:
+
+| State | Meaning |
+|---|---|
+| `present` | the path exists as stored. |
+| `translated` | a validated equivalent exists at another local root; `resolvedPath` names it. |
+| `pending_mapping` | several candidates validated. `pendingMappings[]` lists them with `reason: "ambiguous"`; nothing is picked. |
+| `other_platform` | the root cannot exist here (`xdg-data` on Windows, a native Windows folder on Linux). Not "missing". |
+| `missing` | the root exists here but the save folder does not. |
+
+`resolve_save_identity { gameId, identity, path }` records the user's choice
+after checking that the folder classifies to the same identity. The decision is
+persisted in `settings.json` (`saveIdentityMappings`) and reused, so an
+ambiguity is asked once. A candidate that failed validation is reported with
+`reason: "rejected"` instead of being silently ignored.
+
+#### Normalisation on sync
+
+Two archives of the same save must not differ only because one machine writes
+CRLF:
+
+- Text formats (`.ini`, `.cfg`, `.conf`, `.json`, `.xml`, `.yaml`, `.toml`,
+  `.txt`, `.csv`, `.lua`, `.properties`, `.settings`) up to 16 MiB are written
+  LF-normalised. A file with a NUL byte, invalid UTF-8 or no CRLF is copied
+  byte-for-byte, as is every binary format.
+- Two entries that differ only by case collapse to the first one, so a
+  case-sensitive host cannot archive `Save.dat` and `save.dat` as two saves.
+- Zip entries carry a fixed timestamp, so identical content produces identical
+  archive bytes. The content hash — the value the server and `last_hash` dedupe
+  on — therefore matches, and the second upload is skipped instead of creating a
+  divergent snapshot.
+
+Restore is unchanged: the archive layout still maps `saves/NN` to the local
+path at index `NN`; the identity layer owns the mapping, not the transport.
+
+#### Limits
+
+- A signature walks at most 512 files and 8 levels, and skips symlinks.
+- The case-insensitive resolver reads at most 4 000 directory entries per
+  segment.
+- The identity pass only reads a tree for a path that is absent locally; a
+  present path costs one classification.
+
 ### Privacy
 
 - Only the opaque zip leaves the machine. Host paths, the real save layout and
@@ -671,7 +779,12 @@ For automatic sync (#108), still with temporary trees and no network:
 - conflict detection for local-only, remote-only and two-sided changes;
 - restore into an empty folder and backup-before-overwrite;
 - path traversal and symlink-mode rejection during extraction;
-- SQLite pending-retry bookkeeping, restore-once state and migration to v9.
+- SQLite pending-retry bookkeeping, restore-once state and migration to v9;
+- cross-platform identity (#294): Windows ↔ Proton translation with fixtures,
+  `Documents/My Games` and OneDrive redirection, case-only equality with
+  on-disk casing resolution, CRLF/LF archive hash equality, case-only duplicate
+  entries collapsing, ambiguity refusal, one-platform root availability and
+  pair validation on names, extensions and size.
 
 A real server is not exercised by unit tests; the upload/download paths are
 covered by type-checking and the server's own route tests.

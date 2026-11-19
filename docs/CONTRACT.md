@@ -2092,6 +2092,9 @@ interface LocalSettings {
   ludusaviManifestAutoUpdate: boolean; // startup refresh (#153), default true, max once per 24 h
   ludusaviManifestUrl: string;       // mirror/pinned manifest URL (#153), empty = the canonical upstream manifest
   winePrefix: string;                // Wine/Proton prefix override (#107), empty = detect
+  /** Ambiguous cross-platform save identities resolved by the user (#294).
+   *  `identity` is the logical form, `path` the local folder picked. */
+  saveIdentityMappings: { gameId: number; identity: string; path: string }[];
   cloudAutoSync: boolean;            // global automatic save backup (#108), default true
   cloudDeviceId: string;             // random UUID generated on first use, not a hardware id
   cloudDeviceLabel: string | null;   // null = host name, then "Desktop"
@@ -2660,7 +2663,18 @@ type CloudSaveStrategy = "remote" | "keep_local";
 
 interface CloudSaveStatus {
   gameId: number; serverConfigured: boolean;
-  paths: { path, kind, primary, exists, files, sizeBytes, lastModified }[];
+  /** `identity` is game + root kind + relative path, never an absolute path
+   *  (#294). `availability` is `present`, `translated`, `pending_mapping`,
+   *  `other_platform` or `missing`; a root that only exists on the other OS is
+   *  `other_platform`, never `missing`. `resolvedPath` is set for `translated`. */
+  paths: {
+    path: string; kind: string; primary: boolean; exists: boolean;
+    files: number; sizeBytes: number; lastModified: string | null;
+    identity: string | null; rootKind: string | null; relativePath: string | null;
+    originPlatform: "windows" | "proton" | "linux" | "macos" | "unknown" | string;
+    availability: "present" | "translated" | "pending_mapping" | "other_platform" | "missing";
+    resolvedPath: string | null;
+  }[];
   /** Guessed folders and the automatic decision for each (#180). `status` is
    *  `saving`, `waiting` or `skipped`; `reason` explains a skip. */
   candidates: {
@@ -2678,6 +2692,13 @@ interface CloudSaveStatus {
     remoteCreatedAt: string; remoteDeviceId: string | null;
   } | null;
   pending: { pending: boolean; attempts: number; nextAttemptAt: string | null; error: string | null };
+  /** Identities this machine cannot resolve without one choice (#294). `reason`
+   *  is `ambiguous` (several candidates validated) or `rejected` (a candidate
+   *  existed but did not look like the same save). Nothing is picked silently. */
+  pendingMappings: {
+    gameId: number; identity: string; rootKind: string; relativePath: string;
+    reason: "ambiguous" | "rejected" | string; candidates: string[];
+  }[];
   deviceId: string | null;
   /** ISO timestamp of the last save detection, null when it never ran (#158). */
   lastDetectionAt: string | null;
@@ -3223,11 +3244,12 @@ interface RemotePlayCleanup {
 | `ludusavi_manifest_status` | — | `ManifestStatus`; cached save-path manifest (`{appDataDir}/manifest/ludusavi-manifest.yaml`), version, last updated/checked, size and effective source URL. Local only (#153) |
 | `update_ludusavi_manifest` | — | `ManifestUpdate`; downloads or refreshes the manifest now, ignoring the 24 h throttle. Conditional `If-None-Match`, 64 MiB cap, 60 s timeout, optional SHA-256 check; the body must parse as a manifest before it replaces the cached copy, and any failure keeps the cached copy (its `version` and `updatedAt` stay in the status). No tests hit the network (#153, #236) |
 | `remove_ludusavi_manifest` | — | `ManifestStatus`; deletes the cached manifest and its metadata so detection falls back to a user-installed copy or manual paths (#153) |
-| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry, conflict, `lastDetectionAt` and the automatic candidate decisions (#108, #158, #180). The local walk is cached and bounded (200 ms / 4 000 files) and runs on the blocking pool, so opening a game page never scans the whole disk (#159) |
+| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry, conflict, `lastDetectionAt`, the automatic candidate decisions (#108, #158, #180) and the logical identity/availability of each path (#294). The local walk is cached and bounded (200 ms / 4 000 files) and runs on the blocking pool, so opening a game page never scans the whole disk (#159) |
 | `set_cloud_save_sync` | `{ gameId?, enabled }` | `CloudSyncToggleResponse`; `gameId` null changes the global default, a number stores a per-game override. Local only |
 | `sync_cloud_save_now` | `{ gameId }` | `CloudSaveStatus`; archives and uploads immediately. Works with automatic sync off; an unchanged hash is a no-op. Failures stay in `pending` |
 | `restore_cloud_save` | `{ gameId, strategy: "remote" \| "keep_local" }` | `CloudSaveRestoreOutcome`; verifies the SHA-256, backs up newer local files before a `remote` restore and returns `backupPath`, runs at most once per snapshot. `keep_local` records and uploads the local state (#108) |
 | `resolve_cloud_save_conflict` | `{ gameId, strategy }` | `CloudSaveRestoreOutcome`; same operation as `restore_cloud_save`, using the explicit strategy |
+| `resolve_save_identity` | `{ gameId, identity, path }` | `CloudSaveStatus`; records the folder chosen for an ambiguous cross-platform save identity (#294). The path must classify to the same root kind and relative path as `identity`, so it cannot point at an unrelated folder; the choice is persisted in `settings.json` (`saveIdentityMappings`) and reused, so the ambiguity is asked once. Local only |
 | `list_locations` | — | `LocationStatus[]`; probes every named location, default first then roomiest writable. Never fails on a missing drive |
 | `check_location` | `{ id?, path?, requiredBytes? }` | `LocationStatus`; one location by id or path, with `freeSpaceOk` when `requiredBytes` is set |
 | `suggest_storage_locations` | — | `StorageSuggestions`; detected fixed drives as `<drive>:\Games` candidates on Windows (`~/Games`, `/mnt/...`, `/media/...`, `/Volumes/...` elsewhere), with free/total bytes, writability, `recommended`/`current`/`fallback` flags and `needsChoice`. Read-only: never creates a folder or changes settings (#145) |

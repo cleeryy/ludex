@@ -3868,6 +3868,19 @@ pub async fn resolve_cloud_save_conflict(
     saves_sync::resolve_conflict(&app, game_id, &strategy).await
 }
 
+/// Record the user's choice for an ambiguous cross-platform save identity
+/// (#294). The identity carries no host path; the chosen path must classify to
+/// the same root kind and relative path. Asks once: the decision is persisted.
+#[tauri::command]
+pub async fn resolve_save_identity(
+    app: AppHandle,
+    game_id: i64,
+    identity: String,
+    path: String,
+) -> Result<CloudSaveStatus, String> {
+    saves_sync::resolve_identity(&app, game_id, &identity, &path).await
+}
+
 /* ------------------------- locations (#99) ------------------------------- */
 
 /// Every named location with live probe data. Never fails: a missing drive is

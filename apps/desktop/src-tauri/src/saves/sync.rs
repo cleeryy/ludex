@@ -40,6 +40,7 @@ use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
 use crate::db::{self, CloudSavePrefs, SavePathRecord};
+use crate::saves::identity::{self, Layout, MappingPlan, SaveIdentity, SaveRoots};
 use crate::settings::LocalSettings;
 use crate::state::AppState;
 use crate::util::{now_rfc3339, short_id};
@@ -94,6 +95,37 @@ pub struct CloudSavePath {
     pub files: u64,
     pub size_bytes: u64,
     pub last_modified: Option<String>,
+    /// Logical identity (#294): game + root kind + relative path. `None` when
+    /// the path is outside every known root. Never contains a host path.
+    pub identity: Option<String>,
+    /// `documents`, `saved-games`, `roaming-app-data`, … when classified.
+    pub root_kind: Option<String>,
+    /// Path below the root, with `/` separators.
+    pub relative_path: Option<String>,
+    /// `windows`, `proton`, `linux`, `macos` or `unknown`.
+    pub origin_platform: String,
+    /// `present`, `translated`, `pending_mapping`, `other_platform` or
+    /// `missing`. A root that only exists on the other platform is
+    /// `other_platform`, never reported as "missing" (#294).
+    pub availability: String,
+    /// Folder the identity resolved to on this machine, when the stored path
+    /// is absent but a validated equivalent exists.
+    pub resolved_path: Option<String>,
+}
+
+/// One identity the current machine cannot resolve without a user choice
+/// (#294). The game page asks once; nothing is picked silently.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSavePendingMapping {
+    pub game_id: i64,
+    pub identity: String,
+    pub root_kind: String,
+    pub relative_path: String,
+    /// `ambiguous` — several candidates validated; `rejected` — a candidate
+    /// existed but did not look like the same save.
+    pub reason: String,
+    pub candidates: Vec<String>,
 }
 
 /// One detected save folder the game page reports automatically (#180).
@@ -170,6 +202,8 @@ pub struct CloudSaveStatus {
     pub toggle: CloudSaveToggle,
     pub conflict: Option<CloudSaveConflict>,
     pub pending: CloudSavePending,
+    /// Save identities that need one explicit choice on this machine (#294).
+    pub pending_mappings: Vec<CloudSavePendingMapping>,
     pub device_id: Option<String>,
     /// When save detection last ran for this game, `None` when it never did.
     /// The game page uses it to decide whether to run detection on first open
@@ -516,6 +550,155 @@ pub fn preview_scan(game_id: i64, rows: &[SavePathRecord]) -> LocalSaveState {
     state
 }
 
+/* --------------------------------------------------- cross-platform identity */
+
+/// Identity and reachability of one configured save path (#294).
+#[derive(Debug, Clone, Default)]
+struct SavePathIdentity {
+    identity: Option<String>,
+    root_kind: Option<String>,
+    relative_path: Option<String>,
+    origin_platform: String,
+    availability: String,
+    resolved_path: Option<String>,
+}
+
+/// Whether a save root can be reached on this machine at all. A Windows-only
+/// root on Linux, or an XDG root on Windows, is one-platform — not missing.
+fn base_availability(
+    exists: bool,
+    identity: Option<&SaveIdentity>,
+    origin: Option<Layout>,
+    roots: &SaveRoots,
+) -> &'static str {
+    if exists {
+        return "present";
+    }
+    if identity.is_some_and(|identity| !roots.resolvable(identity)) {
+        return "other_platform";
+    }
+    let other_platform = match origin {
+        Some(Layout::Windows) => !cfg!(windows),
+        Some(Layout::Proton) => cfg!(windows),
+        Some(Layout::Linux) => !cfg!(target_os = "linux"),
+        Some(Layout::Macos) => !cfg!(target_os = "macos"),
+        None => false,
+    };
+    if other_platform {
+        "other_platform"
+    } else {
+        "missing"
+    }
+}
+
+/// Resolve every configured path to its logical identity and, when the path is
+/// absent here, look for the same identity under this machine's roots. Blocking
+/// (bounded tree reads); call it from `spawn_blocking`.
+fn identity_report(
+    game_id: i64,
+    rows: &[SavePathRecord],
+    local: &LocalSaveState,
+    wine_prefix: &str,
+    steam_root: &str,
+    mappings: &[identity::SaveIdentityMapping],
+) -> (Vec<SavePathIdentity>, Vec<CloudSavePendingMapping>) {
+    let mut roots = SaveRoots::current(wine_prefix, steam_root);
+    for row in rows {
+        roots.add_prefix_from_path(Path::new(&row.path));
+    }
+    let mut states = Vec::with_capacity(rows.len());
+    let mut pending = Vec::new();
+
+    for (index, row) in rows.iter().enumerate() {
+        let path = Path::new(&row.path);
+        let exists = local
+            .paths
+            .get(index)
+            .map(|state| state.exists)
+            .unwrap_or(false);
+        let classified = roots.classify(path);
+        let identity = classified
+            .as_ref()
+            .and_then(|found| SaveIdentity::new(game_id, found.root, &found.relative).ok());
+        let origin = classified
+            .as_ref()
+            .map(|found| found.layout)
+            .or_else(|| identity::infer_layout(path));
+        let mut availability = base_availability(exists, identity.as_ref(), origin, &roots);
+        let mut resolved_path = None;
+
+        if !exists {
+            if let Some(identity) = &identity {
+                let chosen = mappings
+                    .iter()
+                    .find(|mapping| {
+                        mapping.game_id == game_id
+                            && mapping
+                                .identity
+                                .eq_ignore_ascii_case(&identity.serialized())
+                    })
+                    .map(|mapping| PathBuf::from(mapping.path.trim()))
+                    .filter(|path| path.exists());
+                let plan = match chosen {
+                    Some(path) => MappingPlan::Resolved { path },
+                    None => identity::plan_mapping(identity, &roots, Some(path)),
+                };
+                match plan {
+                    MappingPlan::Resolved { path } => {
+                        availability = "translated";
+                        resolved_path = Some(path.to_string_lossy().to_string());
+                    }
+                    MappingPlan::Ambiguous { candidates } => {
+                        availability = "pending_mapping";
+                        pending.push(CloudSavePendingMapping {
+                            game_id,
+                            identity: identity.serialized(),
+                            root_kind: identity.root().slug().to_string(),
+                            relative_path: identity.relative().to_string(),
+                            reason: "ambiguous".to_string(),
+                            candidates: candidates
+                                .iter()
+                                .map(|path| path.to_string_lossy().to_string())
+                                .collect(),
+                        });
+                    }
+                    MappingPlan::Rejected { candidate, reason } => {
+                        tracing::debug!(
+                            game_id,
+                            candidate = %candidate.display(),
+                            reason,
+                            "save identity candidate rejected"
+                        );
+                        pending.push(CloudSavePendingMapping {
+                            game_id,
+                            identity: identity.serialized(),
+                            root_kind: identity.root().slug().to_string(),
+                            relative_path: identity.relative().to_string(),
+                            reason: "rejected".to_string(),
+                            candidates: vec![candidate.to_string_lossy().to_string()],
+                        });
+                    }
+                    MappingPlan::Unresolved => {}
+                }
+            }
+        }
+
+        states.push(SavePathIdentity {
+            identity: identity.as_ref().map(SaveIdentity::serialized),
+            root_kind: identity
+                .as_ref()
+                .map(|identity| identity.root().slug().to_string()),
+            relative_path: identity
+                .as_ref()
+                .map(|identity| identity.relative().to_string()),
+            origin_platform: origin.map(Layout::as_str).unwrap_or("unknown").to_string(),
+            availability: availability.to_string(),
+            resolved_path,
+        });
+    }
+    (states, pending)
+}
+
 /* -------------------------------------------------------------- archive */
 
 /// A written archive and its content hash.
@@ -538,12 +721,17 @@ pub fn create_archive(rows: &[SavePathRecord], dest: &Path) -> Result<ArchiveInf
             .map_err(|e| format!("Could not create the save archive folder: {e}"))?;
     }
     let file = File::create(dest).map_err(|e| format!("Could not create the save archive: {e}"))?;
-    let options = SimpleFileOptions::default().large_file(true);
+    // A fixed timestamp makes identical content produce identical archive
+    // bytes, so a CRLF build (#294) still matches the previous upload's hash.
+    let options = SimpleFileOptions::default()
+        .large_file(true)
+        .last_modified_time(zip::DateTime::default());
     let mut writer = ZipWriter::new(file);
     let mut builder = ArchiveBuilder {
         files: 0,
         bytes: 0,
         archived: Vec::new(),
+        seen: HashSet::new(),
     };
 
     for (index, row) in rows.iter().enumerate() {
@@ -599,15 +787,26 @@ struct ArchiveBuilder {
     files: u64,
     bytes: u64,
     archived: Vec<PathBuf>,
+    /// Lowercased entry names already written. Two files that differ only by
+    /// case are one save: Windows cannot produce both, and keeping both would
+    /// duplicate the same content on a case-sensitive host (#294).
+    seen: HashSet<String>,
 }
 
 impl ArchiveBuilder {
+    fn claim(&mut self, entry_name: &str) -> bool {
+        self.seen.insert(entry_name.to_lowercase())
+    }
+
     fn add_directory<W: Write + io::Seek>(
         &mut self,
         writer: &mut ZipWriter<W>,
         name: &str,
         options: SimpleFileOptions,
     ) -> Result<(), String> {
+        if !self.claim(name) {
+            return Ok(());
+        }
         writer
             .add_directory(format!("{name}/"), options)
             .map_err(|e| format!("Could not write the save archive: {e}"))
@@ -672,6 +871,9 @@ impl ArchiveBuilder {
         if !metadata.is_file() || metadata.file_type().is_symlink() {
             return Ok(());
         }
+        if !self.claim(entry_name) {
+            return Ok(());
+        }
         self.bytes = self.bytes.saturating_add(metadata.len());
         if self.bytes > MAX_ARCHIVE_BYTES {
             return Err(format!(
@@ -682,14 +884,36 @@ impl ArchiveBuilder {
         writer
             .start_file(entry_name, options)
             .map_err(|e| format!("Could not write the save archive: {e}"))?;
-        let mut reader = io::BufReader::new(
-            File::open(source).map_err(|e| format!("Could not read a save file: {e}"))?,
-        );
-        io::copy(&mut reader, writer)
-            .map_err(|e| format!("Could not write the save archive: {e}"))?;
+        // #294: CRLF and LF versions of a text save are the same save. Writing
+        // LF makes the archive bytes — and therefore the content hash the
+        // server dedupes on — identical across Windows and Proton.
+        if let Some(bytes) = normalized_text(source, metadata.len()) {
+            writer
+                .write_all(&bytes)
+                .map_err(|e| format!("Could not write the save archive: {e}"))?;
+        } else {
+            let mut reader = io::BufReader::new(
+                File::open(source).map_err(|e| format!("Could not read a save file: {e}"))?,
+            );
+            io::copy(&mut reader, writer)
+                .map_err(|e| format!("Could not write the save archive: {e}"))?;
+        }
         self.files += 1;
         Ok(())
     }
+}
+
+/// LF-normalised bytes for a small text save, or `None` to copy it as-is.
+fn normalized_text(source: &Path, size: u64) -> Option<Vec<u8>> {
+    if size > identity::MAX_TEXT_NORMALIZE_BYTES {
+        return None;
+    }
+    let name = source.file_name()?.to_string_lossy();
+    if !identity::is_text_save_name(&name) {
+        return None;
+    }
+    let bytes = fs::read(source).ok()?;
+    identity::normalize_text_bytes(&bytes)
 }
 
 /// Filesystem-safe single path component for an archive entry. Host paths are
@@ -1232,9 +1456,14 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
         )
     };
     // #159: the recursive walk runs on the blocking pool, is capped, and is
-    // reused for the next page open. It never runs on the async worker.
-    let local = {
+    // reused for the next page open. It never runs on the async worker. The
+    // cross-platform identity pass (#294) reuses the same walk's `exists`
+    // answers and only reads trees for paths that are absent here.
+    let (local, identities, pending_mappings) = {
         let rows = rows.clone();
+        let wine_prefix = settings.wine_prefix.clone();
+        let steam_root = settings.steam_root.clone();
+        let mappings = settings.save_identity_mappings.clone();
         tauri::async_runtime::spawn_blocking(move || {
             let started = std::time::Instant::now();
             let state = preview_scan(game_id, &rows);
@@ -1245,7 +1474,9 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
                 truncated = state.truncated,
                 "cloud save preview scan"
             );
-            state
+            let (identities, pending) =
+                identity_report(game_id, &rows, &state, &wine_prefix, &steam_root, &mappings);
+            (state, identities, pending)
         })
         .await
         .map_err(|error| format!("The save scan task failed: {error}"))?
@@ -1299,10 +1530,31 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             .map(str::to_string)
             .or_else(|| Some(crate::saves::detect::NO_SAVE_MESSAGE.to_string()))
     } else if local.files == 0 && !local.truncated {
-        Some(
-            "No save files exist yet. Launch the game once so it creates its saves, then sync again."
-                .to_string(),
-        )
+        // #294: a root that only exists on the other OS is not a missing save,
+        // and an ambiguous mapping needs one explicit choice instead of the
+        // usual "launch the game once".
+        let ambiguous = pending_mappings
+            .iter()
+            .filter(|mapping| mapping.reason == "ambiguous")
+            .count();
+        if ambiguous > 0 {
+            Some(format!(
+                "{ambiguous} save folder candidate(s) match this save on this machine; choose one to sync it."
+            ))
+        } else if identities
+            .iter()
+            .any(|path| path.availability == "other_platform")
+        {
+            Some(
+                "This save root only exists on the other platform; nothing is missing on this machine."
+                    .to_string(),
+            )
+        } else {
+            Some(
+                "No save files exist yet. Launch the game once so it creates its saves, then sync again."
+                    .to_string(),
+            )
+        }
     } else {
         remote_message
     };
@@ -1341,14 +1593,24 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
         paths: local
             .paths
             .iter()
-            .map(|path| CloudSavePath {
-                path: path.path.clone(),
-                kind: path.kind.clone(),
-                primary: path.primary,
-                exists: path.exists,
-                files: path.files,
-                size_bytes: path.bytes,
-                last_modified: path.newest.map(format_time),
+            .enumerate()
+            .map(|(index, path)| {
+                let identity = identities.get(index).cloned().unwrap_or_default();
+                CloudSavePath {
+                    path: path.path.clone(),
+                    kind: path.kind.clone(),
+                    primary: path.primary,
+                    exists: path.exists,
+                    files: path.files,
+                    size_bytes: path.bytes,
+                    last_modified: path.newest.map(format_time),
+                    identity: identity.identity,
+                    root_kind: identity.root_kind,
+                    relative_path: identity.relative_path,
+                    origin_platform: identity.origin_platform,
+                    availability: identity.availability,
+                    resolved_path: identity.resolved_path,
+                }
             })
             .collect(),
         local_files: local.files,
@@ -1366,10 +1628,67 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
         toggle,
         conflict,
         pending,
+        pending_mappings,
         device_id: Some(settings.cloud_device_id).filter(|id| !id.is_empty()),
         last_detection_at: detection.as_ref().map(|record| record.detected_at.clone()),
         message,
     })
+}
+
+/// Record the user's choice for an ambiguous cross-platform save identity
+/// (#294). The path must classify to the same identity, so the decision cannot
+/// point at an unrelated folder. Asks once: the mapping is persisted in
+/// `settings.json` and reused by later status calls.
+pub async fn resolve_identity(
+    app: &AppHandle,
+    game_id: i64,
+    identity: &str,
+    path: &str,
+) -> Result<CloudSaveStatus, String> {
+    let parsed = SaveIdentity::parse(identity)
+        .ok_or_else(|| "This save identity is not valid; refresh the save status.".to_string())?;
+    if parsed.game_id != game_id {
+        return Err("This save identity belongs to another game.".to_string());
+    }
+    let candidate = PathBuf::from(path.trim());
+    if !candidate.is_absolute() {
+        return Err("Choose an absolute save folder.".to_string());
+    }
+    if !candidate.exists() {
+        return Err("The chosen save folder does not exist on this machine.".to_string());
+    }
+    let state = app.state::<AppState>();
+    let settings = state.settings_snapshot();
+    let mut roots = SaveRoots::current(&settings.wine_prefix, &settings.steam_root);
+    roots.add_prefix_from_path(&candidate);
+    let classified = roots.classify(&candidate).ok_or_else(|| {
+        format!(
+            "The chosen folder is not under a {} root.",
+            parsed.root().label()
+        )
+    })?;
+    let found = SaveIdentity::new(game_id, classified.root, &classified.relative)?;
+    if found.key() != parsed.key() {
+        return Err(format!(
+            "The chosen folder is not the {} save ({}).",
+            parsed.root().label(),
+            parsed.relative()
+        ));
+    }
+    let serialized = parsed.serialized();
+    state.update_settings(|settings| {
+        settings.save_identity_mappings.retain(|mapping| {
+            !(mapping.game_id == game_id && mapping.identity.eq_ignore_ascii_case(&serialized))
+        });
+        settings
+            .save_identity_mappings
+            .push(identity::SaveIdentityMapping {
+                game_id,
+                identity: serialized,
+                path: candidate.to_string_lossy().to_string(),
+            });
+    })?;
+    status(app, game_id).await
 }
 
 /// Change the global default (`game_id = None`) or a per-game override.
@@ -2178,6 +2497,85 @@ mod tests {
         assert!(names.contains(&"saves/00/slot-1/save.dat".to_string()));
         assert!(names.contains(&"saves/00/settings.ini".to_string()));
         assert!(!names.iter().any(|name| name.contains("escape")));
+    }
+
+    #[test]
+    fn archives_hash_identically_across_line_endings() {
+        let fixture = fixture("line-endings");
+        let windows = fixture.root.join("windows/Hades");
+        let linux = fixture.root.join("linux/Hades");
+        fs::create_dir_all(&windows).unwrap();
+        fs::create_dir_all(&linux).unwrap();
+        fs::write(windows.join("settings.ini"), b"slot=1\r\nname=Hades\r\n").unwrap();
+        fs::write(linux.join("settings.ini"), b"slot=1\nname=Hades\n").unwrap();
+
+        let windows_archive = create_archive(
+            &[save_row(1, &windows, "directory", true)],
+            &fixture.root.join("windows.zip"),
+        )
+        .unwrap();
+        let linux_archive = create_archive(
+            &[save_row(1, &linux, "directory", true)],
+            &fixture.root.join("linux.zip"),
+        )
+        .unwrap();
+
+        // Same logical save, same archive bytes: the upload is skipped instead
+        // of creating a second divergent snapshot (#294).
+        assert_eq!(windows_archive.files, 1);
+        assert_eq!(windows_archive.sha256, linux_archive.sha256);
+        assert_eq!(windows_archive.bytes, linux_archive.bytes);
+
+        let file = File::open(&linux_archive.path).unwrap();
+        let mut zip = ZipArchive::new(file).unwrap();
+        let mut entry = zip.by_name("saves/00/settings.ini").unwrap();
+        let mut content = Vec::new();
+        entry.read_to_end(&mut content).unwrap();
+        assert_eq!(content, b"slot=1\nname=Hades\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn case_only_duplicate_entries_collapse_to_one_file() {
+        let fixture = fixture("case-duplicates");
+        let saves = fixture.root.join("saves");
+        fs::create_dir_all(&saves).unwrap();
+        fs::write(saves.join("Save.dat"), b"upper").unwrap();
+        fs::write(saves.join("save.dat"), b"lower").unwrap();
+
+        let archive = create_archive(
+            &[save_row(1, &saves, "directory", true)],
+            &fixture.root.join("save.zip"),
+        )
+        .unwrap();
+        assert_eq!(archive.files, 1);
+    }
+
+    #[test]
+    fn one_platform_roots_are_not_reported_missing() {
+        let fixture = fixture("availability");
+        let mut roots = SaveRoots::default();
+        roots.add(
+            identity::RootKind::Documents,
+            fixture.root.join("Documents"),
+            Layout::Windows,
+        );
+
+        let xdg = SaveIdentity::new(1, identity::RootKind::XdgData, "Hades").unwrap();
+        assert_eq!(
+            base_availability(false, Some(&xdg), Some(Layout::current()), &roots),
+            "other_platform"
+        );
+
+        let documents = SaveIdentity::new(1, identity::RootKind::Documents, "Hades").unwrap();
+        assert_eq!(
+            base_availability(false, Some(&documents), Some(Layout::current()), &roots),
+            "missing"
+        );
+        assert_eq!(
+            base_availability(true, Some(&documents), Some(Layout::current()), &roots),
+            "present"
+        );
     }
 
     #[test]

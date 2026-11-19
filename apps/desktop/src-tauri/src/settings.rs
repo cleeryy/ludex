@@ -348,6 +348,12 @@ pub struct LocalSettings {
     /// Wine/Proton prefix holding the game's `drive_c` (#107). Empty means
     /// auto-detect from the Steam compatdata folder, `$WINEPREFIX` or `~/.wine`.
     pub wine_prefix: String,
+    /// Explicit choices for an ambiguous cross-platform save identity (#294).
+    /// The identity itself carries no host path; `path` is the local folder the
+    /// user picked. Persisted here instead of SQLite so no schema migration is
+    /// needed for a decision that belongs to this machine.
+    #[serde(default)]
+    pub save_identity_mappings: Vec<crate::saves::identity::SaveIdentityMapping>,
     /// Back up detected save files after each game session (#108). Per-game
     /// overrides live in SQLite; this is the global default.
     pub cloud_auto_sync: bool,
@@ -812,6 +818,7 @@ impl Default for LocalSettings {
             ludusavi_manifest_auto_update: default_ludusavi_manifest_auto_update(),
             ludusavi_manifest_url: String::new(),
             wine_prefix: String::new(),
+            save_identity_mappings: Vec::new(),
             cloud_auto_sync: true,
             cloud_save_folder_cap_mb: default_cloud_save_folder_cap_mb(),
             cloud_device_id: String::new(),
@@ -964,6 +971,7 @@ impl LocalSettings {
             .trim_end_matches('/')
             .to_string();
         self.wine_prefix = self.wine_prefix.trim().to_string();
+        crate::saves::identity::normalize_mappings(&mut self.save_identity_mappings);
         self.cloud_device_id = self.cloud_device_id.trim().to_string();
         self.cloud_device_label = self
             .cloud_device_label
