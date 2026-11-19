@@ -22,6 +22,7 @@ export type SettingsSectionId =
   | "downloads"
   | "saves"
   | "streaming"
+  | "console"
   | "compatibility"
   | "integrations"
   | "profiles"
@@ -39,6 +40,7 @@ export type SettingsIconName =
   | "downloads"
   | "saves"
   | "streaming"
+  | "console"
   | "compatibility"
   | "integrations"
   | "profiles"
@@ -124,6 +126,15 @@ export const SETTINGS_SECTIONS = [
     availability: "native",
     keywords: ["sunshine", "moonlight", "remote play", "stream", "host"],
     panels: ["sunshine", "moonlight"],
+  },
+  {
+    id: "console",
+    labelKey: "Console",
+    descriptionKey: "Install the console session and boot this machine straight into it.",
+    icon: "console",
+    availability: "native",
+    keywords: ["console", "boot", "autologin", "auto-login", "wayland", "session", "sddm", "gdm", "greetd", "lightdm", "login"],
+    panels: ["console-session"],
   },
   {
     id: "compatibility",

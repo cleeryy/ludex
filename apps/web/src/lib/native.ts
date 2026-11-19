@@ -20,6 +20,9 @@ import type {
   ConfigSyncInput,
   ConfigSyncPrefs,
   ConfigWriteReport,
+  ConsoleSessionEntryPlan,
+  ConsoleSessionPlan,
+  ConsoleSessionStatus,
   ConsoleStatus,
   DeleteAdoptedPreview,
   DiagnosticsPreview,
@@ -597,6 +600,60 @@ export const native = {
   /** Follow `window://state`: console promotion and settings changes (#269). */
   onWindowState(handler: (policy: WindowPolicy) => void): Promise<() => void> {
     return listen<WindowPolicy>("window://state", handler);
+  },
+
+  /* ------------------- Console session boot target (#286) ---------------- */
+
+  /**
+   * The detected display manager, the shipped Wayland entry and the current
+   * seat. Rejects only for an unreadable state file; "no display manager" is a
+   * successful status with a human `managerReason`.
+   */
+  async consoleSessionStatus(): Promise<ConsoleSessionStatus> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<ConsoleSessionStatus>("console_session_status");
+  },
+
+  /**
+   * Dry-run for the toggle: the exact files, contents and commands, without
+   * changing anything. Rejects with `noSessionManager` when Ludex cannot find
+   * a display manager, with the sentence to show.
+   */
+  async consoleSessionPlan(args: { enable: boolean }): Promise<ConsoleSessionPlan> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<ConsoleSessionPlan>("console_session_plan", { enable: args.enable });
+  },
+
+  /** Apply a re-computed plan through one polkit prompt. */
+  async consoleSessionApply(args: {
+    enable: boolean;
+    confirm: boolean;
+  }): Promise<ConsoleSessionStatus> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<ConsoleSessionStatus>("console_session_apply", {
+      enable: args.enable,
+      confirm: args.confirm,
+    });
+  },
+
+  /** The shipped entry and the exact `pkexec install`/`rm` commands. */
+  async consoleSessionEntryPlan(): Promise<ConsoleSessionEntryPlan> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<ConsoleSessionEntryPlan>("console_session_entry_plan");
+  },
+
+  async consoleSessionInstallEntry(args: { confirm: boolean }): Promise<ConsoleSessionEntryPlan> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<ConsoleSessionEntryPlan>("console_session_install_entry", {
+      confirm: args.confirm,
+    });
+  },
+
+  async consoleSessionUninstallEntry(args: { confirm: boolean }): Promise<ConsoleSessionEntryPlan> {
+    if (!isNative()) throw nativeUnavailable();
+    return invoke<ConsoleSessionEntryPlan>("console_session_uninstall_entry", {
+      confirm: args.confirm,
+    });
   },
 
   async listInstalled(): Promise<InstalledGame[]> {

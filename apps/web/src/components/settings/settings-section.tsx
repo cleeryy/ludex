@@ -127,11 +127,13 @@ export function SettingsSwitchRow({
   description,
   checked,
   onCheckedChange,
+  disabled,
 }: {
   title: string;
-  description: string;
+  description: ReactNode;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-start justify-between gap-6 border-b border-line py-4">
@@ -139,7 +141,12 @@ export function SettingsSwitchRow({
         <p className="text-[13px] font-medium text-ink">{title}</p>
         <p className="mt-1 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">{description}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} label={title} />
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        label={title}
+        disabled={disabled}
+      />
     </div>
   );
 }
