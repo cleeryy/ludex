@@ -614,7 +614,7 @@ fn linux_prepare_launch(
     log_path: &Path,
 ) -> Result<(Command, Option<String>, Option<PathBuf>), String> {
     use crate::compat;
-    use crate::linux_gaming::{self, LaunchMode};
+    use crate::linux_gaming::{self, DisplayMode, LaunchMode};
 
     // #187: the tool receives the normalised program and cwd.
     let normalized_executable = paths::normalize_native_path(executable);
@@ -633,10 +633,67 @@ fn linux_prepare_launch(
         other => other,
     };
 
+    // #287: probe Gamescope only when the per-game profile asks for it, so an
+    // ordinary launch pays nothing and never depends on the wrapper.
+    let gamescope = if options.display.mode == DisplayMode::Gamescope {
+        compat::detect_gamescope()
+    } else {
+        None
+    };
+
     // Native keeps the historical behaviour: `.sh` through `sh`, `.exe`
-    // through Wine when the user explicitly asked for it.
+    // through Wine when the user explicitly asked for it. Without a display
+    // profile the command returned below is byte-identical to a build that
+    // never had this feature.
     if mode == LaunchMode::Native {
-        return Ok((build_command(executable, working_dir, args)?, None, None));
+        let base = build_command(executable, working_dir, args)?;
+        let program = PathBuf::from(base.get_program());
+        let base_args: Vec<String> = base
+            .get_args()
+            .map(|argument| argument.to_string_lossy().to_string())
+            .collect();
+        let resolved = linux_gaming::resolve_display(
+            &options.display,
+            gamescope.as_ref(),
+            &program,
+            &base_args,
+        );
+        if resolved.gamescope().is_none() {
+            warn_display_fallback(game_id, &resolved);
+            return Ok((base, None, None));
+        }
+
+        // #278: Gamescope is a host program even when Ludex is an AppImage.
+        let appimage = linux_gaming::appimage_env();
+        let mut command = Command::new(&resolved.program);
+        command
+            .args(&resolved.args)
+            .current_dir(working_dir)
+            .stdin(Stdio::null());
+        apply_appimage_env(&mut command, appimage.as_ref());
+
+        // #280/#287: the wrapper's stderr is the only evidence when gamescope
+        // exits before the game, so a wrapped native launch gets a log too.
+        let header = launch_log_header(&LaunchLogContext {
+            game_id,
+            executable,
+            working_dir,
+            tool: "none (native)",
+            program: &program,
+            prefix: None,
+            game_id_env: None,
+            appimage: appimage.as_ref(),
+            display: &resolved,
+        });
+        let launch_log = attach_launch_log(&mut command, log_path, &header);
+        tracing::info!(
+            program = %resolved.program.display(),
+            working_dir = %working_dir.display(),
+            log = %log_path.display(),
+            display = ?resolved.display,
+            "launching a native game through gamescope"
+        );
+        return Ok((command, None, launch_log));
     }
 
     if !is_windows_exe {
@@ -659,17 +716,73 @@ fn linux_prepare_launch(
 
     let extra = args.map(paths::split_args).unwrap_or_default();
     let plan = linux_gaming::build_launch(&selection, executable, &extra, prefix, options)?;
+    // #287: the wrapper sits outside the resolved tool: `gamescope … -- umu-run
+    // <exe>` for UMU and Proton-through-UMU, `-- wine <exe>` for Wine.
+    let resolved = linux_gaming::resolve_display(
+        &options.display,
+        scan.gamescope.as_ref(),
+        &plan.program,
+        &plan.args,
+    );
+    warn_display_fallback(game_id, &resolved);
 
     // #278: the tool is a host program even when Ludex is an AppImage.
     let appimage = linux_gaming::appimage_env();
 
-    let mut command = Command::new(&plan.program);
+    let mut command = Command::new(&resolved.program);
     // #181 user-visible: the game (here through Wine/Proton) keeps its own
     // window; only internal probes are hidden.
-    command.args(&plan.args).current_dir(working_dir);
+    command.args(&resolved.args).current_dir(working_dir);
     // Before `.envs(plan.env)`: the per-game plan never sets these (they are
     // reserved), but the order keeps the cleanup authoritative.
-    if let Some(appimage) = &appimage {
+    apply_appimage_env(&mut command, appimage.as_ref());
+    command.envs(plan.env.iter()).stdin(Stdio::null());
+
+    // #280: keep what the wrapper prints; a silent `exit status: 53` is
+    // undebuggable otherwise. A log that cannot be created is not fatal.
+    let header = launch_log_header(&LaunchLogContext {
+        game_id,
+        executable,
+        working_dir,
+        tool: &plan.tool_name,
+        program: &plan.program,
+        prefix: Some(&plan.prefix),
+        game_id_env: plan.env.get("GAMEID").map(String::as_str),
+        appimage: appimage.as_ref(),
+        display: &resolved,
+    });
+    let launch_log = attach_launch_log(&mut command, log_path, &header);
+
+    tracing::info!(
+        tool = %plan.tool_name,
+        prefix = %plan.prefix.display(),
+        working_dir = %working_dir.display(),
+        log = %log_path.display(),
+        display = ?resolved.display,
+        "launching a Windows game through a compatibility tool"
+    );
+    Ok((command, Some(plan.tool_name), launch_log))
+}
+
+/// Log a display profile that was requested but could not be applied. The
+/// launch itself still runs: a bad profile never fails a game.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn warn_display_fallback(game_id: i64, resolved: &crate::linux_gaming::ResolvedLaunch) {
+    if let Some(reason) = resolved.fallback_reason() {
+        tracing::warn!(game_id, reason, "gamescope profile ignored");
+    }
+    if let Some(command) = resolved.gamescope() {
+        for warning in &command.warnings {
+            tracing::warn!(game_id, warning, "gamescope profile downgraded");
+        }
+    }
+}
+
+/// #278: drop the AppImage bundle's Python, loader and Gtk variables before a
+/// host program (`gamescope`, UMU, Proton, Wine) inherits the environment.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn apply_appimage_env(command: &mut Command, appimage: Option<&crate::linux_gaming::AppImageEnv>) {
+    if let Some(appimage) = appimage {
         for key in &appimage.removed {
             command.env_remove(key);
         }
@@ -677,12 +790,13 @@ fn linux_prepare_launch(
             command.env("PATH", path);
         }
     }
-    command.envs(plan.env.iter()).stdin(Stdio::null());
+}
 
-    // #280: keep what the wrapper prints; a silent `exit status: 53` is
-    // undebuggable otherwise. A log that cannot be created is not fatal.
-    let header = launch_log_header(game_id, executable, working_dir, &plan, appimage.as_ref());
-    let launch_log = match open_launch_log(log_path, &header) {
+/// #280: send the wrapper's stdout/stderr to the launch log. A log that cannot
+/// be created is not fatal.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn attach_launch_log(command: &mut Command, log_path: &Path, header: &str) -> Option<PathBuf> {
+    match open_launch_log(log_path, header) {
         Ok((stdout, stderr)) => {
             command.stdout(stdout).stderr(stderr);
             Some(log_path.to_path_buf())
@@ -696,40 +810,67 @@ fn linux_prepare_launch(
             command.stdout(Stdio::null()).stderr(Stdio::null());
             None
         }
-    };
+    }
+}
 
-    tracing::info!(
-        tool = %plan.tool_name,
-        prefix = %plan.prefix.display(),
-        working_dir = %working_dir.display(),
-        log = %log_path.display(),
-        "launching a Windows game through a compatibility tool"
-    );
-    Ok((command, Some(plan.tool_name), launch_log))
+/// Everything the launch log header names (#280, #287).
+#[cfg(all(unix, not(target_os = "macos")))]
+struct LaunchLogContext<'a> {
+    game_id: i64,
+    executable: &'a Path,
+    working_dir: &'a Path,
+    tool: &'a str,
+    program: &'a Path,
+    prefix: Option<&'a Path>,
+    game_id_env: Option<&'a str>,
+    appimage: Option<&'a crate::linux_gaming::AppImageEnv>,
+    display: &'a crate::linux_gaming::ResolvedLaunch,
 }
 
 /// Header written before the wrapper takes over the launch log (#280).
 #[cfg(all(unix, not(target_os = "macos")))]
-fn launch_log_header(
-    game_id: i64,
-    executable: &Path,
-    working_dir: &Path,
-    plan: &crate::linux_gaming::LaunchPlan,
-    appimage: Option<&crate::linux_gaming::AppImageEnv>,
-) -> String {
+fn launch_log_header(context: &LaunchLogContext<'_>) -> String {
+    use crate::linux_gaming::DisplayLaunch;
+
     let mut header = String::new();
     header.push_str("=== Ludex compatibility launch ===\n");
     header.push_str(&format!("started: {}\n", now_rfc3339()));
-    header.push_str(&format!("game: {game_id}\n"));
-    header.push_str(&format!("tool: {}\n", plan.tool_name));
-    header.push_str(&format!("program: {}\n", plan.program.display()));
-    header.push_str(&format!("prefix: {}\n", plan.prefix.display()));
-    header.push_str(&format!("executable: {}\n", executable.display()));
-    header.push_str(&format!("working_dir: {}\n", working_dir.display()));
-    if let Some(game_id) = plan.env.get("GAMEID") {
+    header.push_str(&format!("game: {}\n", context.game_id));
+    header.push_str(&format!("tool: {}\n", context.tool));
+    header.push_str(&format!("program: {}\n", context.program.display()));
+    match context.prefix {
+        Some(prefix) => header.push_str(&format!("prefix: {}\n", prefix.display())),
+        None => header.push_str("prefix: none\n"),
+    }
+    header.push_str(&format!("executable: {}\n", context.executable.display()));
+    header.push_str(&format!("working_dir: {}\n", context.working_dir.display()));
+    if let Some(game_id) = context.game_id_env {
         header.push_str(&format!("GAMEID: {game_id}\n"));
     }
-    match appimage {
+    match &context.display.display {
+        DisplayLaunch::Desktop => header.push_str("display: desktop (no gamescope profile)\n"),
+        DisplayLaunch::Fallback { reason } => {
+            header.push_str(&format!(
+                "display: desktop (gamescope not applied: {reason})\n"
+            ));
+        }
+        DisplayLaunch::Gamescope(command) => {
+            header.push_str(&format!(
+                "display: gamescope (hdr: {}, filter: {})\n",
+                command.hdr,
+                command.filter.as_deref().unwrap_or("default")
+            ));
+            header.push_str(&format!(
+                "gamescope command: {} {}\n",
+                context.display.program.display(),
+                context.display.args.join(" ")
+            ));
+            for warning in &command.warnings {
+                header.push_str(&format!("gamescope warning: {warning}\n"));
+            }
+        }
+    }
+    match context.appimage {
         Some(appimage) => {
             header.push_str(&format!(
                 "appimage env: removed {}\n",
@@ -2300,6 +2441,78 @@ shift
             path.parent().and_then(|dir| dir.file_name()),
             Some(std::ffi::OsStr::new("logs"))
         );
+    }
+
+    /// #287: a wrapped launch still writes the same per-session log, and its
+    /// header names the wrapper so a gamescope exit before the game is
+    /// diagnosable from the file alone.
+    #[test]
+    fn a_gamescope_launch_names_the_wrapper_in_the_log_header() {
+        use crate::linux_gaming::{DisplayLaunch, GamescopeCommand, ResolvedLaunch};
+
+        let resolved = ResolvedLaunch {
+            program: PathBuf::from("/usr/bin/gamescope"),
+            args: vec![
+                "-w".to_string(),
+                "1920".to_string(),
+                "-h".to_string(),
+                "1080".to_string(),
+                "-r".to_string(),
+                "60".to_string(),
+                "--filter".to_string(),
+                "fsr".to_string(),
+                "--".to_string(),
+                "/usr/bin/umu-run".to_string(),
+                "/games/Hades/Hades.exe".to_string(),
+            ],
+            display: DisplayLaunch::Gamescope(GamescopeCommand {
+                hdr: false,
+                filter: Some("fsr".to_string()),
+                warnings: Vec::new(),
+            }),
+        };
+        let header = launch_log_header(&LaunchLogContext {
+            game_id: 14,
+            executable: Path::new("/games/Hades/Hades.exe"),
+            working_dir: Path::new("/games/Hades"),
+            tool: "GE-Proton9-20",
+            program: Path::new("/usr/bin/umu-run"),
+            prefix: Some(Path::new("/games/Hades/.prefix")),
+            game_id_env: Some("0"),
+            appimage: None,
+            display: &resolved,
+        });
+        assert!(header.contains("display: gamescope (hdr: false, filter: fsr)"));
+        assert!(header.contains(
+            "gamescope command: /usr/bin/gamescope -w 1920 -h 1080 -r 60 --filter fsr -- /usr/bin/umu-run /games/Hades/Hades.exe"
+        ));
+        assert!(header.contains("program: /usr/bin/umu-run"));
+        assert!(header.ends_with("=== tool output ===\n"));
+    }
+
+    /// #287: the default profile is a no-op and says so in the log.
+    #[test]
+    fn a_desktop_launch_says_no_gamescope_profile_was_set() {
+        use crate::linux_gaming::{DisplayLaunch, ResolvedLaunch};
+
+        let resolved = ResolvedLaunch {
+            program: PathBuf::from("/usr/bin/umu-run"),
+            args: vec!["/games/Hades/Hades.exe".to_string()],
+            display: DisplayLaunch::Desktop,
+        };
+        let header = launch_log_header(&LaunchLogContext {
+            game_id: 14,
+            executable: Path::new("/games/Hades/Hades.exe"),
+            working_dir: Path::new("/games/Hades"),
+            tool: "GE-Proton9-20",
+            program: Path::new("/usr/bin/umu-run"),
+            prefix: Some(Path::new("/games/Hades/.prefix")),
+            game_id_env: None,
+            appimage: None,
+            display: &resolved,
+        });
+        assert!(header.contains("display: desktop (no gamescope profile)"));
+        assert!(!header.contains("gamescope command:"));
     }
 
     /// #280: a huge Proton log keeps its tail (the error is at the end) on a

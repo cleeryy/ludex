@@ -2377,6 +2377,17 @@ interface LaunchOptions {
   winetricksVerbs: string[];         // run on demand in the game prefix
   steamAppId: number | null;         // ProtonDB (#91) and GAMEID
   workingDir: string;                // cwd override; empty = automatic rule (#187)
+  display: DisplayProfile;           // per-game Gamescope profile (#287); desktop by default
+}
+
+/** #287: nested Gamescope. The default is a strict no-op (desktop, untouched). */
+interface DisplayProfile {
+  mode: "desktop" | "gamescope";
+  width: number;                     // game width, 0 until a profile is enabled
+  height: number;                    // game height
+  refresh: number;                   // Hz; 0 = desktop rate
+  filter: string;                    // linear|nearest|fsr|nis|pixel|sgsr or empty
+  hdr: boolean;                      // applied only when the build advertises --hdr-enabled
 }
 
 /** One detected Steam/Proton/UMU/Wine tool (#90). */
@@ -2401,6 +2412,15 @@ interface CompatScan {
   steamClientPath: string | null;    // STEAM_COMPAT_CLIENT_INSTALL_PATH
   suggestedVerbs: string[];
   warnings: string[];
+  gamescope: GamescopeInfo | null;   // #287: probed with `gamescope --help`
+}
+
+/** #287: what the installed Gamescope advertises; support is never inferred from the version. */
+interface GamescopeInfo {
+  path: string;
+  version: string | null;
+  hdr: boolean;                      // `--hdr-enabled` in the help output
+  filters: string[];                 // values listed for `--filter`; empty = unsupported
 }
 
 interface PrefixInfo {                // #92
@@ -3020,7 +3040,7 @@ interface RemotePlayCleanup {
 | `choose_executable` | `{ gameId }` | `InstalledGame \| null`; system file dialog, records the pick |
 | `list_game_executables` | `{ gameId, refresh? }` | `GameExecutables`; scans the game's install folder (depth 4-8, default 6, bounded, loop-safe) for the Launch options pickers. `entries` are `{ path, name, sizeBytes, modifiedAt, kind: "launch" \| "installer" \| "uninstaller" \| "other", recommended }`; `path` is relative to `installPath` and never leaves it, `recommended` marks the `pick_executable` result. Installer kinds are `setup*`, `install*`, `gog*`; uninstallers are `unins*`, `uninstall*`. Works for `ludex` installs, adopted folders and launcher imports that have a folder; a row without a usable folder errors. Cached for 5 s, `refresh: true` rescans (#143) |
 | `check_game_executable` | `{ gameId, path }` | `string`: the normalised forward-slash relative path. Resolves the value inside the install folder and rejects `..`, absolute paths outside it and symlink escapes; used before saving the server launch config (#143) |
-| `compat_scan` | — | `CompatScan`; detects Steam roots, Proton builds, UMU, Wine, winetricks and protonfixes (#90) |
+| `compat_scan` | — | `CompatScan`; detects Steam roots, Proton builds, UMU, Wine, winetricks and protonfixes, plus Gamescope capabilities (#90, #287) |
 | `runtime_catalog` | — | `RuntimeCatalog`; the shipped, version-pinned "Make it run" manifest (#178). Managed providers carry an allow-listed HTTPS URL, size and SHA-256; `refresh.enabled` stays false until a signing key ships |
 | `make_it_run_diagnose` | `{ gameId }` | `RuntimeDiagnosis`; platform/arch, detections, issues and the numbered plan. Reads filesystem/registry only, never the network (#178) |
 | `make_it_run_apply` | `{ gameId, stepIds, consent }` | `RuntimeApplyReport`; refuses without `consent: true`, accepts only steps the current plan offers, downloads/verifies/installs in order, re-diagnoses after each step. Progress on `runtime://progress` |
@@ -3031,7 +3051,7 @@ interface RemotePlayCleanup {
 | `make_it_run_select` | `{ gameId, providerId }` | `RuntimeDiagnosis`; records a user-installed wrapper as the game's runtime |
 | `set_runtime_prerequisites` | `{ gameId, prerequisites }` | `RuntimeDiagnosis`; records declared ids (`vcrun`, `dotnet`, `directx`, `physx`); unknown ids are rejected |
 | `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89). Paths are normalised before they reach a process API (#187) |
-| `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs, prefix and the working directory (must exist; a relative value is resolved against the install folder and stored absolute) (#89, #92, #187) |
+| `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs, prefix, the working directory (must exist; a relative value is resolved against the install folder and stored absolute) and the display profile (resolution bounds, documented filter) (#89, #92, #187, #287) |
 | `wine_prefix_info` | `{ gameId }` | `PrefixInfo`; path, custom flag, existence and size (#92) |
 | `reset_wine_prefix` | `{ gameId }` | `null`; deletes the game prefix after UI confirmation, refuses while the game runs |
 | `run_winetricks` | `{ gameId, verbs? }` | `WinetricksReport`; runs `winetricks -q <verbs>` with the game prefix, 30 min timeout (#92) |

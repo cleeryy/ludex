@@ -132,7 +132,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 23;
+const SCHEMA_VERSION: i64 = 24;
 
 /// Pre-migration snapshots kept next to the database (`<name>-backup-<stamp>.db`).
 const BACKUP_RETENTION: usize = 3;
@@ -634,6 +634,15 @@ CREATE INDEX IF NOT EXISTS sessions_sync_due_idx
     ON sessions (synced, sync_next_at);
 "#;
 
+/// Per-game display profile through Gamescope (#287).
+///
+/// Stored as one JSON object so the profile can grow without another
+/// migration; `{}` is the desktop default and deserialises to a strict no-op.
+/// Nothing here is synced to the server.
+const SCHEMA_V24: &str = r#"
+ALTER TABLE game_launch_options ADD COLUMN display TEXT NOT NULL DEFAULT '{}';
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -942,6 +951,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 23,
         sql: SCHEMA_V23,
         context: "add the playtime outbox to the desktop database",
+    },
+    Migration {
+        version: 24,
+        sql: SCHEMA_V24,
+        context: "add the per-game display profile to the desktop database",
     },
 ];
 
@@ -1293,7 +1307,8 @@ pub fn has_launch_options(connection: &Connection, game_id: i64) -> Result<bool,
 pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<LaunchOptions, String> {
     let row = connection
         .query_row(
-            "SELECT mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id, working_dir
+            "SELECT mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id, working_dir,
+                    display
              FROM game_launch_options WHERE game_id = ?1",
             params![game_id],
             |row| {
@@ -1305,19 +1320,21 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<i64>>(5)?,
                     row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| format!("Could not read the launch options: {e}"))?;
 
-    let Some((mode, tool_id, prefix_path, env, verbs, app_id, working_dir)) = row else {
+    let Some((mode, tool_id, prefix_path, env, verbs, app_id, working_dir, display)) = row else {
         return Ok(LaunchOptions::default());
     };
 
     // Corrupt JSON must not make a game unlaunchable.
     let env = serde_json::from_str(&env).unwrap_or_default();
     let winetricks_verbs = serde_json::from_str(&verbs).unwrap_or_default();
+    let display = serde_json::from_str(&display).unwrap_or_default();
 
     Ok(LaunchOptions {
         mode: parse_mode(&mode),
@@ -1329,6 +1346,7 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
         winetricks_verbs,
         steam_app_id: app_id.and_then(|value| u32::try_from(value).ok()),
         working_dir: normalize_stored_path(&working_dir),
+        display,
     })
 }
 
@@ -1342,6 +1360,8 @@ pub fn save_launch_options(
         .map_err(|e| format!("Could not encode the environment overrides: {e}"))?;
     let verbs = serde_json::to_string(&options.winetricks_verbs)
         .map_err(|e| format!("Could not encode the winetricks verbs: {e}"))?;
+    let display = serde_json::to_string(&options.display)
+        .map_err(|e| format!("Could not encode the display profile: {e}"))?;
     let prefix_path = normalize_stored_path(&options.prefix_path);
     let working_dir = normalize_stored_path(&options.working_dir);
 
@@ -1350,8 +1370,8 @@ pub fn save_launch_options(
             r#"
             INSERT INTO game_launch_options
                 (game_id, mode, tool_id, prefix_path, env, winetricks_verbs, steam_app_id,
-                 working_dir, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 working_dir, display, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             ON CONFLICT(game_id) DO UPDATE SET
                 mode             = excluded.mode,
                 tool_id          = excluded.tool_id,
@@ -1360,6 +1380,7 @@ pub fn save_launch_options(
                 winetricks_verbs = excluded.winetricks_verbs,
                 steam_app_id     = excluded.steam_app_id,
                 working_dir      = excluded.working_dir,
+                display          = excluded.display,
                 updated_at       = excluded.updated_at
             "#,
             params![
@@ -1371,6 +1392,7 @@ pub fn save_launch_options(
                 verbs,
                 options.steam_app_id.map(i64::from),
                 working_dir,
+                display,
                 updated_at,
             ],
         )
@@ -4981,6 +5003,14 @@ mod tests {
             tool_id: "proton:/games/GE-Proton9-20".into(),
             prefix_path: "/mnt/prefixes/nine".into(),
             working_dir: "/mnt/games/Uncharted".into(),
+            display: crate::linux_gaming::DisplayProfile {
+                mode: crate::linux_gaming::DisplayMode::Gamescope,
+                width: 2560,
+                height: 1440,
+                refresh: 144,
+                filter: "fsr".into(),
+                hdr: false,
+            },
             ..LaunchOptions::default()
         };
         options.env.insert("DXVK_HUD".into(), "fps".into());
@@ -4994,13 +5024,18 @@ mod tests {
         // Corrupt JSON falls back to defaults instead of breaking the launch.
         connection
             .execute(
-                "UPDATE game_launch_options SET env = 'not json' WHERE game_id = 9",
+                "UPDATE game_launch_options SET env = 'not json', display = 'not json' WHERE game_id = 9",
                 [],
             )
             .unwrap();
         let broken = get_launch_options(&connection, 9).unwrap();
         assert!(broken.env.is_empty());
         assert_eq!(broken.mode, LaunchMode::Proton);
+        // #287: a corrupt display blob is the desktop default, never a failed launch.
+        assert_eq!(
+            broken.display,
+            crate::linux_gaming::DisplayProfile::default()
+        );
     }
 
     /// #187: every stored path is normalised at the storage boundary, so a

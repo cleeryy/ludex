@@ -112,6 +112,9 @@ pub struct CompatScan {
     pub steam_client_path: Option<String>,
     pub suggested_verbs: Vec<String>,
     pub warnings: Vec<String>,
+    /// Optional Gamescope for per-game display profiles (#287). Probed once
+    /// per scan with `--help`; absent means the wrapper is unavailable.
+    pub gamescope: Option<linux_gaming::GamescopeInfo>,
 }
 
 /// Environment-based detection, using the configured Steam root override.
@@ -156,6 +159,7 @@ pub fn scan_with(paths: &ScanPaths) -> CompatScan {
             .map(|root| root.to_string_lossy().to_string()),
         suggested_verbs: linux_gaming::suggested_verbs(),
         warnings: Vec::new(),
+        gamescope: None,
     };
 
     let mut seen: BTreeSet<(ToolKind, String)> = BTreeSet::new();
@@ -281,6 +285,10 @@ pub fn scan_with(paths: &ScanPaths) -> CompatScan {
         .or_else(|| find_in_dirs(&paths.path_dirs, "protonfixes"))
         .map(|path| path.to_string_lossy().to_string());
 
+    // 6. Gamescope is the optional display wrapper (#287), not a compatibility
+    // tool: a missing binary only disables per-game display profiles.
+    scan.gamescope = detect_gamescope_with(&paths.path_dirs, paths.home.as_deref());
+
     sort_tools(&mut scan.tools);
     scan.umu = first_of(&scan.tools, ToolKind::Umu).map(|tool| tool.path.clone());
     scan.proton = first_of(&scan.tools, ToolKind::Proton).map(|tool| tool.path.clone());
@@ -307,6 +315,32 @@ pub fn scan_with(paths: &ScanPaths) -> CompatScan {
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// Gamescope from an explicit `PATH`-like list (#287).
+///
+/// The binary is probed with `--help` once; the result is what the display
+/// profile UI and the launch command builder may use, never a guessed version.
+pub fn detect_gamescope_with(
+    path_dirs: &[PathBuf],
+    home: Option<&Path>,
+) -> Option<linux_gaming::GamescopeInfo> {
+    let path = find_in_dirs(path_dirs, "gamescope").or_else(|| {
+        first_file([
+            Some(PathBuf::from("/usr/local/bin/gamescope")),
+            Some(PathBuf::from("/usr/bin/gamescope")),
+            home.map(|home| home.join(".local/bin/gamescope")),
+        ])
+    })?;
+    Some(linux_gaming::probe_gamescope(&path))
+}
+
+/// Detect Gamescope from the process environment.
+pub fn detect_gamescope() -> Option<linux_gaming::GamescopeInfo> {
+    let path_dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default();
+    detect_gamescope_with(&path_dirs, home_dir().as_deref())
 }
 
 fn child_dirs(dir: &Path) -> Vec<PathBuf> {
@@ -682,6 +716,37 @@ mod tests {
         assert!(scan.winetricks.is_none());
         // The fallback client path must not invent a root that does not exist.
         assert!(scan.steam_client_path.is_none());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// #287: Gamescope is not a compatibility tool, but the scan reports it so
+    /// the display-profile UI can hide unsupported controls.
+    #[cfg(unix)]
+    #[test]
+    fn gamescope_is_detected_and_probed_from_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (root, paths) = fixture();
+        let gamescope = root.join("bin/gamescope");
+        write(
+            &gamescope,
+            "#!/bin/sh\n\
+             echo 'gamescope version 9.9.9'\n\
+             echo 'usage: gamescope [options...] -- [command...]'\n\
+             echo '  -F, --filter  upscaler filter (linear, nearest, fsr)'\n\
+             echo '  --hdr-enabled  enable HDR output'\n",
+        );
+        let mut permissions = std::fs::metadata(&gamescope).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&gamescope, permissions).unwrap();
+
+        let scan = scan_with(&paths);
+        let info = scan.gamescope.expect("gamescope must be detected on PATH");
+        assert!(info.path.ends_with("bin/gamescope"));
+        assert_eq!(info.version.as_deref(), Some("9.9.9"));
+        assert!(info.hdr);
+        assert_eq!(info.filters, vec!["linear", "nearest", "fsr"]);
+
         std::fs::remove_dir_all(&root).ok();
     }
 

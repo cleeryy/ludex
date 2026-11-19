@@ -5,9 +5,15 @@ import { FolderOpen, RotateCcw, TerminalSquare } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
 import { formatBytes , formatDuration} from "@/lib/format";
+import {
+  availableFilters,
+  DEFAULT_DISPLAY_PROFILE,
+  displayProfileSummary,
+  withDisplayMode,
+} from "@/lib/display-profile";
 import type { CompatTool, LaunchMode, LaunchOptions, WinetricksReport } from "@/lib/types";
 import { useToast } from "@/state/toasts";
-import { Badge, Button, Input, Textarea } from "@/components/ui/controls";
+import { Badge, Button, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { SectionHeader } from "@/components/page";
 import { cn } from "@/lib/cn";
@@ -31,6 +37,7 @@ const EMPTY_OPTIONS: LaunchOptions = {
   winetricksVerbs: [],
   steamAppId: null,
   workingDir: "",
+  display: DEFAULT_DISPLAY_PROFILE,
 };
 
 function envToText(env: Record<string, string>): string {
@@ -104,6 +111,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
 
   const tools = scan.data?.tools ?? [];
   const verbs = scan.data?.suggestedVerbs ?? [];
+  const gamescope = scan.data?.gamescope ?? null;
+  const filters = availableFilters(gamescope);
   const compatibleTools = useMemo(() => {
     if (draft.mode === "native") return [] as CompatTool[];
     if (draft.mode === "umu") return tools.filter((tool) => tool.kind === "umu");
@@ -320,6 +329,182 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             />
             <span className="text-[11px] text-ink-3">{t("One KEY=VALUE per line. PATH, HOME and LD_* are refused.")}</span>
           </div>
+        </div>
+
+        <div className="mt-6 border-t border-line pt-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <p className="text-[13px] font-medium text-ink">{t("Display")}</p>
+            <span className="font-mono text-[10.5px] text-ink-3">
+              {gamescope
+                ? gamescope.version
+                  ? `gamescope ${gamescope.version}`
+                  : t("gamescope detected")
+                : t("gamescope not installed")}
+            </span>
+          </div>
+          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+            {t(
+              "Gamescope runs the game in its own nested window at this resolution. The desktop mode is never changed and the other displays are left alone; closing the game restores nothing because nothing moved.",
+            )}
+          </p>
+
+          <div className="mt-4 grid gap-5 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[12px] text-ink-3">{t("Display mode")}</span>
+              <Select
+                label={t("Display mode")}
+                value={draft.display.mode}
+                onChange={(mode) => update({ display: withDisplayMode(draft.display, mode) })}
+                options={[
+                  {
+                    value: "desktop",
+                    label: t("Desktop default"),
+                    hint: t("Launch into the current desktop, untouched"),
+                  },
+                  {
+                    value: "gamescope",
+                    label: t("Gamescope profile"),
+                    hint: t("Nested window at the resolution below"),
+                  },
+                ]}
+              />
+            </label>
+
+            {draft.display.mode === "gamescope" && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12px] text-ink-3">{t("Resolution")}</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={draft.display.width || ""}
+                    placeholder="1920"
+                    aria-label={t("Width")}
+                    onChange={(event) =>
+                      update({
+                        display: {
+                          ...draft.display,
+                          width: Number(event.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="num h-10 w-24 font-mono text-[12px]"
+                  />
+                  <span className="text-[12px] text-ink-3">×</span>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={draft.display.height || ""}
+                    placeholder="1080"
+                    aria-label={t("Height")}
+                    onChange={(event) =>
+                      update({
+                        display: {
+                          ...draft.display,
+                          height: Number(event.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="num h-10 w-24 font-mono text-[12px]"
+                  />
+                </div>
+                <span className="text-[11px] text-ink-3">{t("Width × height in pixels.")}</span>
+              </div>
+            )}
+          </div>
+
+          {draft.display.mode === "gamescope" && (
+            <div className="mt-4 grid gap-5 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[12px] text-ink-3">{t("Refresh rate")}</span>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  value={draft.display.refresh || ""}
+                  placeholder={t("Desktop")}
+                  onChange={(event) =>
+                    update({
+                      display: {
+                        ...draft.display,
+                        refresh: Number(event.target.value) || 0,
+                      },
+                    })
+                  }
+                  className="num h-10 w-24 font-mono text-[12px]"
+                />
+                <span className="text-[11px] text-ink-3">{t("0 keeps the desktop refresh rate.")}</span>
+              </label>
+
+              {filters.length > 0 && (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[12px] text-ink-3">{t("Scaling filter")}</span>
+                  <Select
+                    label={t("Scaling filter")}
+                    value={draft.display.filter}
+                    onChange={(filter) => update({ display: { ...draft.display, filter } })}
+                    options={[
+                      {
+                        value: "",
+                        label: t("Gamescope default"),
+                        hint: t("Gamescope's own linear filter"),
+                      },
+                      ...filters.map((filter) => ({
+                        value: filter,
+                        label: filter.toUpperCase(),
+                        hint: t("Upscaling filter offered by this Gamescope build"),
+                      })),
+                    ]}
+                  />
+                </label>
+              )}
+
+              {gamescope?.hdr && (
+                <div className="flex items-center justify-between gap-3 sm:col-span-2">
+                  <div className="min-w-0">
+                    <p className="text-[12px] text-ink-2">{t("HDR output")}</p>
+                    <p className="mt-0.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+                      {t("Only when the game and the display support it.")}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={draft.display.hdr}
+                    onCheckedChange={(hdr) => update({ display: { ...draft.display, hdr } })}
+                    label={t("HDR output")}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {draft.display.mode === "gamescope" && displayProfileSummary(draft.display) && (
+            <p className="mt-3 font-mono text-[10.5px] text-ink-3">
+              {displayProfileSummary(draft.display)}
+            </p>
+          )}
+
+          {draft.display.mode === "gamescope" && !gamescope && (
+            <p className="mt-3 border-l-2 border-signal/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+              {tr(
+                "Gamescope is not installed, so {title} launches into the desktop until it is. Install it, then rescan in {settings}.",
+                {
+                  title,
+                  settings: (
+                    <Link to="/settings" className="underline underline-offset-4 hover:text-ink">
+                      {t("Settings → Compatibility")}
+                    </Link>
+                  ),
+                },
+              )}
+            </p>
+          )}
+
+          {draft.display.mode === "gamescope" && (
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+              {t(
+                "Ludex never asks Gamescope for exclusive fullscreen, so the desktop layout, the refresh rates and the other outputs are untouched while the game runs.",
+              )}
+            </p>
+          )}
         </div>
 
         <div className="mt-6 border-t border-line pt-4">
