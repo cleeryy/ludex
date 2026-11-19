@@ -6,6 +6,25 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Host preflight and runtime bootstrap (#285): probes GPU/driver, Vulkan (64/32-bit),
+  WebKitGTK 4.1, UMU, Proton, gamemode, MangoHud and gamescope, classifies each
+  finding with a human sentence, and can install the missing packages per distro
+  family (pacman/dnf/apt/zypper) behind an explicit consent screen through
+  `pkexec`; drivers are never installed, the result is persisted, and the Host
+  settings section + first-run prompt surface it (`docs/HOST.md`).
+- A bootable console session (#286): a shipped `ludex-console.desktop` Wayland
+  session plus a "Boot straight into console mode" toggle that detects
+  SDDM/GDM/greetd/LightDM, writes the autologin config with byte-identical
+  backups, dry-runs the plan, reverts safely, refuses ambiguity and warns when
+  the seat is not a wayland active session (`docs/CONSOLE-SESSION.md`).
+- Per-game Gamescope display profiles (#287): desktop default stays a no-op;
+  a profile wraps native/Wine/UMU/Proton launches with capability-checked
+  `gamescope` flags (`-w/-h/-r`, `--filter`, `--hdr-enabled` only when the
+  installed build advertises them), falls back unwrapped with a reason, keeps
+  the launch log and stores the profile in schema v24 (`docs/GAMESCOPE.md`).
+
 ## [0.4.24] - 2026-11-19
 
 ### Fixed
