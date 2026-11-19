@@ -2660,6 +2660,7 @@ pub fn set_launch_options(
     options.normalize();
     options.env = linux_gaming::validate_env(&options.env)?;
     options.winetricks_verbs = linux_gaming::validate_verbs(&options.winetricks_verbs)?;
+    linux_gaming::validate_display(&mut options.display)?;
     if options.steam_app_id == Some(0) {
         options.steam_app_id = None;
     }

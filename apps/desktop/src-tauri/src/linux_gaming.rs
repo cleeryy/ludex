@@ -62,6 +62,9 @@ pub struct LaunchOptions {
     /// install root. Stored as an absolute path, or relative to the install
     /// folder when the user typed a relative one.
     pub working_dir: String,
+    /// Per-game display profile through Gamescope (#287). Default is the
+    /// desktop, untouched.
+    pub display: DisplayProfile,
 }
 
 impl Default for LaunchOptions {
@@ -74,6 +77,7 @@ impl Default for LaunchOptions {
             winetricks_verbs: Vec::new(),
             steam_app_id: None,
             working_dir: String::new(),
+            display: DisplayProfile::default(),
         }
     }
 }
@@ -84,6 +88,7 @@ impl LaunchOptions {
         self.tool_id = self.tool_id.trim().to_string();
         self.prefix_path = self.prefix_path.trim().to_string();
         self.working_dir = self.working_dir.trim().to_string();
+        self.display.filter = self.display.filter.trim().to_ascii_lowercase();
         self.env = self
             .env
             .iter()
@@ -96,6 +101,359 @@ impl LaunchOptions {
             .map(|verb| verb.trim().to_ascii_lowercase())
             .filter(|verb| !verb.is_empty())
             .collect();
+    }
+}
+
+/// Where a Linux game is presented (#287).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DisplayMode {
+    /// Launch into the running desktop session and leave its mode alone. This
+    /// is the default and the only option without Gamescope.
+    #[default]
+    Desktop,
+    /// Run the game inside a nested Gamescope session.
+    Gamescope,
+}
+
+/// Per-game display profile (#287).
+///
+/// The default is a strict no-op: desktop mode, no dimensions, no refresh and
+/// no flags. A game without a profile launches exactly like a build that never
+/// had this feature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DisplayProfile {
+    pub mode: DisplayMode,
+    /// Game width in pixels. `0` until a Gamescope profile is enabled.
+    pub width: u32,
+    /// Game height in pixels.
+    pub height: u32,
+    /// Game refresh rate in Hz; `0` leaves it to Gamescope.
+    pub refresh: u32,
+    /// Gamescope upscaler filter (`linear`, `nearest`, `fsr`, `nis`, `pixel`,
+    /// `sgsr`); empty keeps the Gamescope default.
+    pub filter: String,
+    /// Ask Gamescope for HDR output. Applied only when the installed build
+    /// advertises `--hdr-enabled`.
+    pub hdr: bool,
+}
+
+impl DisplayProfile {
+    pub fn is_gamescope(&self) -> bool {
+        self.mode == DisplayMode::Gamescope
+    }
+
+    /// `Some((width, height))` for a profile that can be rendered, `None`
+    /// otherwise.
+    pub fn resolution(&self) -> Option<(u32, u32)> {
+        let valid = DISPLAY_WIDTH_RANGE.contains(&self.width)
+            && DISPLAY_HEIGHT_RANGE.contains(&self.height);
+        valid.then_some((self.width, self.height))
+    }
+}
+
+/// Bounds validated at save time and re-checked before a launch. A stored
+/// profile outside them falls back to the desktop instead of failing the run.
+pub const DISPLAY_WIDTH_RANGE: std::ops::RangeInclusive<u32> = 320..=7680;
+pub const DISPLAY_HEIGHT_RANGE: std::ops::RangeInclusive<u32> = 200..=4320;
+pub const DISPLAY_MAX_REFRESH: u32 = 480;
+/// Filters documented by `gamescope --help` (`--filter`), newest last.
+pub const DISPLAY_FILTERS: [&str; 6] = ["linear", "nearest", "fsr", "nis", "pixel", "sgsr"];
+
+/// Validate and normalise a display profile.
+///
+/// `desktop` accepts anything: the profile is inert and old values survive a
+/// toggle. A Gamescope profile needs a real resolution; the refresh rate stays
+/// optional (`0` = Gamescope default) and the filter must be a documented one.
+pub fn validate_display(profile: &mut DisplayProfile) -> Result<(), String> {
+    profile.filter = profile.filter.trim().to_ascii_lowercase();
+    if !profile.is_gamescope() {
+        return Ok(());
+    }
+    if !DISPLAY_WIDTH_RANGE.contains(&profile.width) {
+        return Err(format!(
+            "The Gamescope width must be between {} and {} pixels.",
+            DISPLAY_WIDTH_RANGE.start(),
+            DISPLAY_WIDTH_RANGE.end()
+        ));
+    }
+    if !DISPLAY_HEIGHT_RANGE.contains(&profile.height) {
+        return Err(format!(
+            "The Gamescope height must be between {} and {} pixels.",
+            DISPLAY_HEIGHT_RANGE.start(),
+            DISPLAY_HEIGHT_RANGE.end()
+        ));
+    }
+    if profile.refresh > DISPLAY_MAX_REFRESH {
+        return Err(format!(
+            "The Gamescope refresh rate must be 0 (desktop) or at most {DISPLAY_MAX_REFRESH} Hz."
+        ));
+    }
+    if !profile.filter.is_empty() && !DISPLAY_FILTERS.contains(&profile.filter.as_str()) {
+        return Err(format!(
+            "Unknown Gamescope filter {:?}; use one of {}.",
+            profile.filter,
+            DISPLAY_FILTERS.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// What an installed Gamescope advertises (#287).
+///
+/// Detection runs `gamescope --help` once per scan: that command prints the
+/// version and the option table before any display is opened, so it is safe on
+/// a headless host. Nothing here is guessed from a version number; a flag that
+/// is absent from the help output is treated as unsupported.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GamescopeInfo {
+    /// Absolute `gamescope` executable path.
+    pub path: String,
+    /// Version printed by `gamescope --help` / `--version`.
+    pub version: Option<String>,
+    /// `--hdr-enabled` is in the help output.
+    pub hdr: bool,
+    /// Upscaler filters the help output lists for `--filter`. Empty means the
+    /// flag is unsupported (or its value list could not be parsed).
+    pub filters: Vec<String>,
+}
+
+impl GamescopeInfo {
+    pub fn program(&self) -> PathBuf {
+        PathBuf::from(&self.path)
+    }
+
+    pub fn supports_filter(&self, filter: &str) -> bool {
+        self.filters.iter().any(|value| value == filter)
+    }
+}
+
+/// Parse `gamescope --help` output (stdout + stderr) without running anything.
+///
+/// The usage text looks like:
+///
+/// ```text
+/// gamescope version 3.15.14
+/// usage: gamescope [options...] -- [command...]
+///   -w, --nested-width             game width
+///   -h, --nested-height            game height
+///   -r, --nested-refresh           game refresh rate (frames per second)
+///   -F, --filter                   upscaler filter (linear, nearest, fsr, nis, pixel, sgsr)
+///   --hdr-enabled                  enable HDR output ...
+/// ```
+pub fn parse_gamescope_help(help: &str) -> GamescopeInfo {
+    let version = help.lines().find_map(|line| {
+        let index = line.to_ascii_lowercase().find(" version ")?;
+        let value = line[index + " version ".len()..]
+            .split_whitespace()
+            .next()
+            .unwrap_or_default();
+        (!value.is_empty()).then(|| value.to_string())
+    });
+
+    let filters = help
+        .lines()
+        .find(|line| line.contains("--filter"))
+        .and_then(|line| {
+            let open = line.find('(')?;
+            let close = line[open..].find(')')? + open;
+            Some(
+                line[open + 1..close]
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| {
+                        !value.is_empty()
+                            && value
+                                .chars()
+                                .all(|character| character.is_ascii_alphanumeric())
+                    })
+                    .map(|value| value.to_ascii_lowercase())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default();
+
+    GamescopeInfo {
+        path: String::new(),
+        version,
+        hdr: help.contains("--hdr-enabled"),
+        filters,
+    }
+}
+
+/// Probe an installed Gamescope executable. A probe that cannot run still
+/// reports the binary, just without any supported flag.
+pub fn probe_gamescope(program: &Path) -> GamescopeInfo {
+    // #181: an internal probe, never a window; `capture` also hides the
+    // console on Windows for a stray `gamescope.exe`.
+    let help = crate::process::capture(program)
+        .arg("--help")
+        .output()
+        .map(|output| {
+            format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+        })
+        .unwrap_or_default();
+    let mut info = parse_gamescope_help(&help);
+    info.path = program.to_string_lossy().to_string();
+    info
+}
+
+/// The gamescope flags and dropped requests for one launch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GamescopeCommand {
+    /// `--hdr-enabled` made it into the command.
+    pub hdr: bool,
+    /// Filter actually applied, when the installed build offers it.
+    pub filter: Option<String>,
+    /// Requests the build could not honour; logged, never fatal.
+    pub warnings: Vec<String>,
+}
+
+/// What [`resolve_display`] decided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisplayLaunch {
+    /// Run the resolved program and arguments as-is.
+    Desktop,
+    /// Prefix them with `gamescope`.
+    Gamescope(GamescopeCommand),
+    /// A profile was requested but cannot be honoured; the caller runs the
+    /// unwrapped fallback and explains why.
+    Fallback { reason: String },
+}
+
+/// The command to spawn after the display decision plus the decision itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedLaunch {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    pub display: DisplayLaunch,
+}
+
+impl ResolvedLaunch {
+    pub fn gamescope(&self) -> Option<&GamescopeCommand> {
+        match &self.display {
+            DisplayLaunch::Gamescope(command) => Some(command),
+            _ => None,
+        }
+    }
+
+    pub fn fallback_reason(&self) -> Option<&str> {
+        match &self.display {
+            DisplayLaunch::Fallback { reason } => Some(reason),
+            _ => None,
+        }
+    }
+}
+
+/// Decide how to present one launch (#287).
+///
+/// The only flags used are the nested-mode ones from `gamescope --help`:
+/// `-w/--nested-width`, `-h/--nested-height`, `-r/--nested-refresh`,
+/// `--filter` and `--hdr-enabled`, separated from the game by `--`.
+///
+/// Deliberately absent: `-f/--fullscreen` (a fullscreen nested window would
+/// cover the desktop), `--backend drm` (an exclusive session), and
+/// `-O/--prefer-output` (a DRM connector selector). Gamescope therefore stays
+/// nested and the desktop mode is never changed.
+///
+/// Every failure path returns the unwrapped command: a missing binary, an
+/// incomplete profile, HDR or a filter this build does not advertise.
+pub fn resolve_display(
+    profile: &DisplayProfile,
+    gamescope: Option<&GamescopeInfo>,
+    program: &Path,
+    args: &[String],
+) -> ResolvedLaunch {
+    let unwrapped = |fallback: Option<String>| ResolvedLaunch {
+        program: program.to_path_buf(),
+        args: args.to_vec(),
+        display: match fallback {
+            Some(reason) => DisplayLaunch::Fallback { reason },
+            None => DisplayLaunch::Desktop,
+        },
+    };
+
+    if !profile.is_gamescope() {
+        return unwrapped(None);
+    }
+    let Some(gamescope) = gamescope else {
+        return unwrapped(Some(
+            "Gamescope is not installed on this machine; the game launches into the desktop."
+                .to_string(),
+        ));
+    };
+    let Some((width, height)) = profile.resolution() else {
+        return unwrapped(Some(format!(
+            "The Gamescope profile has no usable resolution ({}x{}); the game launches into the desktop.",
+            profile.width, profile.height
+        )));
+    };
+
+    let mut warnings = Vec::new();
+    let mut gamescope_args = vec![
+        "-w".to_string(),
+        width.to_string(),
+        "-h".to_string(),
+        height.to_string(),
+    ];
+
+    if profile.refresh > 0 {
+        if profile.refresh <= DISPLAY_MAX_REFRESH {
+            gamescope_args.push("-r".to_string());
+            gamescope_args.push(profile.refresh.to_string());
+        } else {
+            warnings.push(format!(
+                "The {} Hz refresh rate is above the {DISPLAY_MAX_REFRESH} Hz limit; Gamescope keeps the desktop rate.",
+                profile.refresh
+            ));
+        }
+    }
+
+    let hdr = profile.hdr && gamescope.hdr;
+    if profile.hdr && !gamescope.hdr {
+        warnings.push(
+            "This Gamescope build does not advertise --hdr-enabled; HDR was not requested."
+                .to_string(),
+        );
+    }
+    if hdr {
+        gamescope_args.push("--hdr-enabled".to_string());
+    }
+
+    let filter = profile.filter.trim().to_ascii_lowercase();
+    let filter = if filter.is_empty() {
+        None
+    } else if gamescope.supports_filter(&filter) {
+        Some(filter)
+    } else {
+        warnings.push(format!(
+            "This Gamescope build does not offer the {filter} filter; it was not applied."
+        ));
+        None
+    };
+    if let Some(filter) = &filter {
+        gamescope_args.push("--filter".to_string());
+        gamescope_args.push(filter.clone());
+    }
+
+    gamescope_args.push("--".to_string());
+    gamescope_args.push(program.to_string_lossy().to_string());
+    gamescope_args.extend(args.iter().cloned());
+
+    ResolvedLaunch {
+        program: gamescope.program(),
+        args: gamescope_args,
+        display: DisplayLaunch::Gamescope(GamescopeCommand {
+            hdr,
+            filter,
+            warnings,
+        }),
     }
 }
 
@@ -1056,5 +1414,383 @@ mod tests {
         assert!(!command.env.contains_key("WINESERVER"));
         assert!(build_winetricks(Path::new("/usr/bin/winetricks"), &[], &prefix(), None).is_err());
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /* --------------------------- Gamescope (#287) --------------------------- */
+
+    /// The option table `gamescope --help` prints (verified against
+    /// ValveSoftware/gamescope `src/main.cpp`, `usage[]`).
+    const GAMESCOPE_HELP: &str = "\
+gamescope version 3.15.14
+usage: gamescope [options...] -- [command...]
+
+Options:
+  -W, --output-width             output width
+  -H, --output-height            output height
+  -w, --nested-width             game width
+  -h, --nested-height            game height
+  -r, --nested-refresh           game refresh rate (frames per second)
+  -S, --scaler                   upscaler type (auto, integer, fit, fill, stretch)
+  -F, --filter                   upscaler filter (linear, nearest, fsr, nis, pixel, sgsr)
+  --backend                      select rendering backend
+  --hdr-enabled                  enable HDR output (needs Gamescope WSI layer enabled for support from clients)
+Nested mode options:
+  -f, --fullscreen               make the window fullscreen
+";
+
+    fn gamescope() -> GamescopeInfo {
+        GamescopeInfo {
+            path: "/usr/bin/gamescope".to_string(),
+            version: Some("3.15.14".to_string()),
+            hdr: true,
+            filters: vec![
+                "linear".to_string(),
+                "nearest".to_string(),
+                "fsr".to_string(),
+                "nis".to_string(),
+                "pixel".to_string(),
+                "sgsr".to_string(),
+            ],
+        }
+    }
+
+    fn game_profile() -> DisplayProfile {
+        DisplayProfile {
+            mode: DisplayMode::Gamescope,
+            width: 1920,
+            height: 1080,
+            refresh: 60,
+            filter: "fsr".to_string(),
+            hdr: false,
+        }
+    }
+
+    fn native_args() -> Vec<String> {
+        vec!["--windowed".to_string()]
+    }
+
+    #[test]
+    fn gamescope_help_parsing_reports_version_hdr_and_filters() {
+        let info = parse_gamescope_help(GAMESCOPE_HELP);
+        assert_eq!(info.version.as_deref(), Some("3.15.14"));
+        assert!(info.hdr);
+        assert_eq!(
+            info.filters,
+            vec!["linear", "nearest", "fsr", "nis", "pixel", "sgsr"]
+        );
+
+        // An older build without HDR or `--filter`: the parser must not invent
+        // support from the version number.
+        let old = parse_gamescope_help(
+            "gamescope version 3.11.39\nusage: gamescope [options...] -- [command...]\n",
+        );
+        assert!(!old.hdr);
+        assert!(old.filters.is_empty());
+        assert_eq!(old.version.as_deref(), Some("3.11.39"));
+    }
+
+    #[test]
+    fn the_default_display_profile_is_a_no_op() {
+        let options = LaunchOptions::default();
+        assert_eq!(options.display.mode, DisplayMode::Desktop);
+        assert_eq!(options.display, DisplayProfile::default());
+
+        let resolved =
+            resolve_display(&options.display, Some(&gamescope()), &exe(), &native_args());
+        assert_eq!(resolved.display, DisplayLaunch::Desktop);
+        assert_eq!(resolved.program, exe());
+        assert_eq!(resolved.args, native_args());
+        assert!(resolved.gamescope().is_none());
+        assert!(resolved.fallback_reason().is_none());
+    }
+
+    #[test]
+    fn a_gamescope_profile_wraps_a_native_command() {
+        let profile = DisplayProfile {
+            filter: "FSR".to_string(),
+            ..game_profile()
+        };
+        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &native_args());
+        assert_eq!(resolved.program, PathBuf::from("/usr/bin/gamescope"));
+        assert_eq!(
+            resolved.args,
+            vec![
+                "-w".to_string(),
+                "1920".to_string(),
+                "-h".to_string(),
+                "1080".to_string(),
+                "-r".to_string(),
+                "60".to_string(),
+                "--filter".to_string(),
+                "fsr".to_string(),
+                "--".to_string(),
+                "/games/hades/Hades.exe".to_string(),
+                "--windowed".to_string(),
+            ]
+        );
+        let command = resolved.gamescope().unwrap();
+        assert!(!command.hdr);
+        assert_eq!(command.filter.as_deref(), Some("fsr"));
+        assert!(command.warnings.is_empty());
+
+        // #287: nested only. No output size (DRM), no connector, no
+        // fullscreen window and no exclusive backend: the desktop is untouched.
+        for forbidden in ["-W", "-H", "-O", "-f", "--fullscreen", "--backend"] {
+            assert!(
+                !resolved.args.iter().any(|argument| argument == forbidden),
+                "{forbidden} must never be passed to gamescope"
+            );
+        }
+    }
+
+    #[test]
+    fn gamescope_wraps_umu_and_proton_via_umu() {
+        let all = tools();
+        let gamescope = gamescope();
+        let profile = game_profile();
+
+        let umu = select_tool(&all, LaunchMode::Umu, "").unwrap();
+        let umu_plan =
+            build_launch(&umu, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
+        let resolved = resolve_display(
+            &profile,
+            Some(&gamescope),
+            &umu_plan.program,
+            &umu_plan.args,
+        );
+        assert_eq!(resolved.program, PathBuf::from("/usr/bin/gamescope"));
+        assert_eq!(
+            &resolved.args[resolved.args.len() - 2..],
+            &[
+                "/usr/bin/umu-run".to_string(),
+                "/games/hades/Hades.exe".to_string()
+            ]
+        );
+
+        // #279: Proton mode still picks the user's build but runs it through
+        // UMU; the wrapper must sit outside that resolved command.
+        let proton = select_tool(&all, LaunchMode::Proton, "").unwrap();
+        let proton_plan =
+            build_launch(&proton, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
+        assert_eq!(proton_plan.program, PathBuf::from("/usr/bin/umu-run"));
+        let resolved = resolve_display(
+            &profile,
+            Some(&gamescope),
+            &proton_plan.program,
+            &proton_plan.args,
+        );
+        assert_eq!(resolved.program, PathBuf::from("/usr/bin/gamescope"));
+        assert!(resolved
+            .args
+            .iter()
+            .any(|argument| argument == "/usr/bin/umu-run"));
+        assert!(resolved
+            .args
+            .iter()
+            .any(|argument| argument == "/games/hades/Hades.exe"));
+    }
+
+    #[test]
+    fn gamescope_wraps_wine_and_the_bare_proton_script() {
+        let profile = game_profile();
+
+        let wine = select_tool(&tools(), LaunchMode::Auto, &tools()[2].id).unwrap();
+        let wine_plan =
+            build_launch(&wine, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
+        let resolved = resolve_display(
+            &profile,
+            Some(&gamescope()),
+            &wine_plan.program,
+            &wine_plan.args,
+        );
+        assert_eq!(resolved.program, PathBuf::from("/usr/bin/gamescope"));
+        assert_eq!(
+            &resolved.args[resolved.args.len() - 2..],
+            &[
+                "/usr/bin/wine".to_string(),
+                "/games/hades/Hades.exe".to_string()
+            ]
+        );
+
+        let protons: Vec<CompatTool> = tools()
+            .into_iter()
+            .filter(|tool| tool.kind != ToolKind::Umu)
+            .collect();
+        let proton = select_tool(&protons, LaunchMode::Proton, "").unwrap();
+        let proton_plan =
+            build_launch(&proton, &exe(), &[], &prefix(), &LaunchOptions::default()).unwrap();
+        let resolved = resolve_display(
+            &profile,
+            Some(&gamescope()),
+            &proton_plan.program,
+            &proton_plan.args,
+        );
+        assert_eq!(resolved.program, PathBuf::from("/usr/bin/gamescope"));
+        // `proton run <exe>` stays one command behind the `--` separator.
+        assert_eq!(
+            &resolved.args[resolved.args.len() - 3..],
+            &[
+                "/games/GE-Proton9-20/proton".to_string(),
+                "run".to_string(),
+                "/games/hades/Hades.exe".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_gamescope_falls_back_to_the_unwrapped_command() {
+        let profile = game_profile();
+        let resolved = resolve_display(&profile, None, &exe(), &native_args());
+        assert_eq!(resolved.program, exe());
+        assert_eq!(resolved.args, native_args());
+        assert!(resolved.gamescope().is_none());
+        assert!(resolved
+            .fallback_reason()
+            .unwrap()
+            .contains("not installed"));
+    }
+
+    #[test]
+    fn an_incomplete_profile_falls_back_instead_of_failing_the_launch() {
+        let profile = DisplayProfile {
+            width: 0,
+            ..game_profile()
+        };
+        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &native_args());
+        assert_eq!(resolved.program, exe());
+        assert_eq!(resolved.args, native_args());
+        assert!(resolved.fallback_reason().unwrap().contains("resolution"));
+    }
+
+    #[test]
+    fn hdr_is_requested_only_when_the_installed_build_advertises_it() {
+        let profile = DisplayProfile {
+            hdr: true,
+            ..game_profile()
+        };
+        let supported = resolve_display(&profile, Some(&gamescope()), &exe(), &[]);
+        let command = supported.gamescope().unwrap();
+        assert!(command.hdr);
+        assert!(supported.args.iter().any(|value| value == "--hdr-enabled"));
+        assert!(command.warnings.is_empty());
+
+        let mut older = gamescope();
+        older.hdr = false;
+        let unsupported = resolve_display(&profile, Some(&older), &exe(), &[]);
+        let command = unsupported.gamescope().unwrap();
+        assert!(!command.hdr);
+        assert!(!unsupported
+            .args
+            .iter()
+            .any(|value| value == "--hdr-enabled"));
+        assert!(command
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("--hdr-enabled")));
+    }
+
+    #[test]
+    fn a_filter_is_applied_only_when_the_build_lists_it() {
+        let profile = DisplayProfile {
+            filter: "fsr".to_string(),
+            ..game_profile()
+        };
+        let mut older = gamescope();
+        older.filters = vec!["linear".to_string(), "nearest".to_string()];
+        let resolved = resolve_display(&profile, Some(&older), &exe(), &[]);
+        let command = resolved.gamescope().unwrap();
+        assert_eq!(command.filter, None);
+        assert!(!resolved.args.iter().any(|value| value == "--filter"));
+        assert!(command
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("fsr")));
+
+        // No filter selected: no `--filter`, the build's default applies.
+        let profile = DisplayProfile {
+            filter: String::new(),
+            ..game_profile()
+        };
+        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &[]);
+        assert_eq!(resolved.gamescope().unwrap().filter, None);
+        assert!(!resolved.args.iter().any(|value| value == "--filter"));
+    }
+
+    #[test]
+    fn a_zero_refresh_leaves_the_rate_to_gamescope() {
+        let profile = DisplayProfile {
+            refresh: 0,
+            ..game_profile()
+        };
+        let resolved = resolve_display(&profile, Some(&gamescope()), &exe(), &[]);
+        assert!(!resolved.args.iter().any(|value| value == "-r"));
+    }
+
+    #[test]
+    fn display_validation_accepts_only_documented_values() {
+        // The desktop default is inert and accepts old values.
+        let mut profile = DisplayProfile {
+            filter: " FSR ".to_string(),
+            ..DisplayProfile::default()
+        };
+        validate_display(&mut profile).unwrap();
+        assert_eq!(profile.filter, "fsr");
+
+        let mut profile = game_profile();
+        validate_display(&mut profile).unwrap();
+
+        let mut too_wide = game_profile();
+        too_wide.width = 0;
+        assert!(validate_display(&mut too_wide).is_err());
+
+        let mut too_fast = game_profile();
+        too_fast.refresh = DISPLAY_MAX_REFRESH + 1;
+        assert!(validate_display(&mut too_fast).is_err());
+
+        let mut unknown = game_profile();
+        unknown.filter = "bicubic".to_string();
+        assert!(validate_display(&mut unknown).is_err());
+    }
+
+    #[test]
+    fn a_per_game_profile_overrides_the_desktop_default() {
+        // The global default (no profile) never wraps ...
+        let default = LaunchOptions::default();
+        assert!(
+            resolve_display(&default.display, Some(&gamescope()), &exe(), &[])
+                .gamescope()
+                .is_none()
+        );
+
+        // ... a per-game Gamescope profile does.
+        let options = LaunchOptions {
+            display: game_profile(),
+            ..LaunchOptions::default()
+        };
+        assert!(
+            resolve_display(&options.display, Some(&gamescope()), &exe(), &[])
+                .gamescope()
+                .is_some()
+        );
+    }
+
+    /// #287: the web type reads `display` in camelCase, and an older settings
+    /// payload without the field must deserialise to the desktop default.
+    #[test]
+    fn the_display_profile_is_camel_case_and_defaults_to_desktop() {
+        let options: LaunchOptions = serde_json::from_str(r#"{"mode":"auto"}"#).unwrap();
+        assert_eq!(options.display, DisplayProfile::default());
+
+        let options = LaunchOptions {
+            display: game_profile(),
+            ..LaunchOptions::default()
+        };
+        let json = serde_json::to_value(&options).unwrap();
+        assert_eq!(json["display"]["mode"], "gamescope");
+        assert_eq!(json["display"]["width"], 1920);
+        assert_eq!(json["display"]["height"], 1080);
+        assert_eq!(json["display"]["refresh"], 60);
+        assert_eq!(json["display"]["filter"], "fsr");
+        assert_eq!(json["display"]["hdr"], false);
     }
 }

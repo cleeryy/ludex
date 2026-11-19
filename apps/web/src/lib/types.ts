@@ -2793,6 +2793,28 @@ export interface RepairProgress extends VerifyProgress {
 
 export type LaunchMode = "auto" | "native" | "proton" | "umu";
 
+/**
+ * Where a Linux game is presented (#287). `desktop` launches into the running
+ * session and leaves its mode untouched; `gamescope` runs a nested Gamescope
+ * session sized by the profile.
+ */
+export type DisplayMode = "desktop" | "gamescope";
+
+/** Per-game display profile through Gamescope (#287). */
+export interface DisplayProfile {
+  mode: DisplayMode;
+  /** Game width in pixels; 0 until a Gamescope profile is enabled. */
+  width: number;
+  /** Game height in pixels. */
+  height: number;
+  /** Game refresh rate in Hz; 0 leaves it to Gamescope. */
+  refresh: number;
+  /** `linear`, `nearest`, `fsr`, `nis`, `pixel`, `sgsr` or empty. */
+  filter: string;
+  /** Only applied when the installed Gamescope advertises `--hdr-enabled`. */
+  hdr: boolean;
+}
+
 /** How a game is started on Linux; stored locally per game. */
 export interface LaunchOptions {
   mode: LaunchMode;
@@ -2812,6 +2834,8 @@ export interface LaunchOptions {
    * install root. Stored absolute on this machine.
    */
   workingDir: string;
+  /** Per-game display profile through Gamescope (#287); desktop by default. */
+  display: DisplayProfile;
 }
 
 export interface CompatTool {
@@ -2842,6 +2866,22 @@ export interface CompatScan {
   steamClientPath: string | null;
   suggestedVerbs: string[];
   warnings: string[];
+  /** Optional display wrapper (#287); null when `gamescope` is not installed. */
+  gamescope: GamescopeInfo | null;
+}
+
+/**
+ * What an installed Gamescope advertises (#287), probed from
+ * `gamescope --help`. Nothing is inferred from the version number: a flag
+ * absent here is treated as unsupported.
+ */
+export interface GamescopeInfo {
+  path: string;
+  version: string | null;
+  /** `--hdr-enabled` is supported. */
+  hdr: boolean;
+  /** Filters listed for `--filter`; empty when the flag is unsupported. */
+  filters: string[];
 }
 
 export interface PrefixInfo {

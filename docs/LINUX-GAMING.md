@@ -4,8 +4,9 @@ How Ludex starts a Windows game on Linux, what it cleans from the environment,
 where the tool output goes and how to read it when a game dies immediately.
 
 Related: [INTEGRATIONS.md](INTEGRATIONS.md) (compat detection, prefixes,
-winetricks, ProtonDB), [DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage
-install) and [ARCHITECTURE.md](ARCHITECTURE.md).
+winetricks, ProtonDB), [GAMESCOPE.md](GAMESCOPE.md) (per-game display
+profiles), [DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage install) and
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Launch modes
 
@@ -84,6 +85,7 @@ prefix: /home/player/Games/outer-wilds/default/.prefix
 executable: /home/player/Games/outer-wilds/default/Outer Wilds/OuterWilds.exe
 working_dir: /home/player/Games/outer-wilds/default
 GAMEID: 0
+display: desktop (no gamescope profile)
 appimage env: removed PYTHONHOME, PYTHONPATH, …
 appimage PATH: 1 mount entries dropped -> /usr/local/bin:/usr/bin:/bin
 === tool output ===
@@ -92,6 +94,10 @@ INFO: umu-launcher version 1.4.4
 ```
 
 Then everything UMU, Proton, Wine and the game itself print on stdout/stderr.
+With a per-game Gamescope profile (#287) the header gains
+`display: gamescope (hdr: …, filter: …)` plus the full `gamescope command:`
+line, and Gamescope's own stderr lands in the same file; see
+[GAMESCOPE.md](GAMESCOPE.md).
 Retention is bounded: after the process tree exits the file is truncated to its
 **last 512 KiB** (the newest error is at the end) and only the **five newest**
 `launch-*.log` files are kept. `ludex.log` in the same folder is separate: it is
