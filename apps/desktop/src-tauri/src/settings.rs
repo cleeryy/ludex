@@ -480,6 +480,11 @@ pub struct LocalSettings {
     /// Empty falls back to the host name, then "Desktop".
     #[serde(default)]
     pub device_name: Option<String>,
+    /// Last host preflight result (#285). Persisted so a launch does not re-probe
+    /// the whole stack; the explicit "Re-run checks" replaces it and a
+    /// successful package install clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_preflight: Option<crate::host_preflight::HostReport>,
 }
 
 /// The overlay is on by default: it is the Steam-like behaviour players expect,
@@ -815,6 +820,7 @@ impl Default for LocalSettings {
             diagnostics_install_id: String::new(),
             device_id: String::new(),
             device_name: None,
+            host_preflight: None,
         }
     }
 }

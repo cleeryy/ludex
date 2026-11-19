@@ -147,6 +147,8 @@ export const qk = {
 
   protondb: (gameId: number) => key("protondb", gameId),
   compatScan: ["compat-scan"] as const,
+  /** Host preflight (#285): persisted report, refreshed on demand. */
+  hostPreflight: ["host-preflight"] as const,
   launchOptions: (gameId: number) => key("launch-options", gameId),
   prefixInfo: (gameId: number) => key("prefix-info", gameId),
   makeItRun: (gameId: number) => key("make-it-run", gameId),

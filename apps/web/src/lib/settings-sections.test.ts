@@ -44,6 +44,7 @@ const REQUIRED_PANELS = [
   "sunshine",
   "moonlight",
   "steam-proton",
+  "host-preflight",
   "launcher-import",
   "steam-folder",
   "discord-presence",
@@ -73,6 +74,7 @@ describe("settings taxonomy", () => {
       "saves",
       "streaming",
       "compatibility",
+      "host",
       "integrations",
       "profiles",
       "updates",
@@ -172,6 +174,8 @@ describe("settings availability", () => {
   it("declares availability per section", () => {
     expect(isSettingsSectionAvailable(settingsSectionById("streaming")!, { desktop: true, native: false })).toBe(false);
     expect(isSettingsSectionAvailable(settingsSectionById("streaming")!, { desktop: true, native: true })).toBe(true);
+    expect(isSettingsSectionAvailable(settingsSectionById("host")!, { desktop: false, native: true })).toBe(false);
+    expect(isSettingsSectionAvailable(settingsSectionById("host")!, { desktop: true, native: true })).toBe(true);
     expect(isSettingsSectionAvailable(settingsSectionById("storage")!, { desktop: false, native: false })).toBe(true);
   });
 });

@@ -37,6 +37,9 @@ import type {
   GameVaultAdoptReport,
   GameVaultRootProposal,
   GameVaultScan,
+  HostInstallOutcome,
+  HostInstallPlan,
+  HostReport,
   InstallGameArgs,
   InstallHealth,
   InstallJob,
@@ -847,6 +850,32 @@ export const native = {
 
   async compatScan(): Promise<CompatScan> {
     return invoke<CompatScan>("compat_scan");
+  },
+
+  /**
+   * Host preflight (#285). Returns the persisted report; `refresh` is the
+   * manual "Re-run checks" and probes again. Never installs anything.
+   */
+  async hostPreflightReport(refresh = false): Promise<HostReport> {
+    return invoke<HostReport>("host_preflight_report", { refresh });
+  },
+
+  /** Dry run: the exact command the consent screen lists, nothing runs. */
+  async hostPreflightPlan(findings: string[]): Promise<HostInstallPlan> {
+    return invoke<HostInstallPlan>("host_preflight_plan", { findings });
+  },
+
+  /**
+   * Install the selected packages via `pkexec` after consent (#285). `dryRun`
+   * returns the plan without executing; `consent` must be true otherwise.
+   * GPU drivers are refused by the backend, not merely hidden in the UI.
+   */
+  async hostPreflightInstall(
+    findings: string[],
+    dryRun: boolean,
+    consent: boolean,
+  ): Promise<HostInstallOutcome> {
+    return invoke<HostInstallOutcome>("host_preflight_install", { findings, dryRun, consent });
   },
 
   async getLaunchOptions(gameId: number): Promise<LaunchOptions> {

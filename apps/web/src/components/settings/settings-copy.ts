@@ -24,6 +24,8 @@ export function settingsSectionLabel(id: SettingsSectionId): string {
       return t("Streaming");
     case "compatibility":
       return t("Compatibility");
+    case "host":
+      return t("Host");
     case "integrations":
       return t("Integrations");
     case "profiles":
@@ -53,6 +55,8 @@ export function settingsSectionDescription(id: SettingsSectionId): string {
       return t("Sunshine and Moonlight: publish the library and start a stream.");
     case "compatibility":
       return t("Steam, Proton, UMU and Wine detection for Linux launches.");
+    case "host":
+      return t("What this machine is missing to play games, and how to install it with your permission.");
     case "integrations":
       return t("Import games from other launchers, talk to Discord, and keep several servers at hand.");
     case "profiles":

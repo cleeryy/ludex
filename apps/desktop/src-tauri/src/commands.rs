@@ -82,6 +82,10 @@ pub fn save_settings(
     if let Some(object) = patch.as_object_mut() {
         object.remove("servers");
         object.remove("activeServerId");
+        // #285: the host preflight report is written by the desktop (probe and
+        // install). A web draft loaded before that must not write a stale
+        // report back over the stored one.
+        object.remove("hostPreflight");
         // #235: the download policy replaces `installTransport`. Translate an
         // older payload once and drop the key so a stale draft cannot override
         // the stored choice on every save.

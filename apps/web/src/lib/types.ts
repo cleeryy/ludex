@@ -1405,6 +1405,12 @@ export interface LocalSettings {
   overlayTabs?: OverlayTabId[];
   /** Games where the overlay stays off (#144). Local to this device. */
   overlayDisabledGames?: number[];
+  /**
+   * Last host preflight result (#285), persisted so a launch does not re-probe
+   * the whole stack. `null`/absent means "not checked yet"; the manual
+   * "Re-run checks" replaces it and a successful package install clears it.
+   */
+  hostPreflight?: HostReport | null;
 }
 
 /* --------------------- in-game overlay (#144) ---------------------------- */
@@ -2844,6 +2850,97 @@ export interface PrefixInfo {
   custom: boolean;
   exists: boolean;
   sizeBytes: number;
+}
+
+/* ---------------------- Host preflight (#285) ---------------------- */
+
+/** How one host probe ended. */
+export type HostStatus = "missing" | "tooOld" | "ok" | "unknown";
+
+/** Package manager family detected from `/etc/os-release` and PATH. */
+export type PackageFamily = "pacman" | "dnf" | "apt" | "zypper" | "unknown";
+
+export interface HostFamily {
+  id: PackageFamily;
+  /** Human label: `Arch Linux and derivatives (pacman)`. */
+  label: string;
+  /** How it was detected. */
+  detail: string;
+  /** False for `unknown`: the UI hides "Install missing". */
+  installable: boolean;
+}
+
+export interface HostManual {
+  instruction: string;
+  url: string | null;
+}
+
+export interface HostCheck {
+  id: string;
+  label: string;
+  status: HostStatus;
+  /** Always present, one sentence. */
+  detail: string;
+  hint: string | null;
+  installable: boolean;
+  /** Exact package names for the detected family. */
+  packages: string[];
+  manual: HostManual | null;
+}
+
+/** Persisted probe result (`settings.json` → `hostPreflight`). */
+export interface HostReport {
+  checkedAt: string;
+  supported: boolean;
+  ready: boolean;
+  family: HostFamily;
+  findings: HostCheck[];
+  warnings: string[];
+  durationMs: number;
+}
+
+export interface HostPackage {
+  finding: string;
+  label: string;
+  package: string;
+}
+
+export interface HostManualStep {
+  finding: string;
+  label: string;
+  instruction: string;
+  url: string | null;
+}
+
+export interface HostRefusal {
+  finding: string;
+  reason: string;
+}
+
+/** What would run, exactly; building it never executes anything. */
+export interface HostInstallPlan {
+  family: HostFamily;
+  /** Full argv including `pkexec`; empty when nothing can be installed. */
+  command: string[];
+  commandLabel: string;
+  packages: HostPackage[];
+  manual: HostManualStep[];
+  refused: HostRefusal[];
+  notes: string[];
+}
+
+export interface HostInstallReport {
+  success: boolean;
+  cancelled: boolean;
+  exitCode: number | null;
+  output: string;
+  command: string[];
+  durationMs: number;
+}
+
+export interface HostInstallOutcome {
+  plan: HostInstallPlan;
+  report: HostInstallReport | null;
 }
 
 export interface WinetricksReport {

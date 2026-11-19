@@ -42,6 +42,7 @@ import { ToastViewport } from "@/components/ui/toast";
 import { PwaPrompts } from "@/components/pwa-prompts";
 import { OverlayHost } from "@/components/overlay/overlay-host";
 import { DesktopAppPrompt } from "@/components/desktop-app-prompt";
+import { HostPreflightPrompt } from "@/components/settings/host-preflight-prompt";
 import { useNativeEvents } from "@/lib/hooks";
 import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
 import { useActiveJobs, useQueueSummary, useTitleFor } from "@/state/downloads";
@@ -434,6 +435,7 @@ export function AppShell() {
       <MobileBar context={context} onMore={() => setMoreOpen(true)} />
       <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} context={context} />
       <DesktopAppPrompt />
+      <HostPreflightPrompt />
       <OnboardingWizard />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
