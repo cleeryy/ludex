@@ -12,6 +12,7 @@ is [DEPLOY.md](DEPLOY.md); how the releases are produced and signed is
 | AUR `ludex-bin` | `yay -S ludex-bin` | Arch, CachyOS, EndeavourOS |
 | Linux script | `curl -fsSL https://github.com/cleeryy/ludex/releases/latest/download/install.sh \| sh` | every other Linux, per-user, no root |
 | Linux `.deb` | `sudo apt install ./Ludex_<version>_amd64.deb` | Debian/Ubuntu, manual |
+| Linux `.rpm` | `sudo dnf install ./Ludex-<version>-1.x86_64.rpm` | Fedora, RHEL, openSUSE, manual |
 | AppImage | `chmod +x Ludex_<version>_amd64.AppImage` then run it | no installation at all |
 | Windows setup | `Ludex_<version>_x64-setup.exe` | Windows 10/11, per-user |
 | Windows script | `irm https://github.com/cleeryy/ludex/releases/latest/download/install.ps1 \| iex` | the same build, scripted |
@@ -21,6 +22,25 @@ is [DEPLOY.md](DEPLOY.md); how the releases are produced and signed is
 Every asset comes from <https://github.com/cleeryy/ludex/releases>. The Linux
 build is `x86_64` only and the Windows build is `x64` only: there is no aarch64
 package and no portable Windows ZIP, so none is documented here.
+
+### Native RPM (Fedora, RHEL, openSUSE)
+
+The Linux build also ships `Ludex-<version>-1.x86_64.rpm`. Verify it like any
+other asset (see below), then install the local file so dnf can pull the
+dependencies:
+
+```sh
+version=0.4.22   # the release you verified
+sudo dnf install "./Ludex-${version}-1.x86_64.rpm"
+# or, with the dependencies already present
+sudo rpm -i "Ludex-${version}-1.x86_64.rpm"
+```
+
+Prefer it on a machine that drives games through Python-based compatibility
+tools: the AppImage mounts at `/.mount_*` and exports `PYTHONHOME`,
+`PYTHONPATH`, `LD_LIBRARY_PATH` and `LD_PRELOAD` pointing inside that mount,
+which breaks the tools it spawns (#278). The rpm installs real files under
+`/usr`, so no mount prefix reaches a child process.
 
 ## Verify before you run
 
@@ -54,8 +74,8 @@ This is the recommended path for three reasons:
   `minisign` proves the list was signed by the maintainer. A compromised mirror
   or a tampered download cannot produce both.
 - **One list covers every channel.** The same `SHA256SUMS` lists the AppImage,
-  the `.deb`, the `.dmg`, the `.exe`, the server tarball and the packaging files;
-  `--ignore-missing` lets you check the one you downloaded.
+  the `.deb`, the `.rpm`, the `.dmg`, the `.exe`, the server tarball and the
+  packaging files; `--ignore-missing` lets you check the one you downloaded.
 - **Nothing is installed to check it.** `minisign` is packaged everywhere
   (`apt install minisign`, `pacman -S minisign`, `brew install minisign`) and the
   commands are the same on Linux, macOS and Windows (WSL/Git Bash).
@@ -88,7 +108,9 @@ runtime is incomplete for that family:
 `ludex-bin` declares `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator` and
 `hicolor-icon-theme` as `depends`, so `pacman` pulls them in. `apt install
 ./Ludex_<version>_amd64.deb` resolves the `.deb`'s own dependencies; `dpkg -i`
-does not, and leaves the app unable to start until they are installed.
+does not, and leaves the app unable to start until they are installed. The rpm
+behaves the same way: `dnf install ./Ludex-<version>-1.x86_64.rpm` resolves its
+dependencies, `rpm -i` only reports the ones that are missing.
 
 ## Windows: SmartScreen will warn
 
