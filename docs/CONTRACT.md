@@ -2090,6 +2090,7 @@ interface LocalSettings {
   compatProtonPath: string;          // Proton folder/script override (#90), empty = detect
   compatWinePath: string;            // wine override (#90), empty = detect
   defaultLaunchMode: "auto" | "native" | "proton" | "umu"; // new games on Linux (#89)
+  audioDefaultSink?: string;         // #289 global output override; empty = follow the system default
   ludusaviManifestPath: string;      // explicit manifest file (#107), empty = managed copy then a detected install
   ludusaviBinary: string;            // ludusavi executable (#107), empty = PATH; fallback only
   ludusaviManifestAutoUpdate: boolean; // startup refresh (#153), default true, max once per 24 h
@@ -2397,6 +2398,7 @@ interface LaunchOptions {
   steamAppId: number | null;         // ProtonDB (#91) and GAMEID
   workingDir: string;                // cwd override; empty = automatic rule (#187)
   display: DisplayProfile;           // per-game Gamescope profile (#287); desktop by default
+  audioSink?: string;                // #289: full PipeWire/Pulse sink name; empty = profile default
 }
 
 /** #287: nested Gamescope. The default is a strict no-op (desktop, untouched). */
@@ -2408,6 +2410,33 @@ interface DisplayProfile {
   filter: string;                    // linear|nearest|fsr|nis|pixel|sgsr or empty
   adaptiveSync: boolean;             // #292: only when the build advertises --adaptive-sync and the output supports VRR
   hdr: boolean;                      // applied only when the build advertises --hdr-enabled and the output advertises HDR metadata
+}
+
+/** One PipeWire/Pulse sink (#289). */
+interface AudioSink {
+  index: number;                     // sink index used by move-sink-input
+  name: string;                      // full sink name
+  description: string;               // human label; falls back to the name
+  isDefault: boolean;                // matches pactl get-default-sink
+}
+
+/** Result of probing the host audio stack (#289). */
+interface AudioSinks {
+  sinks: AudioSink[];
+  defaultSink: string;               // the sound server default; empty = none
+  globalDefault: string;             // Ludex override; empty = follow the system
+  pactl: boolean;                    // false: audio routing is unavailable
+  player: string | null;             // pw-play or paplay
+}
+
+/** Live volume/mute state for the console OSD (#289). */
+interface AudioVolumeState {
+  sink: string;
+  label: string;
+  percent: number;
+  muted: boolean;
+  available: boolean;                // false when no sink or a failed read
+  pactl: boolean;
 }
 
 /** What an input device looks like to the player (#314). */
@@ -3220,6 +3249,11 @@ interface RemotePlayCleanup {
 | `set_runtime_prerequisites` | `{ gameId, prerequisites }` | `RuntimeDiagnosis`; records declared ids (`vcrun`, `dotnet`, `directx`, `physx`); unknown ids are rejected |
 | `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89). Paths are normalised before they reach a process API (#187) |
 | `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs, prefix, the working directory (must exist; a relative value is resolved against the install folder and stored absolute) and the display profile (resolution bounds, documented filter) (#89, #92, #187, #287) |
+| `audio_sinks` | — | `AudioSinks`; `pactl list short sinks` + `pactl list sinks` descriptions + `get-default-sink`, plus Ludex's global override and the installed tone player (#289). A missing `pactl` is `pactl: false`, never an error |
+| `audio_test_sink` | `{ sink }` | `string`; plays a generated 260 ms 440 Hz WAV on that sink through `pw-play --target` or `paplay --device`, returning the player used. Fails naming both when neither is installed (#289) |
+| `audio_volume_state` | `{ sink? }` | `AudioVolumeState`; live volume/mute of the given sink, or the resolved default (#289) |
+| `audio_volume_step` | `{ direction, sink? }` | `AudioVolumeState`; `up`/`down` step 5 %, `toggleMute`; exact `pactl set-sink-volume` or `set-sink-mute` arguments, then a fresh read (#289) |
+| `set_audio_default_sink` | `{ sink }` | `null`; stores the global output override in `settings.json` (`audioDefaultSink`); an empty string clears it, a name that is not connected is refused (#289) |
 | `wine_prefix_info` | `{ gameId }` | `PrefixInfo`; path, custom flag, existence and size (#92) |
 | `reset_wine_prefix` | `{ gameId }` | `null`; deletes the game prefix after UI confirmation, refuses while the game runs |
 | `run_winetricks` | `{ gameId, verbs? }` | `WinetricksReport`; runs `winetricks -q <verbs>` with the game prefix, 30 min timeout (#92) |
@@ -3380,6 +3414,7 @@ Events:
 - `install://repair-progress` → same shape plus `phase: "downloading" | "extracting" | "restoring" | "verifying"`
 - `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source, exitCode, immediateExit }` (#129 adds `source`; #187 adds the root process `exitCode` as an unsigned 32-bit value — NTSTATUS bits are preserved — and `immediateExit`, true when the process tree ended within 5 s; the shell shows a danger toast with the code in hex; #191 invalidates the game page's `game_session` poll on it)
 - `game://focus` → `{ gameId, sessionId, focused, window, reason }` (#219: the launch focus attempt ended. `focused: false` means the game runs but its window was not brought forward, with `reason` `noWindow` or `focusRefused`; the shell warns the player and points at the game page's Resume/Force close actions. Never emitted when the game exited before its window appeared, and never on macOS, where focus on launch is a documented no-op)
+- `audio://notice` → `{ gameId, kind, requested, used }` (#289: the saved sink was gone and the launch fell back to the profile default. `kind` is `gameSinkMissing`, `defaultSinkMissing` or `noSink`; emitted at most once per reason per launch, never when `pactl` is missing)
 - `install://manifest-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` (#129)
 - `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
 - `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)

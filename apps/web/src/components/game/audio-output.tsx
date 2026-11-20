@@ -97,6 +97,7 @@ export function AudioOutputPanel({ gameId, title }: { gameId: number; title: str
     try {
       await native.setAudioDefaultSink(sink);
       await queryClient.invalidateQueries({ queryKey: qk.audioSinks });
+      await queryClient.invalidateQueries({ queryKey: qk.desktopSettings });
       push({
         title: sink ? t("Default audio output saved") : t("Default audio output cleared"),
         description: sink

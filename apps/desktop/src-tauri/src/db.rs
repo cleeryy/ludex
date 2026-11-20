@@ -663,6 +663,15 @@ CREATE TABLE IF NOT EXISTS install_moves (
 ALTER TABLE installed_games ADD COLUMN verify_state TEXT;
 "#;
 
+/// Per-game audio output (#289).
+///
+/// The sink name is the full PulseAudio/PipeWire name, stored verbatim; an
+/// empty value means the game follows the profile default. Nothing here is
+/// synced to the server: a sink name belongs to this machine.
+const SCHEMA_V26: &str = r#"
+ALTER TABLE game_launch_options ADD COLUMN audio_sink TEXT NOT NULL DEFAULT '';
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -988,15 +997,6 @@ const MIGRATIONS: &[Migration] = &[
         context: "add the per-game audio output to the desktop database",
     },
 ];
-
-/// Per-game audio output (#289).
-///
-/// The sink name is the full PulseAudio/PipeWire name, stored verbatim; an
-/// empty value means the game follows the profile default. Nothing here is
-/// synced to the server: a sink name belongs to this machine.
-const SCHEMA_V26: &str = r#"
-ALTER TABLE game_launch_options ADD COLUMN audio_sink TEXT NOT NULL DEFAULT '';
-"#;
 
 /// Applies every pending step in one transaction.
 ///

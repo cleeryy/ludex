@@ -55,6 +55,8 @@ export function useConsoleAudio(): ConsoleAudioModel {
   const [osd, setOsd] = useState<VolumeOsd | null>(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  /** One volume command at a time: two reads racing would lose a step. */
+  const queue = useRef<Promise<void>>(Promise.resolve());
 
   const overview = useQuery({
     queryKey: qk.audioSinks,
@@ -89,7 +91,7 @@ export function useConsoleAudio(): ConsoleAudioModel {
   // A device switch changes the resolved sink; read its volume again.
   useEffect(() => {
     if (overview) refresh();
-  }, [overview?.globalDefault, overview?.defaultSink, refresh, overview]);
+  }, [overview, refresh]);
 
   // #289: a game fell back to another output. The console has no toast
   // viewport, so the notice surface speaks once, in the Cabinet's language.
@@ -129,11 +131,12 @@ export function useConsoleAudio(): ConsoleAudioModel {
     };
   }, [notify]);
 
-  const step = useCallback(
-    (delta: -1 | 1) => {
+  const enqueueVolume = useCallback(
+    (direction: "up" | "down" | "toggleMute") => {
       if (!isNative()) return;
-      void native
-        .audioVolumeStep(delta > 0 ? "up" : "down")
+      queue.current = queue.current
+        .catch(() => undefined)
+        .then(() => native.audioVolumeStep(direction))
         .then(show)
         .catch((cause: Error) =>
           notify({ title: t("Could not change the volume"), description: cause.message, tone: "danger" }),
@@ -142,15 +145,12 @@ export function useConsoleAudio(): ConsoleAudioModel {
     [notify, show],
   );
 
-  const toggleMute = useCallback(() => {
-    if (!isNative()) return;
-    void native
-      .audioVolumeStep("toggleMute")
-      .then(show)
-      .catch((cause: Error) =>
-        notify({ title: t("Could not change the volume"), description: cause.message, tone: "danger" }),
-      );
-  }, [notify, show]);
+  const step = useCallback(
+    (delta: -1 | 1) => enqueueVolume(delta > 0 ? "up" : "down"),
+    [enqueueVolume],
+  );
+
+  const toggleMute = useCallback(() => enqueueVolume("toggleMute"), [enqueueVolume]);
 
   const cycleDevice = useCallback(
     (delta: -1 | 1) => {
@@ -162,6 +162,7 @@ export function useConsoleAudio(): ConsoleAudioModel {
       void native
         .setAudioDefaultSink(next)
         .then(() => queryClient.invalidateQueries({ queryKey: qk.audioSinks }))
+        .then(() => queryClient.invalidateQueries({ queryKey: qk.desktopSettings }))
         .then(() => refresh())
         .catch((cause: Error) =>
           notify({ title: t("Could not save the default output"), description: cause.message, tone: "danger" }),
@@ -196,7 +197,7 @@ export function useConsoleAudio(): ConsoleAudioModel {
   const selectedLabel = profileLabel(overview);
 
   return {
-    supported: overview?.pactl ?? false,
+    supported: Boolean(overview?.pactl && overview.sinks.length > 0),
     devices: [
       { name: "", label: t("System default") },
       ...(overview?.sinks ?? []).map((sink) => ({ name: sink.name, label: sink.description })),

@@ -2229,6 +2229,31 @@ mod tests {
     }
 
     #[test]
+    fn the_audio_default_sink_is_trimmed_and_round_trips() {
+        // #289: the global override is a full sink name; an empty value is the
+        // meaningful "follow the system default", so only surrounding space is
+        // removed. An older settings file has no key at all.
+        let mut settings = LocalSettings {
+            audio_default_sink: "  alsa_output.pci-0000_01_00.1.hdmi-stereo  ".into(),
+            ..LocalSettings::default()
+        };
+        settings.normalize(Path::new("/tmp/ludex-test"));
+        assert_eq!(
+            settings.audio_default_sink,
+            "alsa_output.pci-0000_01_00.1.hdmi-stereo"
+        );
+        let json = serde_json::to_value(&settings).expect("serialize");
+        assert_eq!(
+            json["audioDefaultSink"],
+            "alsa_output.pci-0000_01_00.1.hdmi-stereo"
+        );
+        let back: LocalSettings = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back.audio_default_sink, settings.audio_default_sink);
+        let legacy: LocalSettings = serde_json::from_str("{}").expect("legacy settings");
+        assert!(legacy.audio_default_sink.is_empty());
+    }
+
+    #[test]
     fn ui_language_mirrors_the_account_locale_for_game_sync() {
         // #188: the web writes `uiLanguage` from the account preference so a
         // game launch does not use a different language than the interface.

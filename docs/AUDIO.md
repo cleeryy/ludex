@@ -39,9 +39,12 @@ message naming both packages. The WAV is rewritten per process, not accumulated.
 The effective sink is resolved in this order:
 
 1. the per-game sink (Launch → Audio output),
-2. Ludex's **global override** (Settings in the console, or "Use this device for
+2. a `PULSE_SINK` entry in the game's launch environment, which is what the
+   tier-2 "Audio device" switch writes (#299); this keeps both surfaces routing
+   the same stream instead of overriding each other,
+3. Ludex's **global override** (Settings in the console, or "Use this device for
    every game" on the game page),
-3. the sound server's `get-default-sink`.
+4. the sound server's `get-default-sink`.
 
 A stored sink that is not present in the current sink list is **never used**:
 the launch falls back to the profile default and emits `audio://notice` with
