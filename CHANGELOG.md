@@ -57,6 +57,11 @@ All notable changes to Ludex are documented here. The format is based on
   absolute paths or usernames, imported as a proposal that shows the diff
   before writing, unknown keys preserved, and a pure diff for "what changed
   since it worked".
+- Virtual gamepad per game (#315): a Linux `uinput` device that the launched
+  game opts into, fed by the pad Ludex already selected, with every physical
+  joystick hidden from SDL only once the virtual device exists; a missing
+  `/dev/uinput` or permission falls back to the untouched pad environment with
+  a launch-log warning, and Settings → Controllers shows the host state.
 - Compatibility rules database (#301): a shipped, versioned TOML rule set with
   a detached minisign signature, background refresh, atomic cache, local
   overrides first, schema validation with no dead keys, and a read-only "why"
