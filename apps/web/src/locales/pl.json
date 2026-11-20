@@ -4444,5 +4444,17 @@
   "schema {schema} · app {version} · rules {rules}": "schemat {schema} · aplikacja {version} · reguły {rules}",
   "The launch plan and the declared prerequisites were updated.": "Plan uruchamiania i zadeklarowane wymagania zostały zaktualizowane.",
   "This profile changes nothing.": "Ten profil niczego nie zmienia.",
-  "Untitled profile": "Profil bez nazwy"
+  "Untitled profile": "Profil bez nazwy",
+  "Could not save the virtual gamepad option": "Nie udało się zapisać opcji wirtualnego pada",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "Włącz ją dla gier, które przypisują kierownicę zamiast pada. Działa od następnego uruchomienia; nakładka i tryb konsoli nadal używają wszystkich padów.",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex może utworzyć jeden wirtualny pad dla każdej gry, która o to poprosi.",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex tworzy dla tej gry jeden wirtualny pad w stylu Xbox, ukrywa wszystkie fizyczne pady przed SDL i sam odczytuje preferowany kontroler.",
+  "Missing permission": "Brak uprawnień",
+  "Reads {pad}": "Odczytuje {pad}",
+  "The next launch creates one virtual pad and hides the physical ones.": "Następne uruchomienie utworzy jeden wirtualny pad i ukryje fizyczne.",
+  "The next launch keeps the physical pads and the host order.": "Następne uruchomienie zachowa fizyczne pady i kolejność hosta.",
+  "Unsupported platform": "Nieobsługiwana platforma",
+  "Virtual gamepad": "Wirtualny pad",
+  "Virtual gamepad disabled": "Wirtualny pad wyłączony",
+  "Virtual gamepad enabled": "Wirtualny pad włączony"
 }

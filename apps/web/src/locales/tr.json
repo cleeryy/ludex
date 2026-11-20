@@ -4444,5 +4444,17 @@
   "schema {schema} · app {version} · rules {rules}": "şema {schema} · uygulama {version} · kurallar {rules}",
   "The launch plan and the declared prerequisites were updated.": "Başlatma planı ve bildirilen ön koşullar güncellendi.",
   "This profile changes nothing.": "Bu profil hiçbir şeyi değiştirmiyor.",
-  "Untitled profile": "Başlıksız profil"
+  "Untitled profile": "Başlıksız profil",
+  "Could not save the virtual gamepad option": "Sanal oyun kolu seçeneği kaydedilemedi",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "Direksiyonu oyun kolu yerine atayan oyunlar için etkinleştirin. Bir sonraki başlatmada geçerli olur; yer paylaşımı ve Konsol modu tüm kolları kullanmaya devam eder.",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex, isteyen her oyun için bir sanal kol oluşturabilir.",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex bu oyun için Xbox tarzı bir sanal kol oluşturur, tüm fiziksel kolları SDL'den gizler ve tercih edilen denetleyiciyi kendisi okur.",
+  "Missing permission": "İzin eksik",
+  "Reads {pad}": "{pad} okunuyor",
+  "The next launch creates one virtual pad and hides the physical ones.": "Bir sonraki başlatma bir sanal kol oluşturur ve fiziksel kolları gizler.",
+  "The next launch keeps the physical pads and the host order.": "Bir sonraki başlatma fiziksel kolları ve ana makine sırasını korur.",
+  "Unsupported platform": "Desteklenmeyen platform",
+  "Virtual gamepad": "Sanal oyun kolu",
+  "Virtual gamepad disabled": "Sanal oyun kolu devre dışı",
+  "Virtual gamepad enabled": "Sanal oyun kolu etkin"
 }

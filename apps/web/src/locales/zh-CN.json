@@ -4444,5 +4444,17 @@
   "schema {schema} · app {version} · rules {rules}": "模式 {schema} · 应用 {version} · 规则 {rules}",
   "The launch plan and the declared prerequisites were updated.": "启动方案和声明的前置条件已更新。",
   "This profile changes nothing.": "此配置不更改任何内容。",
-  "Untitled profile": "未命名配置"
+  "Untitled profile": "未命名配置",
+  "Could not save the virtual gamepad option": "无法保存虚拟手柄选项",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "为绑定方向盘而不是手柄的游戏启用它。它在下次启动时生效；覆盖层和主机模式仍然使用所有手柄。",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex 可以为每个请求它的游戏创建一个虚拟手柄。",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex 为该游戏创建一个 Xbox 风格的虚拟手柄，从 SDL 中隐藏所有物理手柄，并自行读取首选控制器。",
+  "Missing permission": "缺少权限",
+  "Reads {pad}": "读取 {pad}",
+  "The next launch creates one virtual pad and hides the physical ones.": "下次启动会创建一个虚拟手柄并隐藏物理手柄。",
+  "The next launch keeps the physical pads and the host order.": "下次启动保留物理手柄和主机顺序。",
+  "Unsupported platform": "不支持的平台",
+  "Virtual gamepad": "虚拟手柄",
+  "Virtual gamepad disabled": "虚拟手柄已禁用",
+  "Virtual gamepad enabled": "虚拟手柄已启用"
 }

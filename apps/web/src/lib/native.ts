@@ -139,6 +139,7 @@ import type {
   UpdateStatus,
   VerifyProgress,
   VerifyReport,
+  VirtualPadAvailability,
   WinetricksReport,
 } from "@/lib/types";
 
@@ -1159,6 +1160,18 @@ export const native = {
   /** Store (`046d:c260`) or clear (`null`) the preferred controller of a game. */
   async setGameController(gameId: number, deviceId: string | null): Promise<GameControllers> {
     return invoke<GameControllers>("set_game_controller", { gameId, deviceId });
+  },
+
+  /* --------------------- virtual gamepad (#315) -------------------------- */
+
+  /** Host readiness: available, missing permission, or unsupported platform. */
+  async virtualPadStatus(): Promise<VirtualPadAvailability> {
+    return invoke<VirtualPadAvailability>("virtual_pad_status");
+  },
+
+  /** Turn the virtual gamepad on or off for one game. */
+  async setGameVirtualPad(gameId: number, enabled: boolean): Promise<GameControllers> {
+    return invoke<GameControllers>("set_game_virtual_pad", { gameId, enabled });
   },
 
   async protondbRating(gameId: number, appId?: number | null, refresh = false): Promise<ProtonDbRating> {

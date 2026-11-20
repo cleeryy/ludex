@@ -4444,5 +4444,17 @@
   "schema {schema} · app {version} · rules {rules}": "스키마 {schema} · 앱 {version} · 규칙 {rules}",
   "The launch plan and the declared prerequisites were updated.": "실행 계획과 선언된 필수 구성 요소가 업데이트되었습니다.",
   "This profile changes nothing.": "이 프로필은 아무것도 변경하지 않습니다.",
-  "Untitled profile": "제목 없는 프로필"
+  "Untitled profile": "제목 없는 프로필",
+  "Could not save the virtual gamepad option": "가상 게임패드 옵션을 저장하지 못했습니다",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "패드 대신 휠이 할당되는 게임에서 켜세요. 다음 실행부터 적용되며 오버레이와 콘솔 모드는 모든 패드를 계속 사용합니다.",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex는 요청한 게임마다 가상 패드를 하나 만들 수 있습니다.",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex는 이 게임용 Xbox 스타일 가상 패드를 하나 만들고 모든 물리 패드를 SDL에서 숨기며 선호 컨트롤러를 직접 읽습니다.",
+  "Missing permission": "권한 없음",
+  "Reads {pad}": "{pad} 읽기",
+  "The next launch creates one virtual pad and hides the physical ones.": "다음 실행에서 가상 패드를 하나 만들고 물리 패드를 숨깁니다.",
+  "The next launch keeps the physical pads and the host order.": "다음 실행에서는 물리 패드와 호스트 순서를 유지합니다.",
+  "Unsupported platform": "지원되지 않는 플랫폼",
+  "Virtual gamepad": "가상 게임패드",
+  "Virtual gamepad disabled": "가상 게임패드 비활성화됨",
+  "Virtual gamepad enabled": "가상 게임패드 활성화됨"
 }

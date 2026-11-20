@@ -325,6 +325,8 @@ pub fn launch_rom(
         stopped: std::sync::atomic::AtomicBool::new(false),
         // An emulator launch never goes through the rules engine (#297).
         auto_plan: None,
+        // A ROM goes to an emulator, not a game Ludex wraps (#315).
+        virtual_pad: None,
     });
     {
         let mut processes = state

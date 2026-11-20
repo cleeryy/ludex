@@ -2723,6 +2723,49 @@ pub fn set_game_controller(
     Ok(controllers_snapshot(&settings, game_id, inventory))
 }
 
+/// Turn the virtual gamepad on or off for one game (#315).
+///
+/// The opt-in is stored even when the host cannot create the device right now:
+/// the player may be about to install the udev rule, and the launch path always
+/// re-probes. The returned payload carries the current status so the UI can
+/// explain what will happen.
+#[tauri::command]
+pub fn set_game_virtual_pad(
+    state: State<'_, AppState>,
+    game_id: i64,
+    enabled: bool,
+) -> Result<GameControllers, String> {
+    let inventory = crate::controllers::inventory(Path::new("/"));
+    let settings = state.update_settings(|settings| {
+        let key = game_id.to_string();
+        if enabled {
+            // Keep an explicit device choice when the entry already has one.
+            let device_id = settings
+                .game_virtual_pads
+                .get(&key)
+                .map(|entry| entry.device_id.clone())
+                .unwrap_or_default();
+            settings.game_virtual_pads.insert(
+                key,
+                crate::virtual_pad::VirtualPadPreference {
+                    enabled: true,
+                    device_id,
+                },
+            );
+        } else {
+            settings.game_virtual_pads.remove(&key);
+        }
+    })?;
+    Ok(controllers_snapshot(&settings, game_id, inventory))
+}
+
+/// Host readiness for the virtual gamepad (#315): available, missing permission
+/// or unsupported platform, with the sentence the UI shows.
+#[tauri::command]
+pub fn virtual_pad_status() -> crate::virtual_pad::VirtualPadAvailability {
+    crate::virtual_pad::availability()
+}
+
 /// One game's diagnostics, preference and the environment a launch would add.
 fn controllers_snapshot(
     settings: &LocalSettings,
@@ -2736,10 +2779,19 @@ fn controllers_snapshot(
         }
         None => ControllerLaunch::default(),
     };
+    // #315: the opt-in and the host readiness travel with the same payload, so
+    // the picker can explain why the switch is unavailable.
+    let virtual_pad = crate::virtual_pad::view(
+        &settings.game_virtual_pads,
+        preferred.as_ref(),
+        game_id,
+        &inventory,
+    );
     GameControllers {
         inventory,
         preferred,
         launch,
+        virtual_pad,
     }
 }
 

@@ -525,6 +525,13 @@ pub struct LocalSettings {
     #[serde(default)]
     pub game_controllers:
         std::collections::BTreeMap<String, crate::controllers::ControllerPreference>,
+    /// Per-game virtual gamepad opt-in (#315), keyed by game id. A device-local
+    /// preference: it names the pad this machine has, so it is never synced.
+    /// An absent key means the launch keeps the physical pads and the #314
+    /// environment.
+    #[serde(default)]
+    pub game_virtual_pads:
+        std::collections::BTreeMap<String, crate::virtual_pad::VirtualPadPreference>,
     /// Prepare shaders after an install for every game (#293). Off by default:
     /// a warm start runs the game once, which is a visible, resource-heavy
     /// action. A per-game choice in `shaderPrep` wins.
@@ -897,6 +904,7 @@ impl Default for LocalSettings {
             device_name: None,
             host_preflight: None,
             game_controllers: std::collections::BTreeMap::new(),
+            game_virtual_pads: std::collections::BTreeMap::new(),
             shader_prep_after_install: false,
             shader_prep_budget_secs: default_shader_prep_budget_secs(),
             shader_prep: std::collections::BTreeMap::new(),
@@ -1167,6 +1175,17 @@ impl LocalSettings {
                 let mut preference = preference.clone().normalized()?;
                 preference.name = preference.name.chars().take(120).collect();
                 Some((game_id, preference))
+            })
+            .collect();
+        // #315: same discipline for the virtual gamepad opt-in. A disabled
+        // entry is dropped instead of stored, and an unusable override is
+        // cleared so the launch falls back to the automatic source.
+        self.game_virtual_pads = self
+            .game_virtual_pads
+            .iter()
+            .filter_map(|(game_id, preference)| {
+                let game_id = game_id.trim().parse::<i64>().ok()?.to_string();
+                Some((game_id, preference.clone().normalized()?))
             })
             .collect();
     }
@@ -1942,6 +1961,8 @@ mod tests {
         assert_eq!(json["installRootConfirmed"], false);
         // #314: no game has a preferred controller until one is picked.
         assert_eq!(json["gameControllers"], serde_json::json!({}));
+        // #315: the virtual gamepad is opt-in per game, so no entry either.
+        assert_eq!(json["gameVirtualPads"], serde_json::json!({}));
     }
 
     #[test]
@@ -1985,6 +2006,48 @@ mod tests {
         }))
         .unwrap();
         assert!(legacy.game_controllers.is_empty());
+    }
+
+    #[test]
+    fn virtual_pads_round_trip_and_drop_disabled_entries() {
+        let mut settings = LocalSettings::for_app_data(Path::new("/data"));
+        settings.game_virtual_pads.insert(
+            "42".into(),
+            crate::virtual_pad::VirtualPadPreference {
+                enabled: true,
+                device_id: " 045E:028E ".into(),
+            },
+        );
+        settings.game_virtual_pads.insert(
+            "43".into(),
+            crate::virtual_pad::VirtualPadPreference {
+                enabled: false,
+                device_id: String::new(),
+            },
+        );
+        settings.game_virtual_pads.insert(
+            "not-a-game".into(),
+            crate::virtual_pad::VirtualPadPreference {
+                enabled: true,
+                device_id: String::new(),
+            },
+        );
+        settings.normalize(Path::new("/data"));
+
+        assert_eq!(settings.game_virtual_pads.len(), 1);
+        let stored = &settings.game_virtual_pads["42"];
+        assert!(stored.enabled);
+        assert_eq!(stored.device_id, "045e:028e");
+
+        let json = serde_json::to_value(&settings).unwrap();
+        let back: LocalSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.game_virtual_pads, settings.game_virtual_pads);
+
+        let legacy: LocalSettings = serde_json::from_value(serde_json::json!({
+            "installDir": "D:\\Games",
+        }))
+        .unwrap();
+        assert!(legacy.game_virtual_pads.is_empty());
     }
 
     #[test]

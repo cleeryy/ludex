@@ -7,9 +7,10 @@ the game is broken: the kernel tags both devices, permissions are fine, and
 `evtest` sees the pad. Only the order is wrong.
 
 Ludex makes that order visible and gives each game a preferred controller
-([#314](https://github.com/cleeryy/ludex/issues/314)). A true virtual pad that
-rewrites the order for every program is out of scope and tracked separately
-([#315](https://github.com/cleeryy/ludex/issues/315)).
+([#314](https://github.com/cleeryy/ludex/issues/314)), and can present a single
+**virtual** pad to a game that opts in ([#315](https://github.com/cleeryy/ludex/issues/315)).
+The virtual pad is Linux-only and needs `/dev/uinput`; the section below covers
+the rule and its limits.
 
 ## What Ludex reads
 
@@ -116,9 +117,10 @@ same effect for one session, and nothing is written inside the prefix.
 | Another joystick without `vendor:product` | it stays visible; the summary says so |
 | The player already set an `SDL_*` variable in the game's environment overrides | the per-game value wins |
 
-A launch can therefore never hide every pad: the preferred device is excluded
-from its own ignore list, and the list is only built from devices that are
-connected *now*.
+In preferred-controller mode a launch can therefore never hide every pad: the
+preferred device is excluded from its own ignore list, and the list is only
+built from devices that are connected *now*. The virtual gamepad below is the
+one exception, and only after its device exists.
 
 The launch log (`{appDataDir}/logs/launch-<game>-<session>.log` for a
 compatibility launch) records the decision:
@@ -139,6 +141,96 @@ controller warning: The preferred controller Microsoft X-Box 360 pad (045e:028e)
 Native Linux launches receive the same variables; a native launch without a
 Gamescope wrapper writes no log file, so the warning goes to the app log.
 
+## Virtual gamepad (Linux, #315)
+
+Hiding the other pads fixes the order, but the game still binds a *physical*
+device — the one the player may not be holding. The per-game **Virtual gamepad**
+switch (game page → Launch → Controllers, next to the preferred controller)
+replaces that with one device Ludex feeds itself:
+
+1. before the spawn, Ludex creates `Ludex Virtual Gamepad` through
+   `/dev/uinput` with an Xbox-style capability set;
+2. it opens the source pad's `/dev/input/eventN` node and copies button, axis
+   and hat events onto the virtual device, rescaling the source's axis ranges to
+   the virtual ranges — no deadzone, no curve;
+3. the launch environment hides **every** connected physical joystick from SDL
+   (the same two variables as the preferred controller, with no exception);
+4. when the session ends, `UI_DEV_DESTROY` removes the device and the reader
+   stops.
+
+The source pad is the game's preferred controller when one is chosen, otherwise
+the first connected gamepad, otherwise the first connected joystick. The choice
+is stored per game in `settings.json` (`gameVirtualPads`, keyed by game id) and
+never synced: it names hardware this machine has.
+
+### Device shape
+
+| Capability | Values |
+| --- | --- |
+| Buttons | `BTN_SOUTH`/`EAST`/`NORTH`/`WEST`, `BTN_TL`/`TR`, `BTN_SELECT`/`START`, `BTN_MODE`, `BTN_THUMBL`/`THUMBR` |
+| Sticks | `ABS_X`, `ABS_Y`, `ABS_RX`, `ABS_RY`: `-32768..32767` |
+| Triggers | `ABS_Z` (left), `ABS_RZ` (right): `0..255` |
+| D-pad | `ABS_HAT0X` / `ABS_HAT0Y`: `-1..1` |
+
+The vendor/product pair is `4c44:0001`, which no real pad uses, so the ignore
+list built for the physical devices can never hide the virtual one. A source
+pad that reports a d-pad as buttons (`BTN_DPAD_*`) is translated to the hat; a
+source that already reports a hat is passed through and clamped.
+
+### Requirement: `/dev/uinput`
+
+The module must be loaded and the device writable by the account running Ludex:
+
+```sh
+sudo modprobe uinput
+echo uinput | sudo tee /etc/modules-load.d/uinput.conf
+sudo groupadd -f uinput
+sudo usermod -aG uinput "$USER"          # log out and back in afterwards
+```
+
+```udev
+# /etc/udev/rules.d/70-ludex-uinput.rules
+KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="uinput", OPTIONS+="static_node=uinput"
+```
+
+Then `sudo udevadm control --reload-rules && sudo udevadm trigger`.
+
+`Settings → Profiles → Controllers` shows the state as **Available**,
+**Missing permission** (the node is absent or not writable, with the sentence
+naming the fix) or **Unsupported platform** (not Linux). The same state gates
+the switch in the game's launch options.
+
+### When it cannot run
+
+The option never fails a launch. If `/dev/uinput` is missing or not writable, no
+connected pad has an `eventN` node, or the ioctl is refused, the launch keeps
+the #314 environment — physical pads untouched — and the launch log records:
+
+```
+controller warning: The virtual gamepad is enabled for this game but unavailable: /dev/uinput exists but this account cannot write to it. … The launch continues with the physical pads untouched.
+```
+
+### Limits
+
+- **evdev, not XInput.** A `uinput` device is a normal evdev gamepad. SDL —
+  and therefore Wine/Proton's winebus path — sees it, but a game that only
+  enumerates XInput devices may ignore it. A `uhid` backend with a real HID
+  descriptor is the follow-up, not part of this pass.
+- **The source pad is not grabbed.** Ludex's overlay and Console mode keep
+  reading it while the game runs, and a bridge crash can never leave the pad
+  dead until replug. The cost: a native game that opens `/dev/input/eventN`
+  directly (not through SDL) still sees the physical pad. Masking remains
+  reliable for SDL/Wine titles and best-effort for native ones.
+- **No hotplug re-emit.** If the source pad is unplugged mid-session, the reader
+  stops and the virtual pad stays silent until the game exits; relaunch after
+  reconnecting the pad.
+- **No rumble forwarding.** Force-feedback events from the game are not sent
+  back to the source pad in this pass.
+- Legacy `js` consumers keep the host order: the virtual pad's `jsN` node does
+  not exist before the device is created, so `SDL_JOYSTICK_DEVICE` is not set.
+- A launcher URI (`steam://…`) has no local executable to wrap; the switch only
+  applies to games Ludex starts itself.
+
 ## Limits
 
 - The diagnostics read `/proc` and `/dev`; udev properties such as
@@ -150,5 +242,5 @@ Gamescope wrapper writes no log file, so the warning goes to the app log.
   may not see the host's device nodes; this does not change that.
 - The preference is device-local and per game. Moving a game to another PC, or
   another user account, starts from **Automatic** again.
-- A virtual pad that removes the wheel from the order for *every* program,
-  including the overlay, is [#315](https://github.com/cleeryy/ludex/issues/315).
+- The virtual gamepad is device-local too, Linux-only, and does not survive a
+  pad unplugged mid-session (see above).
