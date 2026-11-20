@@ -2705,6 +2705,66 @@ pub fn set_launch_options(
     Ok(options)
 }
 
+/// #298: one-click launch diagnostics bundle for a game.
+///
+/// Writes `{appDataDir}/diagnostics/launch-bundle-<game>-<stamp>.zip` with the
+/// resolved plan, prefix health, host/tool versions, the retained
+/// `launch-*.log` files and a prefilled report. Everything is redacted before
+/// it is written: no token, password, account name or home path, and no game
+/// file or save. The blocking collection runs off the UI thread.
+#[tauri::command]
+pub async fn launch_diagnostics_bundle(
+    app: AppHandle,
+    game_id: i64,
+) -> Result<crate::launch_bundle::LaunchBundleInfo, String> {
+    let state = app.state::<AppState>();
+    let installed = installed_or_error(&state, game_id)?;
+    let settings = state.settings_snapshot();
+    let app_data = state.app_data.clone();
+    let options = {
+        let connection = state
+            .db
+            .lock()
+            .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+        db::get_launch_options(&connection, game_id)?
+    };
+    let recovery = crate::launch_recovery::load(&crate::launch_recovery::state_path(&app_data));
+    let game = recovery.games.get(&game_id).cloned().unwrap_or_default();
+    let install_root = PathBuf::from(&installed.install_path);
+    let prefix = linux_gaming::prefix_for(&install_root, &options.prefix_path).ok();
+    let title = installed.title.clone();
+    let server_urls = vec![settings.server_url.clone()];
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let scan = if cfg!(all(unix, not(target_os = "macos"))) {
+            Some(compat::scan(&settings))
+        } else {
+            None
+        };
+        let prefix_health = prefix.as_deref().map(|path| {
+            crate::launch_bundle::prefix_health(path, !options.prefix_path.trim().is_empty())
+        });
+        let input = crate::launch_bundle::BundleInput {
+            game_id,
+            title,
+            created_at: now_rfc3339(),
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            host: crate::launch_bundle::collect_host(),
+            tools: crate::launch_bundle::collect_tools(scan.as_ref()),
+            options,
+            plan: game.last_plan,
+            prefix: prefix_health,
+            last_failure: game.last_failure,
+            logs: crate::launch_bundle::read_launch_logs(&app_data, game_id),
+            redaction: crate::diagnostics::local_redaction_context(server_urls),
+        };
+        let output = app_data.join("diagnostics");
+        crate::launch_bundle::build(&input, &output).map(Into::into)
+    })
+    .await
+    .map_err(|error| format!("The diagnostics bundle task failed: {error}"))?
+}
+
 /// Size and location of a game's Wine prefix (#92).
 #[tauri::command]
 pub async fn wine_prefix_info(app: AppHandle, game_id: i64) -> Result<PrefixInfo, String> {

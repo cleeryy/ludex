@@ -320,6 +320,9 @@ pub fn launch_rom(
         started_at: started,
         started: std::time::Instant::now(),
         launch_log: None,
+        // A ROM through an emulator has no compatibility plan to revert (#298).
+        plan: None,
+        stopped: std::sync::atomic::AtomicBool::new(false),
     });
     {
         let mut processes = state

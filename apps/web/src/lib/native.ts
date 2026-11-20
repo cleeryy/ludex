@@ -58,7 +58,9 @@ import type {
   LauncherImportEntry,
   LauncherImportReport,
   LauncherPreview,
+  LaunchBundleInfo,
   LaunchOptions,
+  LaunchRecoveryNotice,
   LocalSettings,
   LocationStatus,
   ManifestProgress,
@@ -974,6 +976,15 @@ export const native = {
     return invoke<PrefixInfo>("wine_prefix_info", { gameId });
   },
 
+  /**
+   * #298: write a redacted launch diagnostics bundle for this game and return
+   * where it is plus a prefilled report URL. Never includes game files, saves,
+   * tokens or passwords; the home path is shortened to `~`.
+   */
+  async launchDiagnosticsBundle(gameId: number): Promise<LaunchBundleInfo> {
+    return invoke<LaunchBundleInfo>("launch_diagnostics_bundle", { gameId });
+  },
+
   async resetWinePrefix(gameId: number): Promise<void> {
     if (!isNative()) throw nativeUnavailable();
     await invoke<null>("reset_wine_prefix", { gameId });
@@ -1121,6 +1132,15 @@ export const native = {
       window?: string | null;
       reason?: string | null;
     }>("game://focus", handler);
+  },
+
+  /**
+   * #298: the second consecutive failure with the same profile reverted the
+   * game to the last plan that worked. The options are already saved; the
+   * shell shows `message` once.
+   */
+  async onGameRecovery(handler: (payload: LaunchRecoveryNotice) => void): Promise<() => void> {
+    return listen<LaunchRecoveryNotice>("game://recovery", handler);
   },
 
   /** Tray navigation: the menu asked the UI to open a route. */

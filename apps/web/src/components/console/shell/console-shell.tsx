@@ -1253,6 +1253,30 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
             return openOverlay("downloads");
           case "profiles":
             return openOverlay("profiles");
+          case "diagnostics": {
+            if (!selected) return;
+            emit("confirm");
+            closeOverlay(false);
+            void native
+              .launchDiagnosticsBundle(selected.id)
+              .then((bundle) => {
+                push({
+                  title: t("Diagnostics bundle saved"),
+                  description: bundle.fileName,
+                  tone: "success",
+                  durationMs: 10_000,
+                });
+              })
+              .catch((cause: Error) => {
+                emit("error");
+                push({
+                  title: t("Could not build the diagnostics bundle"),
+                  description: errorMessage(cause),
+                  tone: "danger",
+                });
+              });
+            return;
+          }
           case "settings":
             closeOverlay(false);
             return openApp("settings");

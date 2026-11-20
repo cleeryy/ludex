@@ -24,6 +24,8 @@ mod install;
 mod install_health;
 mod installer;
 mod launch;
+mod launch_bundle;
+mod launch_recovery;
 mod launchers;
 mod linux_gaming;
 mod locations;
@@ -367,6 +369,7 @@ pub fn run() {
             host_preflight::host_preflight_install,
             commands::get_launch_options,
             commands::set_launch_options,
+            commands::launch_diagnostics_bundle,
             commands::wine_prefix_info,
             commands::reset_wine_prefix,
             commands::run_winetricks,

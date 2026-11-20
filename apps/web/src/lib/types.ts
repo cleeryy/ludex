@@ -3055,6 +3055,34 @@ export interface LaunchOptions {
   display: DisplayProfile;
 }
 
+/**
+ * One-click launch diagnostics bundle (#298).
+ *
+ * `path` is the zip under `{appDataDir}/diagnostics/`; `planHash` identifies the
+ * profile without naming the user's files. `reportUrl` is a prefilled GitHub
+ * new-issue URL carrying only the bundle metadata.
+ */
+export interface LaunchBundleInfo {
+  path: string;
+  fileName: string;
+  bytes: number;
+  planHash: string;
+  reportUrl: string;
+}
+
+/**
+ * The second consecutive failure with the same profile reverted the game
+ * (#298). The options are already written back; this explains what changed.
+ */
+export interface LaunchRecoveryNotice {
+  gameId: number;
+  title: string;
+  reverted: boolean;
+  fromHash: string;
+  toHash: string;
+  message: string;
+}
+
 export interface CompatTool {
   id: string;
   name: string;

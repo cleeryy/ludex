@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, RotateCcw, TerminalSquare } from "lucide-react";
+import { FileArchive, FolderOpen, RotateCcw, TerminalSquare } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
 import { formatBytes , formatDuration} from "@/lib/format";
@@ -13,7 +13,7 @@ import {
   displayProfileSummary,
   withDisplayMode,
 } from "@/lib/display-profile";
-import type { CompatTool, LaunchMode, LaunchOptions, WinetricksReport } from "@/lib/types";
+import type { CompatTool, LaunchBundleInfo, LaunchMode, LaunchOptions, WinetricksReport } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
@@ -138,6 +138,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
   const [confirmReset, setConfirmReset] = useState(false);
   const [runningVerbs, setRunningVerbs] = useState(false);
   const [verbReport, setVerbReport] = useState<WinetricksReport | null>(null);
+  const [bundling, setBundling] = useState(false);
+  const [bundle, setBundle] = useState<LaunchBundleInfo | null>(null);
 
   useEffect(() => {
     if (!savedQuery.data) return;
@@ -255,6 +257,31 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       update({ winetricksVerbs: [...draft.winetricksVerbs, verb] });
     }
     setCustomVerb("");
+  };
+
+  /**
+   * #298: one click, one zip. The backend does the redaction; this only shows
+   * where the file is and offers the prefilled report.
+   */
+  const collectBundle = async () => {
+    setBundling(true);
+    try {
+      const next = await native.launchDiagnosticsBundle(gameId);
+      setBundle(next);
+      push({
+        title: t("Diagnostics bundle saved"),
+        description: next.fileName,
+        tone: "success",
+      });
+    } catch (cause) {
+      push({
+        title: t("Could not build the diagnostics bundle"),
+        description: errorMessage(cause),
+        tone: "danger",
+      });
+    } finally {
+      setBundling(false);
+    }
   };
 
   const runVerbs = async () => {
@@ -741,6 +768,41 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               )}
             </div>
           </div>
+        </div>
+
+        <div className="mt-6 border-t border-line pt-4">
+          <p className="text-[13px] font-medium text-ink">{t("Diagnostics")}</p>
+          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+            {t("Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.")}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              className="h-10"
+              icon={<FileArchive className="size-3.5" />}
+              loading={bundling}
+              onClick={() => void collectBundle()}
+            >
+              {t("Diagnostics bundle")}
+            </Button>
+            {bundle && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-10"
+                icon={<TerminalSquare className="size-3.5" />}
+                onClick={() => void native.openExternalUrl(bundle.reportUrl)}
+              >
+                {t("Report this game")}
+              </Button>
+            )}
+          </div>
+          {bundle && (
+            <p className="mt-2 font-mono text-[10.5px] text-ink-3">
+              {bundle.fileName} · {t("plan {hash}", { hash: bundle.planHash.slice(0, 12) })}
+            </p>
+          )}
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">

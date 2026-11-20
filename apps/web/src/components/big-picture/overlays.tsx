@@ -147,7 +147,15 @@ export function OverlayRow({
 
 /* ------------------------------- command menu ------------------------------ */
 
-export type CommandId = "play" | "game" | "search" | "downloads" | "profiles" | "settings" | "exit";
+export type CommandId =
+  | "play"
+  | "game"
+  | "search"
+  | "downloads"
+  | "profiles"
+  | "diagnostics"
+  | "settings"
+  | "exit";
 
 export interface CommandDefinition {
   id: CommandId;
@@ -191,6 +199,12 @@ export const COMMAND_ITEMS: readonly CommandDefinition[] = [
     glyph: "settings",
     label: () => t("Controller profile"),
     detail: () => t("Switch the pad setup and vibration."),
+  },
+  {
+    id: "diagnostics",
+    glyph: "bundle",
+    label: () => t("Diagnostics bundle"),
+    detail: () => t("Logs, versions and the resolved plan, with secrets removed."),
   },
   {
     id: "settings",

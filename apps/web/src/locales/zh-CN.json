@@ -4152,5 +4152,14 @@
   "sunshine.conf restored": "sunshine.conf 已还原",
   "sunshine.conf updated": "sunshine.conf 已更新",
   "tunnel": "隧道",
-  "warning": "警告"
+  "warning": "警告",
+  "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.": "{title} 一直启动失败，Ludex 已恢复上次可用的启动配置。下次启动将使用它。",
+  "Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.": "将最近的启动日志、解析后的方案、前缀健康状况以及 GPU/UMU/Proton 版本收集到一个 zip 中。写入前会移除令牌、密码和主目录。",
+  "Could not build the diagnostics bundle": "无法生成诊断包",
+  "Diagnostics bundle": "诊断包",
+  "Diagnostics bundle saved": "诊断包已保存",
+  "Logs, versions and the resolved plan, with secrets removed.": "日志、版本和解析后的方案，已移除机密信息。",
+  "plan {hash}": "方案 {hash}",
+  "Previous launch setup restored": "已恢复上次的启动配置",
+  "Report this game": "报告此游戏"
 }

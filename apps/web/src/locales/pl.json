@@ -4152,5 +4152,14 @@
   "sunshine.conf restored": "sunshine.conf przywrócony",
   "sunshine.conf updated": "sunshine.conf zaktualizowany",
   "tunnel": "tunel",
-  "warning": "ostrzeżenie"
+  "warning": "ostrzeżenie",
+  "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.": "{title} wielokrotnie nie uruchamiał się, więc Ludex przywrócił ostatnią działającą konfigurację uruchamiania. Następne uruchomienie jej użyje.",
+  "Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.": "Zbiera ostatnie dzienniki uruchamiania, rozwiązany plan, stan prefiksu oraz wersje GPU/UMU/Proton w jednym pliku zip. Tokeny, hasła i folder domowy są usuwane przed zapisem.",
+  "Could not build the diagnostics bundle": "Nie udało się utworzyć pakietu diagnostycznego",
+  "Diagnostics bundle": "Pakiet diagnostyczny",
+  "Diagnostics bundle saved": "Pakiet diagnostyczny zapisany",
+  "Logs, versions and the resolved plan, with secrets removed.": "Dzienniki, wersje i rozwiązany plan, bez sekretów.",
+  "plan {hash}": "plan {hash}",
+  "Previous launch setup restored": "Przywrócono poprzednią konfigurację uruchamiania",
+  "Report this game": "Zgłoś tę grę"
 }

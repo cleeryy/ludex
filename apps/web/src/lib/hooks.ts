@@ -364,6 +364,23 @@ export function useNativeEvents() {
       if (cancelled) offFocus();
       else unlisteners.push(offFocus);
 
+      // #298: two consecutive failures with the same profile made Ludex put
+      // back the last plan that worked. Say it once, in one sentence, and let
+      // the game page reload the options that are now active.
+      const offRecovery = await native.onGameRecovery(({ gameId, title }) => {
+        void queryClient.invalidateQueries({ queryKey: qk.launchOptions(gameId) });
+        push({
+          title: t("Previous launch setup restored"),
+          description: t(
+            "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.",
+            { title },
+          ),
+          tone: "default",
+        });
+      });
+      if (cancelled) offRecovery();
+      else unlisteners.push(offRecovery);
+
       // Tray menu (#15): navigate to a route or launch a recent game.
       const offNavigate = await native.onNavigate((path) => navigate(path));
       if (cancelled) offNavigate();
