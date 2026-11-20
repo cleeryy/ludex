@@ -70,6 +70,32 @@ verdict needs a Linux desktop with a GPU and a controller.
 - Keyboard movement of the rail works (`ArrowRight` through the real input
   scope), so the input loop itself is engine-agnostic.
 
+## Verdict for the go/no-go (#305)
+
+The engine question is settled by reading the WebKit sources and release notes,
+not only by the headless run:
+
+- `navigator.getGamepads()` is compiled in by default on every WebKitGTK from
+  2.30 to 2.54 — `ENABLE_GAMEPAD` is ON in `OptionsGTK.cmake`, the pref
+  `GamepadsEnabled` defaults to true on the WebKit2 ports, there is **no**
+  `WebKitSettings` property and no `WEBKIT_*` flag, and the IDL has no
+  `[SecureContext]` (so `tauri://localhost` works; only cross-origin iframes are
+  blocked by Permissions Policy).
+- What blocks it as the **primary** input path is behaviour: a pad connected
+  **before** the document starts monitoring is invisible (absent from
+  `getGamepads()`, no `gamepadconnected`) until it produces input
+  (`m_gamepadBlindNavigators` in `ManetteGamepadProvider`), and monitoring stops
+  when no WebKit toplevel has focus. Mapping is forced to `"standard"` even for
+  pads libmanette cannot map; no deadzone, no raw axes, no VID/PID; rumble only
+  from 2.54; analog triggers only in 2.56; latency 50 ms before 2.54.3.
+
+**Decision: keep `gilrs` authoritative.** The Web Gamepad path may later be an
+additive, feature-detected, browser-parity layer gated on WebKitGTK ≥ 2.52
+(≥ 2.54.3 preferred), never the source of truth for "press A to start" with a
+pad already in hand. libmanette never issues `EVIOCGRAB`, so both readers can
+run at the same time. Flatpak note: libmanette reads `/dev/input/event*` in the
+UI process, so a sandboxed build needs `--device=all` (not the .deb/.rpm/AppImage).
+
 ## Manual procedure (desk with controller and GPU)
 
 Run this before flipping `console_v2` on for a Linux TV device.

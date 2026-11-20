@@ -39,6 +39,23 @@ path.
 
 ## Checklist
 
+### A0. Controllers (per-game selection, #314/#315)
+
+- [ ] **A0a — preferred pad.** Plug a wheel or a second pad next to the Xbox
+      pad, set the Xbox pad as the game's preferred controller (Launch →
+      Advanced), launch: the game sees the Xbox pad, the log header has a
+      `controller env:` line, and the wheel does not take slot 0. Evidence:
+      screenshot of the picker + the `launch-*.log` header.
+- [ ] **A0b — absent preferred pad.** Unplug the preferred pad and launch: the
+      environment is untouched and the log has a `controller warning:`. The game
+      still gets a pad.
+- [ ] **A0c — virtual gamepad.** On a Linux host with the udev rule installed,
+      enable "Virtual gamepad" for one game: exactly one pad is visible to the
+      game, Ludex still reads its own overlay input, and the bridge stops when
+      the game exits (`/dev/input/js*` list returns to its previous state).
+      Without `/dev/uinput` or permission the launch proceeds and Settings →
+      Controllers says why.
+
 ### A. Process, window and second instance
 
 - [ ] **A1 — cold console launch.** `Ludex.exe --console` from a terminal opens
