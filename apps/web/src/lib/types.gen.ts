@@ -1795,6 +1795,18 @@ export interface RootScanResponse {
   started: boolean;
 }
 
+export interface SaveConflictView {
+  candidate: SaveSnapshot;
+  detectedAt: string;
+  existing: SaveSnapshot;
+  gameId: number;
+  id: number;
+  reason: string;
+  resolvedAt?: string | null;
+  status: string;
+  strategy?: string | null;
+}
+
 export interface SaveControllerProfileRequest {
   gameId?: number | null;
   profile: ControllerProfile;
@@ -1804,6 +1816,11 @@ export interface SaveHistory {
   autoRetention: number;
   receipts: SaveRestoreReceipt[];
   snapshots: SaveSnapshot[];
+}
+
+export interface SavePolicyView {
+  deviceId?: string | null;
+  policy: string;
 }
 
 export interface SavePruneReport {
@@ -1822,6 +1839,9 @@ export interface SaveRestoreReceipt {
 }
 
 export interface SaveSnapshot {
+  clientMtime?: string | null;
+  clockOffsetSecs: number;
+  conflictOf?: number | null;
   createdAt: string;
   deviceId?: string | null;
   fileName: string;
@@ -1829,6 +1849,7 @@ export interface SaveSnapshot {
   id: number;
   label: string;
   pinned: boolean;
+  saveSeq?: number | null;
   sha256: string;
   size: number;
   source: string;

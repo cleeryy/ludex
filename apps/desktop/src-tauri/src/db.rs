@@ -698,6 +698,7 @@ CREATE INDEX IF NOT EXISTS save_restore_points_game_idx
     ON save_restore_points (game_id, created_at DESC);
 
 ALTER TABLE cloud_save_prefs ADD COLUMN last_local_change_at TEXT;
+"#;
 
 /// The offline save-sync queue (#296).
 ///
