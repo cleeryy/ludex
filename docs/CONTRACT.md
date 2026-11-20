@@ -3148,6 +3148,9 @@ interface RemotePlayCleanup {
 | `make_it_run_remove` | `{ gameId, providerId }` | `RuntimeRemovalReport`; deletes only the managed folder and cached archive, or forgets an imported DMG / registry redistributable without deleting any user file |
 | `make_it_run_select` | `{ gameId, providerId }` | `RuntimeDiagnosis`; records a user-installed wrapper as the game's runtime |
 | `set_runtime_prerequisites` | `{ gameId, prerequisites }` | `RuntimeDiagnosis`; records declared ids (`vcrun`, `dotnet`, `directx`, `physx`); unknown ids are rejected |
+| `compat_rules_status` | — | `CompatRulesStatus`; active database (`schema`, `version`, `origin` = `shipped`/`cached`), rule and local counts, `degraded` + `notes`, cache/local paths, `signatureConfigured`, `lastCheckedAt`/`fetchedAt` and the last update `message`. Reads files only (#301) |
+| `compat_rules_report` | `{ gameId }` | `CompatRulesReport`; the matched rules for one installed game with their reason, confidence, source, origin ("learned locally" vs "rule 2026.11"), every field they applied or kept (`user-choice` / `rule-conflict` / `duplicate`), known issues and prerequisites. Hashes the executable only when a rule matches by `exe_sha256`. Read-only (#301) |
+| `compat_rules_update` | `{ force? }` | `CompatRulesStatus`; fetches `data/compat-rules.toml` and its `.minisig` from `main`, verifies the signature with the updater key, validates and caches atomically. Network/validation failures land in `message` (never a thrown error) and the active rules stay in use. Throttled to 24 h unless `force: true` (#301) |
 | `get_launch_options` | `{ gameId }` | `LaunchOptions`; defaults when nothing was saved (#89). Paths are normalised before they reach a process API (#187) |
 | `set_launch_options` | `{ gameId, options }` | `LaunchOptions`; validates env names, verbs, prefix, the working directory (must exist; a relative value is resolved against the install folder and stored absolute) and the display profile (resolution bounds, documented filter) (#89, #92, #187, #287) |
 | `wine_prefix_info` | `{ gameId }` | `PrefixInfo`; path, custom flag, existence and size (#92) |
@@ -3364,6 +3367,22 @@ Local archive extraction
 uses `GET /api/games/{id}/versions/{vid}/local-path` when the embedded server is
 in local mode; remote installs download with Range resume and delete the temp
 archive by default (`keepArchives` setting false).
+
+### Compatibility rules (#301)
+
+The launch defaults come from a versioned TOML database. Shipped rules are
+embedded at build time; a signed copy (`data/compat-rules.toml` +
+`.minisig`, minisign key shared with the updater) is fetched from `main` at
+most once per 24 h in a detached startup task. A cache that fails the signature,
+the schema check or validation is ignored and the shipped file is used; the
+failure is logged once. A local `compat-rules.local.toml` is evaluated first and
+replaces a shipped rule with the same id. Every rule carries a human reason and
+a source, and a plan override must point to a real `LaunchOptions` /
+`DisplayProfile` field: unknown TOML keys, reserved environment variables,
+partial Gamescope profiles and unknown prerequisites are rejected by
+`compat_rules::validate`. The provider interface for the launch planner (#297)
+is `compat_rules::evaluate` / `plan_for_launch`; `docs/COMPAT-RULES.md` is the
+format contract.
 
 ### File-manifest transport (#231) and the download policy (#235)
 

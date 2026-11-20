@@ -4152,5 +4152,21 @@
   "sunshine.conf restored": "sunshine.conf przywrócony",
   "sunshine.conf updated": "sunshine.conf zaktualizowany",
   "tunnel": "tunel",
-  "warning": "ostrzeżenie"
+  "warning": "ostrzeżenie",
+  "Already set": "Już ustawione",
+  "Another rule set this first": "Inna reguła ustawiła to wcześniej",
+  "Blocks launch": "Blokuje uruchomienie",
+  "Extra arguments": "Dodatkowe argumenty",
+  "Known issues": "Znane problemy",
+  "Learned locally": "Nauczone lokalnie",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "Żadna reguła zgodności nie dotyczy jeszcze tej gry. Ludex użyje Twoich opcji uruchamiania bez zmian.",
+  "Prerequisites: {list}": "Wymagania wstępne: {list}",
+  "Rule {version}": "Reguła {version}",
+  "Source: {source}": "Źródło: {source}",
+  "The rules could not be read for this game.": "Nie udało się odczytać reguł dla tej gry.",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "Nie udało się odczytać pliku reguł. Ludex użyje domyślnych wartości dołączonych do aplikacji.",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Reguły dopasowane przez Ludex dla tej gry. Uzupełniają tylko wartości domyślne: wszystko ustawione w opcjach uruchamiania ma pierwszeństwo.",
+  "Why these launch settings": "Dlaczego te ustawienia uruchamiania",
+  "Windows components": "Składniki Windows",
+  "Your choice kept": "Zachowano Twój wybór"
 }

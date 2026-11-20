@@ -43,6 +43,7 @@ const REQUIRED_PANELS = [
   "installed-files",
   "setup-program",
   "startup-command",
+  "compat-rules",
   "make-it-run",
   "linux-launch",
   "controller",

@@ -4152,5 +4152,21 @@
   "sunshine.conf restored": "sunshine.conf を復元しました",
   "sunshine.conf updated": "sunshine.conf を更新しました",
   "tunnel": "トンネル",
-  "warning": "警告"
+  "warning": "警告",
+  "Already set": "設定済み",
+  "Another rule set this first": "別のルールが先に設定しました",
+  "Blocks launch": "起動をブロック",
+  "Extra arguments": "追加の引数",
+  "Known issues": "既知の問題",
+  "Learned locally": "この PC で学習",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "このゲームに一致する互換性ルールはまだありません。Ludex は起動オプションをそのまま使用します。",
+  "Prerequisites: {list}": "前提条件: {list}",
+  "Rule {version}": "ルール {version}",
+  "Source: {source}": "ソース: {source}",
+  "The rules could not be read for this game.": "このゲームのルールを読み取れませんでした。",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "ルールファイルを読み取れませんでした。Ludex は同梱の既定値を使用します。",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Ludex がこのゲームに一致させたルールです。既定値のみを埋めます。起動オプションで設定した内容が優先されます。",
+  "Why these launch settings": "この起動設定の理由",
+  "Windows components": "Windows コンポーネント",
+  "Your choice kept": "選択を維持"
 }

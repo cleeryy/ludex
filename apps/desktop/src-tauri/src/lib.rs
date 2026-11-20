@@ -6,6 +6,7 @@ mod bridge;
 mod chrome;
 mod commands;
 mod compat;
+mod compat_rules;
 mod config_adapters;
 mod config_fields;
 mod console;
@@ -280,6 +281,11 @@ pub fn run() {
                 // #213: a window left open for days still learns about a new
                 // build; the same throttle and preference apply.
                 crate::update::app::spawn_periodic_check(handle.clone());
+
+                // #301: signed compatibility rules refresh in the background; a
+                // launch never waits for the network and the shipped file always
+                // works.
+                compat_rules::spawn_startup_refresh(handle.clone());
             });
             Ok(())
         })
@@ -362,6 +368,9 @@ pub fn run() {
             commands::reorder_gamevault_roots,
             commands::detect_gamevault_roots,
             commands::compat_scan,
+            compat_rules::compat_rules_status,
+            compat_rules::compat_rules_report,
+            compat_rules::compat_rules_update,
             host_preflight::host_preflight_report,
             host_preflight::host_preflight_plan,
             host_preflight::host_preflight_install,

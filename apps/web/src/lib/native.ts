@@ -13,6 +13,8 @@ import type {
   CommonFieldPreview,
   CommonFieldTarget,
   CommonFieldsReport,
+  CompatRulesReport,
+  CompatRulesStatus,
   CompatScan,
   ConfigBackupRecord,
   ConfigDocument,
@@ -960,6 +962,21 @@ export const native = {
     consent: boolean,
   ): Promise<HostInstallOutcome> {
     return invoke<HostInstallOutcome>("host_preflight_install", { findings, dryRun, consent });
+  },
+
+  /** The active rules database and its update state (#301). */
+  async compatRulesStatus(): Promise<CompatRulesStatus> {
+    return invoke<CompatRulesStatus>("compat_rules_status");
+  },
+
+  /** Matched rules for one installed game, with reasons. Read-only. */
+  async compatRulesReport(gameId: number): Promise<CompatRulesReport> {
+    return invoke<CompatRulesReport>("compat_rules_report", { gameId });
+  },
+
+  /** Fetch the signed rules now; a failure is reported in `message`. */
+  async compatRulesUpdate(force = true): Promise<CompatRulesStatus> {
+    return invoke<CompatRulesStatus>("compat_rules_update", { force });
   },
 
   async getLaunchOptions(gameId: number): Promise<LaunchOptions> {

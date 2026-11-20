@@ -62,6 +62,7 @@ import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
 import { LaunchOptionsPanel } from "@/components/game/launch-options";
 import { MakeItRunPanel } from "@/components/game/make-it-run";
+import { CompatRulesPanel } from "@/components/game/compat-rules";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
@@ -576,6 +577,7 @@ export function GameDetailScreen() {
         return (
           <div className="flex flex-col gap-8">
             {isEditor && game.kind !== "rom" && <StartupCommandPanel game={game} installed={isInstalled} />}
+            {isInstalled && desktop && game.kind !== "rom" && <CompatRulesPanel gameId={game.id} />}
             {isInstalled && desktop && game.kind !== "rom" && <MakeItRunPanel gameId={game.id} />}
             {isInstalled && desktop && game.kind !== "rom" && <LaunchOptionsPanel gameId={game.id} title={game.title} />}
             <ControllerPanel gameId={game.id} gameTitle={game.title} plain />

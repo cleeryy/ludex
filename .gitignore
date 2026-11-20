@@ -21,6 +21,10 @@ apps/desktop/src-tauri/icons/*.png.bak
 /data/*
 !/data/save-roots.yaml
 !/data/save-overrides.yaml
+# The compatibility rules database is source data too (#301); its detached
+# signature is published next to it.
+!/data/compat-rules.toml
+!/data/compat-rules.toml.minisig
 /media/
 /games/
 *.db

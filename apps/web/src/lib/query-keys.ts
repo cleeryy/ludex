@@ -154,6 +154,8 @@ export const qk = {
   launchOptions: (gameId: number) => key("launch-options", gameId),
   prefixInfo: (gameId: number) => key("prefix-info", gameId),
   makeItRun: (gameId: number) => key("make-it-run", gameId),
+  /** Matched compatibility rules for one game (#301). */
+  compatRules: (gameId: number) => key("compat-rules", gameId),
   virustotal: {
     forGame: (gameId: number) => key("game-virustotal", gameId),
   },

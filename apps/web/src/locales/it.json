@@ -4030,5 +4030,21 @@
   "The installed gamescope build has no --adaptive-sync.": "La versione installata di Gamescope non ha --adaptive-sync.",
   "The installed gamescope build has no --hdr-enabled.": "La versione installata di Gamescope non ha --hdr-enabled.",
   "The output has no HDR metadata.": "L'uscita non ha metadati HDR.",
-  "This output reports VRR as incompatible.": "Questa uscita segnala VRR come incompatibile."
+  "This output reports VRR as incompatible.": "Questa uscita segnala VRR come incompatibile.",
+  "Already set": "Già impostato",
+  "Another rule set this first": "Un'altra regola lo ha impostato prima",
+  "Blocks launch": "Blocca l'avvio",
+  "Extra arguments": "Argomenti aggiuntivi",
+  "Known issues": "Problemi noti",
+  "Learned locally": "Appreso su questo dispositivo",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "Nessuna regola di compatibilità riguarda ancora questo gioco. Ludex usa le tue opzioni di avvio così come sono.",
+  "Prerequisites: {list}": "Prerequisiti: {list}",
+  "Rule {version}": "Regola {version}",
+  "Source: {source}": "Origine: {source}",
+  "The rules could not be read for this game.": "Impossibile leggere le regole per questo gioco.",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "Impossibile leggere il file delle regole. Ludex usa i valori predefiniti inclusi.",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Regole che Ludex ha trovato per questo gioco. Riempiono solo i valori predefiniti: ciò che imposti nelle opzioni di avvio ha la precedenza.",
+  "Why these launch settings": "Perché queste impostazioni di avvio",
+  "Windows components": "Componenti Windows",
+  "Your choice kept": "La tua scelta è mantenuta"
 }
