@@ -575,6 +575,8 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::CreateNewsRequest>()
         .schema_from::<crate::models::UpdateNewsRequest>()
         .schema_from::<crate::models::SaveSnapshot>()
+        .schema_from::<crate::models::SaveConflictView>()
+        .schema_from::<crate::models::SavePolicyView>()
         .schema_from::<crate::models::ApiKey>()
         .schema_from::<crate::models::CreateApiKeyRequest>()
         .schema_from::<crate::models::CreateApiKeyResponse>()

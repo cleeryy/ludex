@@ -1,10 +1,12 @@
 import { isNative, native } from "@/lib/native";
 import type {
+  CloudSavePolicy,
   CloudSaveRestoreOutcome,
   CloudSaveStatus,
   CloudSaveStrategy,
   CloudSaveToggle,
   CloudSyncToggleResponse,
+  SaveConflictPolicy,
 } from "@/lib/types";
 /**
  * Cloud save automation client (#108).
@@ -82,6 +84,16 @@ export const cloudSaves = {
   async setSync(gameId: number | null, enabled: boolean): Promise<CloudSyncToggleResponse | null> {
     if (!isNative()) throw new Error(CLOUD_SAVES_DESKTOP_ONLY);
     return native.setCloudSaveSync(gameId, enabled);
+  },
+
+  /** Per-game conflict policy (#296). */
+  async setPolicy(
+    gameId: number,
+    policy: SaveConflictPolicy,
+    deviceId?: string | null,
+  ): Promise<CloudSavePolicy> {
+    if (!isNative()) throw new Error(CLOUD_SAVES_DESKTOP_ONLY);
+    return native.setCloudSavePolicy(gameId, policy, deviceId);
   },
 
   async syncNow(gameId: number): Promise<CloudSaveStatus> {

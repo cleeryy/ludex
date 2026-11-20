@@ -189,6 +189,14 @@ export interface SaveSnapshot {
   source: "manual" | "auto";
   /** Opaque device identifier that uploaded the snapshot (#108). */
   deviceId: string | null;
+  /** Newest save file mtime on the uploading device (#296). */
+  clientMtime?: string | null;
+  /** Device clock minus server clock at upload time, in seconds (#296). */
+  clockOffsetSecs?: number;
+  /** The game's own save counter, when the uploading client knew it (#296). */
+  saveSeq?: number | null;
+  /** Losing side of a conflict: a restore point, never the latest save (#296). */
+  conflictOf?: number | null;
 }
 
 /** Effective automatic cloud-save state for one game (#108). */
@@ -216,6 +224,13 @@ export interface CloudSavePending {
   error: string | null;
 }
 
+/** Why the save policy refused to overwrite (#296). */
+export type SaveConflictReason = "both_changed" | "clock_skew" | "counter_diverged";
+
+/**
+ * Both sides of a save conflict, shown side by side (#296). The server keeps
+ * both archives whatever the user chooses.
+ */
 export interface CloudSaveConflict {
   localNewestMtime: string | null;
   lastUploadAt: string | null;
@@ -223,6 +238,29 @@ export interface CloudSaveConflict {
   remoteSha256: string;
   remoteCreatedAt: string;
   remoteDeviceId: string | null;
+  /** This machine's device id and readable label. */
+  localDeviceId: string | null;
+  localDeviceLabel: string | null;
+  localFiles: number;
+  localBytes: number;
+  remoteSize: number;
+  remoteLabel: string;
+  reason: SaveConflictReason;
+  /** Device clock minus server clock, in seconds. */
+  clockOffsetSecs: number;
+  /** The clock is too far from the server to order the saves. */
+  clockSkewed: boolean;
+  /** Open conflict row on the server, when the server saw it first. */
+  serverConflictId: number | null;
+}
+
+/** Per-game save conflict policy (#296). */
+export type SaveConflictPolicy = "ask" | "prefer_device";
+
+export interface CloudSavePolicy {
+  policy: SaveConflictPolicy;
+  /** Device that always wins when `policy` is `prefer_device`. */
+  deviceId: string | null;
 }
 
 export type CloudSaveCandidateStatus = "saving" | "waiting" | "skipped";
@@ -253,6 +291,10 @@ export interface CloudSaveStatus {
   lastRestoreAt: string | null;
   toggle: CloudSaveToggle;
   conflict: CloudSaveConflict | null;
+  /** Per-game conflict policy (#296). */
+  policy: CloudSavePolicy;
+  /** Device clock minus server clock, in seconds (#296). */
+  clockOffsetSecs: number;
   pending: CloudSavePending;
   deviceId: string | null;
   /** ISO timestamp of the last save detection for this game, `null` if never. */

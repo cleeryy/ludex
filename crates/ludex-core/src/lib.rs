@@ -9,6 +9,7 @@
 //! - [`archive`]: ZIP/RAR/7z detection, verification and streaming extraction.
 //! - [`exe`]: game executable discovery after extraction.
 //! - [`fingerprint`]: cheap archive fingerprints used for update detection.
+//! - [`save_conflict`]: the multi-device save conflict policy (#296).
 //!
 //! ```
 //! use ludex_core::naming::parse_filename;
@@ -31,6 +32,7 @@ pub mod mount;
 pub mod naming;
 pub mod redact;
 pub mod rom;
+pub mod save_conflict;
 pub mod slug;
 
 pub use archive::{

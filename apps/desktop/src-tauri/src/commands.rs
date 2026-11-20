@@ -35,7 +35,9 @@ use crate::protondb::{self, ProtonDbRating};
 use crate::saves::detect::{self as saves_detect, SavePathInput, SavePaths};
 use crate::saves::manifest::{self as saves_manifest, ManifestStatus, ManifestUpdate};
 use crate::saves::registry::{self as saves_registry, SaveCandidateGroup, SaveCandidateOverview};
-use crate::saves::sync::{self as saves_sync, CloudSaveStatus, RestoreOutcome, SyncToggleResponse};
+use crate::saves::sync::{
+    self as saves_sync, CloudSavePolicy, CloudSaveStatus, RestoreOutcome, SyncToggleResponse,
+};
 use crate::server::{self, ServerInfo, ServerStatus};
 use crate::settings::{self, LocalSettings};
 use crate::state::AppState;
@@ -3738,6 +3740,18 @@ pub fn set_cloud_save_sync(
     enabled: bool,
 ) -> Result<SyncToggleResponse, String> {
     saves_sync::set_sync(&app, game_id, enabled)
+}
+
+/// Set the per-game save conflict policy (#296): `ask` or `prefer_device`
+/// (with this machine as the preferred device when `deviceId` is omitted).
+#[tauri::command]
+pub async fn set_cloud_save_policy(
+    app: AppHandle,
+    game_id: i64,
+    policy: String,
+    device_id: Option<String>,
+) -> Result<CloudSavePolicy, String> {
+    saves_sync::set_policy(&app, game_id, &policy, device_id.as_deref()).await
 }
 
 /// Archive the detected save paths and upload them now. Works even when

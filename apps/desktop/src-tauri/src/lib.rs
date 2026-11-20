@@ -393,6 +393,7 @@ pub fn run() {
             commands::ignore_save_candidate,
             commands::cloud_save_status,
             commands::set_cloud_save_sync,
+            commands::set_cloud_save_policy,
             commands::sync_cloud_save_now,
             commands::restore_cloud_save,
             commands::resolve_cloud_save_conflict,

@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 // Domain modules stay reachable through this one module (#237): no file outside
 // `bridge.rs` may name `ludex_core::` directly, enforced by the test below.
 pub use ludex_core::archive_fingerprint;
-pub use ludex_core::{archive, exe, models, mount, naming, redact, rom};
+pub use ludex_core::{archive, exe, models, mount, naming, redact, rom, save_conflict};
 
 /// True for `Redist`, `Support`, `Tools` and similar folders (#134, #143).
 pub use ludex_core::exe::is_excluded_folder;

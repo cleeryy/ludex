@@ -30,11 +30,13 @@ import { formatBytes, formatDate, formatPercent } from "@/lib/format";
 import type {
   CloudSaveCandidateStatus,
   CloudSaveStatus,
+  SaveConflictPolicy,
   SaveSnapshot,
 } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { Button, IconButton, Input, Progress, Skeleton, Switch } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { Select } from "@/components/ui/select";
 import { EmptyState, SectionHeader } from "@/components/page";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
@@ -92,6 +94,7 @@ export function CloudSavesPanel({
   const [restoring, setRestoring] = useState(false);
   const [conflictOpen, setConflictOpen] = useState(false);
   const [conflictBusy, setConflictBusy] = useState<"remote" | "keep_local" | null>(null);
+  const [policyBusy, setPolicyBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [retryBlocked, setRetryBlocked] = useState(false);
   const [chooseTarget, setChooseTarget] = useState<string | null>(null);
@@ -412,6 +415,34 @@ export function CloudSavesPanel({
     }
   };
 
+  const changePolicy = async (policy: SaveConflictPolicy) => {
+    if (policyBusy) return;
+    setPolicyBusy(true);
+    try {
+      await cloudSaves.setPolicy(
+        gameId,
+        policy,
+        policy === "prefer_device" ? status?.deviceId ?? null : null,
+      );
+      await invalidateStatus();
+      push({
+        title:
+          policy === "prefer_device"
+            ? t("This device now wins conflicts")
+            : t("Ludex will ask on conflicts"),
+        tone: "default",
+      });
+    } catch (cause) {
+      push({
+        title: t("Could not change the save policy"),
+        description: errorMessage(cause),
+        tone: "danger",
+      });
+    } finally {
+      setPolicyBusy(false);
+    }
+  };
+
   const resolveConflict = async (strategy: "remote" | "keep_local") => {
     if (strategy === "remote") {
       setConflictOpen(false);
@@ -666,6 +697,27 @@ export function CloudSavesPanel({
                   </div>
                 </div>
               )}
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line/70 pt-3">
+                <div className="min-w-0">
+                  <p className="text-[12px] text-ink">{t("When both devices changed")}</p>
+                  <p className="mt-0.5 max-w-[58ch] text-[11.5px] leading-relaxed text-ink-3">
+                    {t("Ludex never overwrites: the losing save is kept as a restore point.")}
+                  </p>
+                </div>
+                <div className="w-full min-w-[15rem] sm:w-auto">
+                  <Select
+                    value={status.policy.policy}
+                    label={t("Save conflict policy")}
+                    disabled={policyBusy}
+                    onChange={(policy) => void changePolicy(policy)}
+                    options={[
+                      { value: "ask", label: t("Ask every time") },
+                      { value: "prefer_device", label: t("Always prefer this device") },
+                    ]}
+                  />
+                </div>
+              </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
@@ -951,50 +1003,90 @@ export function CloudSavesPanel({
               loading={conflictBusy === "keep_local"}
               onClick={() => void resolveConflict("keep_local")}
             >
-              Keep local
+              {t("Keep this device's save")}
             </Button>
-            <Button variant="primary" onClick={() => void resolveConflict("remote")}>
-              Restore server copy
+            <Button
+              variant="primary"
+              loading={conflictBusy === "remote"}
+              onClick={() => void resolveConflict("remote")}
+            >
+              {t("Keep the server copy")}
             </Button>
           </>
         }
       >
         {conflict && (
-          <dl className="grid gap-x-6 gap-y-2 text-[12.5px]">
-            <div className="flex items-baseline justify-between gap-4 border-b border-line pb-1.5">
-              <dt className="text-ink-3">Local newest change</dt>
-              <dd className="font-mono text-[11px] text-ink-2" title={conflict.localNewestMtime ?? undefined}>
-                {conflict.localNewestMtime
-                  ? new Date(conflict.localNewestMtime).toLocaleString("en-GB")
-                  : "unknown"}
-              </dd>
+          <div className="flex flex-col gap-3">
+            <p className="text-[12.5px] leading-relaxed text-ink-2">
+              {conflict.reason === "clock_skew"
+                ? t("One device's clock is too far from the server to order the saves safely.")
+                : conflict.reason === "counter_diverged"
+                  ? t("The game's own counter disagrees with the file dates.")
+                  : t("Both sides were played since the last sync.")}
+            </p>
+            {Math.abs(conflict.clockOffsetSecs) > 300 && (
+              <p className="border-l-2 border-warning/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+                {t("This device's clock is {minutes} minutes away from the server. The server time decides save order.", {
+                  minutes: Math.max(1, Math.round(Math.abs(conflict.clockOffsetSecs) / 60)),
+                })}
+              </p>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <section className="border border-line px-3 py-2.5" aria-label={t("This device")}>
+                <p className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">
+                  {t("This device")}
+                </p>
+                <p className="mt-1 truncate text-[13px] text-ink">
+                  {conflict.localDeviceLabel ?? t("This machine")}
+                </p>
+                <dl className="mt-2 flex flex-col gap-1 text-[11.5px] text-ink-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt>{t("Files")}</dt>
+                    <dd className="num">{conflict.localFiles}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt>{t("Size")}</dt>
+                    <dd className="num">{formatBytes(conflict.localBytes)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt>{t("Modified")}</dt>
+                    <dd className="font-mono text-[10.5px]" title={conflict.localNewestMtime ?? undefined}>
+                      {conflict.localNewestMtime ? formatDate(conflict.localNewestMtime) : t("Unknown")}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+              <section className="border border-line px-3 py-2.5" aria-label={t("Server copy")}>
+                <p className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">
+                  {t("Server copy")}
+                </p>
+                <p className="mt-1 truncate text-[13px] text-ink" title={conflict.remoteLabel}>
+                  {conflict.remoteLabel || t("Save snapshot")}
+                </p>
+                <dl className="mt-2 flex flex-col gap-1 text-[11.5px] text-ink-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt>{t("Size")}</dt>
+                    <dd className="num">{formatBytes(conflict.remoteSize)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt>{t("Created")}</dt>
+                    <dd className="font-mono text-[10.5px]" title={conflict.remoteCreatedAt}>
+                      {formatDate(conflict.remoteCreatedAt)}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt>{t("Device")}</dt>
+                    <dd className="truncate font-mono text-[10.5px]">
+                      {shortDeviceId(conflict.remoteDeviceId)}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
             </div>
-            <div className="flex items-baseline justify-between gap-4 border-b border-line pb-1.5">
-              <dt className="text-ink-3">Last upload from this device</dt>
-              <dd className="font-mono text-[11px] text-ink-2" title={conflict.lastUploadAt ?? undefined}>
-                {conflict.lastUploadAt ? new Date(conflict.lastUploadAt).toLocaleString("en-GB") : "never"}
-              </dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-4 border-b border-line pb-1.5">
-              <dt className="text-ink-3">Server snapshot</dt>
-              <dd className="font-mono text-[11px] text-ink-2">
-                {new Date(conflict.remoteCreatedAt).toLocaleString("en-GB")} ·{" "}
-                {shortDeviceId(conflict.remoteDeviceId)}
-              </dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-4 border-b border-line pb-1.5">
-              <dt className="text-ink-3">Last uploaded hash</dt>
-              <dd className="truncate font-mono text-[11px] text-ink-2" title={conflict.lastHash ?? undefined}>
-                {conflict.lastHash ? conflict.lastHash.slice(0, 16) : "none"}
-              </dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-4">
-              <dt className="text-ink-3">Server hash</dt>
-              <dd className="truncate font-mono text-[11px] text-ink-2" title={conflict.remoteSha256}>
-                {conflict.remoteSha256.slice(0, 16)}
-              </dd>
-            </div>
-          </dl>
+            <p className="text-[11.5px] leading-relaxed text-ink-3">
+              {t("Both archives stay on the server: the side you do not pick is kept as a restore point.")}
+            </p>
+          </div>
         )}
       </Dialog>
     </div>

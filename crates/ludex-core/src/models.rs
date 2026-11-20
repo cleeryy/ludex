@@ -615,6 +615,15 @@ pub struct SaveSnapshot {
     pub source: String,
     /// Opaque identifier of the device that uploaded the archive (#108).
     pub device_id: Option<String>,
+    /// Newest save file mtime reported by the device, in device time (#296).
+    pub client_mtime: Option<DateTime<Utc>>,
+    /// Device clock minus server clock, in seconds, at upload time (#296).
+    pub clock_offset_secs: i64,
+    /// The game's own save counter, when the client knows it (#296).
+    pub save_seq: Option<i64>,
+    /// Snapshot this row was kept aside from as the losing conflict side
+    /// (#296). Such a row is a restore point, never "the latest save".
+    pub conflict_of: Option<i64>,
 }
 
 /// Scanner status exposed by `GET /api/library/scan`.

@@ -1118,13 +1118,25 @@ interface SaveSnapshot {
   source: "manual" | "auto";
   /** Opaque device identifier; display only, never authorisation. */
   deviceId: string | null;
+  /** Newest save file mtime on the uploading device (#296). */
+  clientMtime?: string | null;
+  /** Device clock minus server clock at upload time, in seconds (#296). */
+  clockOffsetSecs?: number;
+  /** The game's own save counter, when the client knew it (#296). */
+  saveSeq?: number | null;
+  /** Losing side of a conflict: a restore point, never "the latest save". */
+  conflictOf?: number | null;
 }
 ```
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/games/{id}/saves` | current user's snapshots, newest first |
-| POST | `/api/games/{id}/saves` | multipart `file`, optional `label`, `source` (`manual` \| `auto`), optional `deviceId`; max 2 GiB. An `auto` upload whose SHA-256 already exists for the user and game returns `200` with the existing snapshot; a new one returns `201` |
+| GET | `/api/games/{id}/saves` | current user's snapshots, newest first; conflict copies are included and marked by `conflictOf` |
+| POST | `/api/games/{id}/saves` | multipart `file`, optional `label`, `source` (`manual` \| `auto`), `deviceId`, `deviceLabel`, `clientMtime`, `clientSentAt`, `saveSeq`; max 2 GiB. An `auto` upload whose SHA-256 already exists returns `200`. Before an `auto` upload becomes latest, the shared conflict policy (#296) runs: same hash is a no-op, a strict descendant fast-forwards, same-device/no-device uploads continue the line, and otherwise the upload is kept aside with `conflictOf`/`save (conflict <device> <date>)` and an open `save_conflicts` row. A new snapshot returns `201` |
+| GET | `/api/games/{id}/saves/policy` | `{ policy: "ask" \| "prefer_device", deviceId }`; per-game override (#296) |
+| PUT | `/api/games/{id}/saves/policy` | `{ policy, deviceId? }` → same shape. `prefer_device` requires `deviceId`; `ask` clears it. Requires write scope |
+| GET | `/api/games/{id}/saves/conflicts` | open conflicts newest first: `{ id, gameId, status, reason, detectedAt, existing: SaveSnapshot, candidate: SaveSnapshot }` (#296) |
+| POST | `/api/games/{id}/saves/conflicts/{conflictId}/resolve` | `{ strategy: "keep_local" \| "keep_remote" }` → the resolved conflict view. Relabels the losing side `save (conflict <device> <date>)`, clears the winner's conflict marker, keeps both archives. Repeating is `409 conflict_resolved` (#296) |
 | GET | `/api/saves/{id}/download` | owner (or admin) download, `Content-Disposition` |
 | DELETE | `/api/saves/{id}` | owner (or admin), 204 |
 
@@ -3177,8 +3189,9 @@ interface RemotePlayCleanup {
 | `ludusavi_manifest_status` | — | `ManifestStatus`; cached save-path manifest (`{appDataDir}/manifest/ludusavi-manifest.yaml`), version, last updated/checked, size and effective source URL. Local only (#153) |
 | `update_ludusavi_manifest` | — | `ManifestUpdate`; downloads or refreshes the manifest now, ignoring the 24 h throttle. Conditional `If-None-Match`, 64 MiB cap, 60 s timeout, optional SHA-256 check; the body must parse as a manifest before it replaces the cached copy, and any failure keeps the cached copy (its `version` and `updatedAt` stay in the status). No tests hit the network (#153, #236) |
 | `remove_ludusavi_manifest` | — | `ManifestStatus`; deletes the cached manifest and its metadata so detection falls back to a user-installed copy or manual paths (#153) |
-| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest snapshot (remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry, conflict, `lastDetectionAt` and the automatic candidate decisions (#108, #158, #180). The local walk is cached and bounded (200 ms / 4 000 files) and runs on the blocking pool, so opening a game page never scans the whole disk (#159) |
+| `cloud_save_status` | `{ gameId }` | `CloudSaveStatus`; detected paths, latest canonical snapshot (conflict copies excluded; remote failures go in `message`), last upload/restore, effective toggle + reason, pending retry, conflict (both sides, reason, clock offset), per-game `policy`, `clockOffsetSecs`, `lastDetectionAt` and the automatic candidate decisions (#108, #158, #180, #296). The local walk is cached and bounded (200 ms / 4 000 files) and runs on the blocking pool, so opening a game page never scans the whole disk (#159) |
 | `set_cloud_save_sync` | `{ gameId?, enabled }` | `CloudSyncToggleResponse`; `gameId` null changes the global default, a number stores a per-game override. Local only |
+| `set_cloud_save_policy` | `{ gameId, policy, deviceId? }` | `CloudSavePolicy`; `ask` or `prefer_device`. The omitted `deviceId` means this machine. Stored on the server (#296) |
 | `sync_cloud_save_now` | `{ gameId }` | `CloudSaveStatus`; archives and uploads immediately. Works with automatic sync off; an unchanged hash is a no-op. Failures stay in `pending` |
 | `restore_cloud_save` | `{ gameId, strategy: "remote" \| "keep_local" }` | `CloudSaveRestoreOutcome`; verifies the SHA-256, backs up newer local files before a `remote` restore and returns `backupPath`, runs at most once per snapshot. `keep_local` records and uploads the local state (#108) |
 | `resolve_cloud_save_conflict` | `{ gameId, strategy }` | `CloudSaveRestoreOutcome`; same operation as `restore_cloud_save`, using the explicit strategy |

@@ -149,6 +149,45 @@ impl TestServer {
         self.send_form(game_id, Some(token), form).await
     }
 
+    /// Automatic upload carrying the multi-device metadata (#296): device
+    /// label, save mtime, device clock and the game's own counter.
+    #[allow(clippy::too_many_arguments)]
+    async fn upload_meta(
+        &self,
+        game_id: i64,
+        token: &str,
+        bytes: Vec<u8>,
+        device_id: &str,
+        device_label: &str,
+        client_mtime: &str,
+        client_sent_at: &str,
+        save_seq: Option<i64>,
+    ) -> (StatusCode, Value) {
+        let mut form = Form::new().part(
+            "file",
+            Part::bytes(bytes).file_name(format!("{device_id}.zip")),
+        );
+        form = form
+            .text("source", "auto")
+            .text("deviceId", device_id.to_string())
+            .text("deviceLabel", device_label.to_string())
+            .text("clientMtime", client_mtime.to_string())
+            .text("clientSentAt", client_sent_at.to_string());
+        if let Some(save_seq) = save_seq {
+            form = form.text("saveSeq", save_seq.to_string());
+        }
+        self.send_form(game_id, Some(token), form).await
+    }
+
+    /// Direct SQLite pool on the running server's database.
+    async fn direct_pool(&self) -> ludex_server::db::Database {
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            self.data_dir.join("ludex.db").display()
+        );
+        ludex_server::db::connect(&url).await.expect("db")
+    }
+
     async fn download(&self, snapshot_id: i64, token: &str) -> reqwest::Response {
         self.client
             .get(format!("{}/api/saves/{snapshot_id}/download", self.url))
@@ -701,6 +740,512 @@ async fn auto_upload_rejects_invalid_sources_and_device_ids() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(error["error"]["code"], "invalid_device_id");
+
+    server.stop().await;
+}
+
+fn stamp(hours_from_now: i64) -> String {
+    (chrono::Utc::now() + chrono::Duration::hours(hours_from_now))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// #296 acceptance: a 3 h gap with both sides modified keeps both archives,
+/// offers the choice, and choosing a side keeps the other as a restore point.
+#[tokio::test]
+async fn both_sides_modified_keep_both_and_offer_a_choice() {
+    let server = TestServer::start().await;
+    let token = server.admin_token();
+    let user_id = server.current_user_id(&token).await;
+    let game_id = server.insert_game("Multi Device").await;
+
+    // Remote played three hours ago and produced a 200-byte archive.
+    let (status, existing) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"a".repeat(200),
+            "steam-deck",
+            "Steam Deck",
+            &stamp(-3),
+            &stamp(0),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{existing}");
+    let existing_id = existing["id"].as_i64().expect("id");
+
+    // This laptop played elsewhere: a different, smaller save an hour ago.
+    // Neither side can be a descendant of the other, so the policy refuses to
+    // overwrite and keeps the upload aside.
+    let (status, candidate) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"b".repeat(150),
+            "laptop",
+            "Laptop",
+            &stamp(-1),
+            &stamp(0),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{candidate}");
+    let candidate_id = candidate["id"].as_i64().expect("id");
+    assert_eq!(candidate["conflictOf"], existing_id);
+    let label = candidate["label"].as_str().expect("label");
+    assert!(
+        label.starts_with("save (conflict Laptop "),
+        "candidate label: {label}"
+    );
+    assert!(candidate["clockOffsetSecs"].as_i64().is_some());
+
+    // Nothing was deleted: both archives are listed and downloadable.
+    assert_eq!(server.save_count(user_id).await, 2);
+    let (status, list) = server
+        .get(&format!("/api/games/{game_id}/saves"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list.as_array().expect("array").len(), 2);
+
+    // The conflict is offered with both candidates side by side.
+    let (status, conflicts) = server
+        .get(
+            &format!("/api/games/{game_id}/saves/conflicts"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{conflicts}");
+    let open = conflicts.as_array().expect("array");
+    assert_eq!(open.len(), 1, "{conflicts}");
+    assert_eq!(open[0]["status"], "open");
+    assert_eq!(open[0]["reason"], "both_changed");
+    assert_eq!(open[0]["existing"]["id"], existing_id);
+    assert_eq!(open[0]["existing"]["size"], 200);
+    assert_eq!(open[0]["existing"]["deviceId"], "steam-deck");
+    assert_eq!(open[0]["candidate"]["id"], candidate_id);
+    assert_eq!(open[0]["candidate"]["size"], 150);
+    assert_eq!(open[0]["candidate"]["deviceId"], "laptop");
+    assert!(open[0]["existing"]["createdAt"].as_str().is_some());
+    let conflict_id = open[0]["id"].as_i64().expect("conflict id");
+
+    // Choosing the server copy keeps the laptop upload as a restore point.
+    let (status, resolved) = server
+        .post(
+            &format!("/api/games/{game_id}/saves/conflicts/{conflict_id}/resolve"),
+            Some(&token),
+            json!({"strategy": "keep_remote"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{resolved}");
+    assert_eq!(resolved["strategy"], "keep_remote");
+    assert_eq!(resolved["existing"]["id"], existing_id);
+    assert_eq!(resolved["existing"]["conflictOf"], Value::Null);
+    assert_eq!(resolved["candidate"]["conflictOf"], existing_id);
+    assert!(resolved["candidate"]["label"]
+        .as_str()
+        .expect("label")
+        .starts_with("save (conflict Laptop"));
+
+    // Resolving twice is a conflict, not a silent second mutation.
+    let (status, error) = server
+        .post(
+            &format!("/api/games/{game_id}/saves/conflicts/{conflict_id}/resolve"),
+            Some(&token),
+            json!({"strategy": "keep_local"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{error}");
+    assert_eq!(error["error"]["code"], "conflict_resolved");
+
+    // Both archives survive the resolution.
+    assert_eq!(server.save_count(user_id).await, 2);
+    assert_eq!(
+        server.download(existing_id, &token).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        server.download(candidate_id, &token).await.status(),
+        StatusCode::OK
+    );
+
+    // The other choice: keeping local promotes the candidate and demotes the
+    // server copy, again without deleting it.
+    let second_game = server.insert_game("Multi Device Two").await;
+    let (_, old) = server
+        .upload_meta(
+            second_game,
+            &token,
+            b"c".repeat(220),
+            "steam-deck",
+            "Steam Deck",
+            &stamp(-3),
+            &stamp(0),
+            None,
+        )
+        .await;
+    let old_id = old["id"].as_i64().expect("id");
+    let (_, local) = server
+        .upload_meta(
+            second_game,
+            &token,
+            b"d".repeat(140),
+            "laptop",
+            "Laptop",
+            &stamp(-1),
+            &stamp(0),
+            None,
+        )
+        .await;
+    let local_id = local["id"].as_i64().expect("id");
+    let (status, conflicts) = server
+        .get(
+            &format!("/api/games/{second_game}/saves/conflicts"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{conflicts}");
+    let conflict_id = conflicts[0]["id"].as_i64().expect("conflict id");
+    let (status, resolved) = server
+        .post(
+            &format!("/api/games/{second_game}/saves/conflicts/{conflict_id}/resolve"),
+            Some(&token),
+            json!({"strategy": "keep_local"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{resolved}");
+    assert_eq!(resolved["candidate"]["id"], local_id);
+    assert_eq!(resolved["candidate"]["conflictOf"], Value::Null);
+    assert_eq!(resolved["candidate"]["label"], "save");
+    assert_eq!(resolved["existing"]["id"], old_id);
+    assert_eq!(resolved["existing"]["conflictOf"], local_id);
+    assert!(resolved["existing"]["label"]
+        .as_str()
+        .expect("label")
+        .starts_with("save (conflict"));
+
+    // The promoted save is now the newest non-conflict row on the server.
+    let (_, list) = server
+        .get(&format!("/api/games/{second_game}/saves"), Some(&token))
+        .await;
+    let latest = list
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|row| row["conflictOf"].is_null())
+        .expect("latest");
+    assert_eq!(latest["id"], local_id);
+    assert_eq!(server.save_count(user_id).await, 4);
+    assert_eq!(
+        server.download(old_id, &token).await.status(),
+        StatusCode::OK
+    );
+
+    server.stop().await;
+}
+
+/// #296 acceptance: a device whose clock is two hours ahead never wins
+/// silently; the server turns the ambiguity into a conflict.
+#[tokio::test]
+async fn a_device_two_hours_ahead_does_not_win() {
+    let server = TestServer::start().await;
+    let token = server.admin_token();
+    let game_id = server.insert_game("Skewed Clock").await;
+
+    let (status, existing) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"a".repeat(100),
+            "steam-deck",
+            "Steam Deck",
+            &stamp(-1),
+            &stamp(0),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{existing}");
+    let existing_id = existing["id"].as_i64().expect("id");
+
+    // Larger and "newer", but only because this device's clock runs +2 h.
+    let (status, candidate) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"b".repeat(300),
+            "laptop",
+            "Laptop",
+            &stamp(2),
+            &stamp(2),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{candidate}");
+    assert_eq!(candidate["conflictOf"], existing_id);
+    let offset = candidate["clockOffsetSecs"].as_i64().expect("clock offset");
+    assert!(offset >= 7_000, "expected a +2 h skew, got {offset}");
+
+    let (status, conflicts) = server
+        .get(
+            &format!("/api/games/{game_id}/saves/conflicts"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{conflicts}");
+    assert_eq!(conflicts[0]["reason"], "clock_skew", "{conflicts}");
+    assert_eq!(conflicts[0]["existing"]["id"], existing_id);
+    assert_eq!(conflicts[0]["candidate"]["id"], candidate["id"]);
+
+    server.stop().await;
+}
+
+/// #296 override: "always prefer this device" skips the question in both
+/// directions, and still keeps the other archive.
+#[tokio::test]
+async fn prefer_device_policy_skips_the_question() {
+    let server = TestServer::start().await;
+    let token = server.admin_token();
+    let user_id = server.current_user_id(&token).await;
+    let game_id = server.insert_game("Preferred Device").await;
+
+    let (status, policy) = server
+        .request(
+            reqwest::Method::PUT,
+            &format!("/api/games/{game_id}/saves/policy"),
+            Some(&token),
+            Some(json!({"policy": "prefer_device", "deviceId": "laptop"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{policy}");
+    assert_eq!(policy["policy"], "prefer_device");
+    assert_eq!(policy["deviceId"], "laptop");
+
+    // Another device's save is the current one.
+    let (status, other) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"a".repeat(200),
+            "steam-deck",
+            "Steam Deck",
+            &stamp(0),
+            &stamp(0),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{other}");
+    let _other_id = other["id"].as_i64().expect("id");
+
+    // The preferred device wins even though its save is older and smaller.
+    let (status, preferred) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"b".repeat(120),
+            "laptop",
+            "Laptop",
+            &stamp(-2),
+            &stamp(0),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{preferred}");
+    assert_eq!(preferred["conflictOf"], Value::Null);
+    let preferred_id = preferred["id"].as_i64().expect("id");
+    let (_, conflicts) = server
+        .get(
+            &format!("/api/games/{game_id}/saves/conflicts"),
+            Some(&token),
+        )
+        .await;
+    assert!(
+        conflicts.as_array().expect("array").is_empty(),
+        "{conflicts}"
+    );
+
+    // A third device never displaces the preferred one, but its archive is
+    // still kept as a restore point and no question is raised.
+    let (status, third) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"c".repeat(400),
+            "console",
+            "Console",
+            &stamp(1),
+            &stamp(0),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{third}");
+    assert_eq!(third["conflictOf"], preferred_id);
+    let (_, conflicts) = server
+        .get(
+            &format!("/api/games/{game_id}/saves/conflicts"),
+            Some(&token),
+        )
+        .await;
+    assert!(
+        conflicts.as_array().expect("array").is_empty(),
+        "{conflicts}"
+    );
+    assert_eq!(server.save_count(user_id).await, 3);
+
+    // Back to asking: the policy is removable per game.
+    let (status, policy) = server
+        .request(
+            reqwest::Method::PUT,
+            &format!("/api/games/{game_id}/saves/policy"),
+            Some(&token),
+            Some(json!({"policy": "ask"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{policy}");
+    assert_eq!(policy["policy"], "ask");
+    assert_eq!(policy["deviceId"], Value::Null);
+
+    server.stop().await;
+}
+
+/// #296 migration round-trip: the new columns and tables survive an insert,
+/// a look-up, a parent deletion (`ON DELETE SET NULL`) and a user cascade.
+#[tokio::test]
+async fn save_conflict_schema_roundtrips() {
+    let server = TestServer::start().await;
+    let token = server.admin_token();
+    let user_id = server.current_user_id(&token).await;
+    let game_id = server.insert_game("Schema Round Trip").await;
+    let (_, snapshot) = server
+        .upload_meta(
+            game_id,
+            &token,
+            b"a".repeat(64),
+            "steam-deck",
+            "Steam Deck",
+            &stamp(0),
+            &stamp(0),
+            Some(7),
+        )
+        .await;
+    let snapshot_id = snapshot["id"].as_i64().expect("id");
+    assert_eq!(snapshot["saveSeq"], 7);
+
+    let pool = server.direct_pool().await;
+    let columns: i64 = ludex_server::db::query_scalar::<i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('save_snapshots')
+         WHERE name IN ('client_mtime', 'clock_offset_secs', 'save_seq', 'conflict_of')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("columns");
+    assert_eq!(columns, 4);
+
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let second_id = ludex_server::db::query(
+        "INSERT INTO save_snapshots
+            (user_id, game_id, version_id, label, file_name, size, sha256, created_at,
+             source, device_id, client_mtime, clock_offset_secs, save_seq, conflict_of)
+         VALUES (?, ?, NULL, 'save (conflict laptop)', 'b.zip', 32, 'deadbeef', ?, 'auto',
+                 'laptop', ?, 0, NULL, ?)",
+    )
+    .bind(user_id)
+    .bind(game_id)
+    .bind(&now)
+    .bind(&now)
+    .bind(snapshot_id)
+    .returning_id(&pool)
+    .await
+    .expect("second snapshot");
+
+    let row = ludex_server::db::query(
+        "SELECT conflict_of, save_seq, clock_offset_secs, client_mtime
+         FROM save_snapshots WHERE id = ?",
+    )
+    .bind(second_id)
+    .fetch_one(&pool)
+    .await
+    .expect("row");
+    let conflict_of: Option<i64> = row.try_get("conflict_of").expect("conflict_of");
+    assert_eq!(conflict_of, Some(snapshot_id));
+    let save_seq: Option<i64> = row.try_get("save_seq").expect("save_seq");
+    assert_eq!(save_seq, None);
+    let client_mtime: Option<String> = row.try_get("client_mtime").expect("mtime");
+    assert!(client_mtime.is_some());
+
+    ludex_server::db::query(
+        "INSERT INTO save_conflicts
+            (user_id, game_id, existing_snapshot_id, candidate_snapshot_id, reason,
+             status, detected_at)
+         VALUES (?, ?, ?, ?, 'both_changed', 'open', ?)",
+    )
+    .bind(user_id)
+    .bind(game_id)
+    .bind(snapshot_id)
+    .bind(second_id)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .expect("conflict row");
+    ludex_server::db::query(
+        "INSERT INTO save_sync_policies (user_id, game_id, prefer_device_id, updated_at)
+         VALUES (?, ?, 'laptop', ?)
+         ON CONFLICT (user_id, game_id) DO UPDATE SET
+             prefer_device_id = excluded.prefer_device_id",
+    )
+    .bind(user_id)
+    .bind(game_id)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .expect("policy row");
+    ludex_server::db::query(
+        "INSERT INTO save_devices
+            (user_id, device_id, label, clock_offset_secs, first_seen_at, last_seen_at)
+         VALUES (?, 'laptop', 'Laptop', 7200, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(&now)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .expect("device row");
+
+    // Deleting the parent snapshot clears the reference, never the child.
+    ludex_server::db::query("DELETE FROM save_snapshots WHERE id = ?")
+        .bind(snapshot_id)
+        .execute(&pool)
+        .await
+        .expect("delete parent");
+    let conflict_of: Option<i64> =
+        ludex_server::db::query("SELECT conflict_of FROM save_snapshots WHERE id = ?")
+            .bind(second_id)
+            .fetch_one(&pool)
+            .await
+            .map(|row| row.get("conflict_of"))
+            .expect("surviving child");
+    assert_eq!(conflict_of, None);
+
+    // Deleting the account cascades every new table.
+    ludex_server::db::query("DELETE FROM users WHERE id = ?")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("delete user");
+    for table in [
+        "save_snapshots",
+        "save_conflicts",
+        "save_sync_policies",
+        "save_devices",
+    ] {
+        let count: i64 = ludex_server::db::query_scalar::<i64>(&format!(
+            "SELECT COUNT(*) FROM {table} WHERE user_id = ?"
+        ))
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(count, 0, "{table} kept rows after the user deletion");
+    }
+    pool.close().await;
 
     server.stop().await;
 }
