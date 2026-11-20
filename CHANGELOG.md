@@ -6,6 +6,81 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Per-game audio output routing (#289): sinks are discovered through
+  PipeWire/Pulse (`pactl`), a per-game sink plus a global override are applied
+  after spawn by moving the game's sink-inputs keyed by its PID tree, a Test
+  action plays a short tone on the chosen device, and a device that disappeared
+  falls back to the profile default with a notice instead of muting the game.
+  Console mode owns its volume OSD (pad and media keys) instead of the
+  desktop's.
+- Optional shader warm start after install (#293): a bounded, cancelable
+  background job launches the game once through its normal compat plan with
+  every DXVK/VKD3D/Mesa cache pinned under the app data dir, stops on exit, a
+  cache-growth plateau or the budget, reports the per-game cache size and last
+  prepared date, and can clear the cache; a failed preparation never blocks the
+  game. `docs/SHADERS.md` documents what a true headless precompile cannot do.
+- Save continuity across Windows and Linux (#294): a logical save identity
+  (game + root kind + relative path) replaces absolute paths, resolved per
+  platform including `Documents/My Games`, OneDrive redirection, case-only
+  differences and CRLF normalisation; ambiguous mappings ask once, a root that
+  exists on one platform is labelled as such instead of "missing".
+- Save manager (#295): per-session restore points captured on exit (retention
+  window, newest and pinned points always kept), one-click rollback that
+  verifies the archive and keeps a `pre_restore` copy, server snapshot history
+  and restore receipts (migration 0036, desktop schema V27) and a "My saves"
+  panel with last local change, last synced, device, size and restore actions.
+- Multi-device save conflict policy (#296): a shared decision chain — content
+  hash, per-game "always prefer this device", strict descendant with the game's
+  counter as a veto, clock-skew guard — that never overwrites: both sides are
+  kept, the loser becomes a restore point, the choice is offered side by side,
+  and an offline upload is re-evaluated against the current server bytes on
+  reconnect (migration 0037, desktop schema V28).
+- Per-game launch auto-configuration (#297): a rules engine turns exe metadata,
+  engine, GAMEID, archive origin and GPU/driver into a launch plan shown as one
+  sentence, persisted per game and overridable field by field; prerequisites
+  run automatically with progress and cancel, and a failing plan signals the
+  auto-revert path instead of looping.
+- Auto-revert and diagnostics bundle (#298): a failure is classified (no first
+  frame inside the budget or a known fatal exit), the second consecutive
+  failure with the same profile rolls back to the last working plan and says so
+  in one sentence, and a pad-reachable action produces a redacted zip with the
+  per-launch logs, resolved plan, prefix health, GPU/driver/UMU/Proton versions
+  plus a prefilled report link.
+- One settings surface with three tiers (#299): a computed "ready" state with a
+  single fix action, six curated per-game switches each with a translated
+  reason (wrapper, frame limit, HDR, adaptive sync, overlay, audio device), and
+  the existing launch options behind a device-local "unlock advanced view".
+- Declarative per-game profiles (#300): a versioned TOML document per game
+  (launch plan, display, prerequisites, notes, version stamps) exported without
+  absolute paths or usernames, imported as a proposal that shows the diff
+  before writing, unknown keys preserved, and a pure diff for "what changed
+  since it worked".
+- Compatibility rules database (#301): a shipped, versioned TOML rule set with
+  a detached minisign signature, background refresh, atomic cache, local
+  overrides first, schema validation with no dead keys, and a read-only "why"
+  panel that names the rule, its confidence and its human reason.
+- Preferred controller per game (#314): a read-only inventory of the pads,
+  wheels, mice and keyboards the game will see (VID:PID, js index), a per-game
+  preferred pad, and the SDL ignore list for every other joystick at launch,
+  with a warning instead of a hidden-everything launch when the device is gone.
+
+### Fixed
+
+- Portable Linux installs update themselves (#312): the install kind is decided
+  at update time (AppImage, package-managed, bare ELF), the portable path
+  verifies the release signature and SHA-256, replaces the binary atomically
+  with a rollback and keeps the old one, explains a non-writable target with
+  the exact manual command, and logs every step; the generic "Failed to
+  install package" is gone.
+- 32-bit Vulkan readiness no longer reports a false positive on Arch (#313):
+  an arch-agnostic ICD resolvable by the 32-bit loader counts as OK, the
+  guidance no longer suggests a package transaction that could remove working
+  driver modules, and `docs/HOST.md` names the accurate manual check.
+- Webhook deliveries are matched by event in the integration tests, so a
+  concurrent `user.created` delivery can no longer make the suite flaky.
+
 ## [0.4.26] - 2026-11-19
 
 ### Added
