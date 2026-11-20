@@ -510,10 +510,15 @@ per-game switch on the game page. Effective state is:
 - The archive is SHA-256-hashed. If the hash equals the last uploaded hash for
   that game, the upload is skipped; if detection found no files, no archive is
   uploaded and no empty snapshot is created.
-- Multipart upload fields: `source=auto`, `deviceId`, `label=auto · <device
-  label>`. The server returns `200` for an existing hash and `201` for a new
+- Multipart upload fields: `source=auto`, `deviceId`, `deviceLabel`,
+  `clientMtime` (newest save file mtime on the device, RFC 3339),
+  `clientSentAt` (device clock at request time) and, when the client knows it,
+  `saveSeq` (the game's own save counter), plus
+  `label=auto · <device label>`. The server derives the clock offset from
+  `clientSentAt` and returns `200` for an existing hash and `201` for a new
   snapshot, and prunes to the newest 10 automatic snapshots per user and game.
-  Manual snapshots are never pruned.
+  Manual snapshots, conflict copies, stale uploads kept as restore points and
+  any snapshot referenced by an open conflict are never pruned.
 
 ### Device identity
 
@@ -532,18 +537,65 @@ page shows `pending`, the attempt count, the next attempt and the last error.
 Automatic failures never open a toast: the game page and the `cloud-save://pending`
 event are the only signals.
 
-### Conflict detection
+### Conflict policy for multi-device play (#296)
 
-A conflict exists when **both** sides changed:
+Two devices can play the same game hours apart while the server is unreachable.
+The policy below is shared code (`ludex_core::save_conflict`) used by the
+desktop before it uploads and by the server on every `auto` upload, so both
+sides reach the same verdict. The chain is applied in order and the first match
+wins:
 
-1. local save files exist and their newest mtime is newer than the last upload
-   from this machine (2 s tolerance); and
-2. the newest server snapshot hash differs from `last_hash`, the hash this
-   machine last uploaded.
+1. **Same content hash** — nothing changed; the upload is a no-op.
+2. **Per-game "always prefer this device"** — the preferred device wins without
+   asking. When neither side is the preferred device, the chain continues.
+3. **Device identity** — two uploads from the same device are one line of
+   progress, and a side without a device id (a manual upload or an older
+   client) cannot prove a multi-device divergence. Both fast-forward.
+4. **Strict descendant** — the larger side is newer by more than 2 s and, when
+   both sides carry `saveSeq`, the counter agrees. Its mtime is trusted only
+   when its clock is not skewed. Fast-forward uploads the newer side and keeps
+   the previous archive as history.
+5. **Clock skew** — a side whose device clock differs from the server by more
+   than 5 minutes (`CLOCK_SKEW_LIMIT_SECS`) may never win on mtime alone. The
+   server compares `clientSentAt` with its own clock; the desktop reads the
+   response `Date` header. A device two hours ahead therefore cannot win
+   silently.
+6. **Otherwise: conflict** — never overwrite. Both archives stay on the server:
+   the winning side keeps its label and the losing side is relabelled
+   `save (conflict <device> <date>)` with `conflict_of` pointing at the winner.
+   The conflict is offered in the game page, with both candidates side by side
+   (device, size, date, local file count).
 
-One-sided changes stay silent: local-only changes are uploaded on the next sync;
-a remote-only change is simply a newer snapshot to restore if the user wants.
-The status includes both timestamps and both hashes so the choice is explicit.
+Additional rules:
+
+- A same-device upload that is *behind* the server (strict ancestor) is kept as
+  a conflict-labelled restore point and never becomes "the latest save".
+- Resolving a conflict (`keep_local` / `keep_remote`) relabels the loser and
+  clears the winner's conflict marker. **No conflict path deletes a save**; the
+  losing archive stays downloadable.
+- The desktop's local pre-check uses the same chain after building the archive
+  (zip size + hash + local newest mtime). If the remote is ambiguous it uploads
+  nothing and surfaces the conflict; `keep_local` deliberately skips the local
+  pre-check, but the server still arbitrates and keeps both sides.
+- The per-game policy lives on the server
+  (`save_sync_policies.prefer_device_id`): `ask` (default) or `prefer_device`.
+  It is read with the snapshot list and defaults to `ask` when offline.
+
+Offline-first: a sync that cannot reach the server is queued exactly as before
+(`cloud_save_prefs.pending_*`). The queue records only the remote hash observed
+at queue time (`queued_remote_sha256`, `queued_at`), never a verdict. The retry
+worker reads the server again and re-runs the policy against the bytes that
+exist at that moment, so a remote that advanced while the device was offline is
+judged on its current content.
+
+#### Status shape
+
+`CloudSaveStatus.conflict` describes both sides: local device id/label, local
+files and bytes, local newest mtime, remote label/size/date/device, the reason
+(`both_changed`, `clock_skew`, `counter_diverged`), the clock offset and
+`server_conflict_id` when the server saw it first. `CloudSaveStatus.policy` and
+`cloud_save_status.clockOffsetSecs` drive the policy field and the clock
+warning.
 
 ### Restore
 
@@ -553,11 +605,16 @@ The status includes both timestamps and both hashes so the choice is explicit.
     `{appDataDir}/cloud-saves/backups/game-<id>-<stamp>.zip` **before** any file
     is touched, and its path is returned. When the save folder is empty or
     absent, nothing needs a backup and the snapshot is written directly.
-  - `keep_local` — keep the local files, record them as the new baseline and
-    upload them as an automatic snapshot. The ignored server hash is remembered
-    so the same conflict is not reported again; this is **not** a restore, so
-    the restore-once slot stays free and the snapshot can still be restored
-    later if the user changes their mind.
+  - `keep_local` — keep the local files and upload them as an automatic
+    snapshot, skipping the local pre-check only. The server still runs the
+    policy; if it keeps the local upload aside, the newest open conflict is
+    then resolved as `keep_local`, which clears its marker and relabels the
+    previous canonical snapshot as `save (conflict …)`. The ignored server hash
+    is remembered so the same conflict is not reported again; this is **not** a
+    restore, so the restore-once slot stays free and the snapshot can still be
+    restored later if the user changes their mind.
+  - `keep_remote` resolves the newest open server conflict in the same
+    direction after the local restore, again keeping both archives.
 - Extraction maps `saves/NN` back to the save path at index `NN`, rejects
   absolute paths, `..`, backslashes, control characters, symlink entries,
   entries outside the mapped root and archives expanding beyond the size cap.
@@ -575,12 +632,18 @@ The status includes both timestamps and both hashes so the choice is explicit.
 ```sql
 cloud_save_prefs (
   game_id PRIMARY KEY, auto_sync, last_hash, last_upload_at, last_restore_at,
-  pending_attempts, pending_next_at, pending_error, ignored_remote_hash
+  pending_attempts, pending_next_at, pending_error, ignored_remote_hash,
+  queued_remote_sha256, queued_at            -- SCHEMA_V27, offline queue (#296)
 )
 cloud_save_restore (
   game_id PRIMARY KEY, snapshot_id, restored_at, local_backup_path
 )
 ```
+
+Server side, migration `0037_save_conflicts.sql` adds the per-snapshot policy
+facts (`client_mtime`, `clock_offset_secs`, `save_seq`, `conflict_of`) and the
+`save_devices`, `save_conflicts` and `save_sync_policies` tables. Conflict copies
+have `conflict_of` set and never count as "latest".
 
 `auto_sync = NULL` means "inherit the global setting". `last_hash` and
 `last_upload_at` are the upload baseline used by the hash skip and conflict
@@ -716,7 +779,10 @@ See the command table in `docs/CONTRACT.md`:
 - `get_save_paths { gameId }` — persisted mapping + last preview, no disk scan.
 - `set_save_paths { gameId, paths }` — manual override list.
 - `cloud_save_status { gameId }` — paths, latest snapshot, last upload/restore,
-  effective toggle + reason, pending retry, conflict.
+  effective toggle + reason, pending retry, conflict (both sides, reason, clock
+  offset), per-game policy.
+- `set_cloud_save_policy { gameId, policy, deviceId? }` — `ask` or
+  `prefer_device`; the omitted device id means this machine.
 - `set_cloud_save_sync { gameId?, enabled }` — global default (`gameId` null)
   or one game's override.
 - `sync_cloud_save_now { gameId }` — archive + upload immediately.

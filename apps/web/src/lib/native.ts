@@ -9,10 +9,12 @@ import type {
   AudioNotice,
   AudioSinks,
   AudioVolumeState,
+  CloudSavePolicy,
   CloudSaveRestoreOutcome,
   CloudSaveStatus,
   CloudSaveStrategy,
   CloudSyncToggleResponse,
+  SaveConflictPolicy,
   CommonFieldPreview,
   CommonFieldTarget,
   CommonFieldsReport,
@@ -1350,6 +1352,15 @@ export const native = {
   /** `gameId: null` changes the global default; a number changes one game. */
   async setCloudSaveSync(gameId: number | null, enabled: boolean): Promise<CloudSyncToggleResponse> {
     return invoke<CloudSyncToggleResponse>("set_cloud_save_sync", { gameId, enabled });
+  },
+
+  /** Per-game conflict policy (#296); omit `deviceId` to prefer this machine. */
+  async setCloudSavePolicy(
+    gameId: number,
+    policy: SaveConflictPolicy,
+    deviceId?: string | null,
+  ): Promise<CloudSavePolicy> {
+    return invoke<CloudSavePolicy>("set_cloud_save_policy", { gameId, policy, deviceId });
   },
 
   async syncCloudSaveNow(gameId: number): Promise<CloudSaveStatus> {

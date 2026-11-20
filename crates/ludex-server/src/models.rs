@@ -217,6 +217,10 @@ pub struct SaveSnapshotRow {
     /// `1` once the snapshot is a restore point (#295). Kept as an integer so
     /// the same row decodes from SQLite INTEGER and PostgreSQL BIGINT.
     pub pinned: i64,
+    pub client_mtime: Option<String>,
+    pub clock_offset_secs: i64,
+    pub save_seq: Option<i64>,
+    pub conflict_of: Option<i64>,
 }
 
 impl SaveSnapshotRow {
@@ -235,6 +239,10 @@ impl SaveSnapshotRow {
             source: self.source,
             device_id: self.device_id,
             pinned: self.pinned != 0,
+            client_mtime: self.client_mtime.as_deref().and_then(crate::db::parse_time),
+            clock_offset_secs: self.clock_offset_secs,
+            save_seq: self.save_seq,
+            conflict_of: self.conflict_of,
         }
     }
 }
@@ -338,6 +346,43 @@ pub struct SavePruneReport {
     pub kept: i64,
     /// Pinned restore points protected from the pass.
     pub protected: i64,
+}
+
+/// Public view of one open or resolved save conflict (#296).
+///
+/// Both snapshots stay on the server: resolving only relabels the losing side
+/// as `save (conflict <device> <date>)`, it never deletes it.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveConflictView {
+    /// Conflict id.
+    pub id: i64,
+    /// Game the conflict belongs to.
+    pub game_id: i64,
+    /// `open` or `resolved`.
+    pub status: String,
+    /// `both_changed`, `clock_skew` or `counter_diverged`.
+    pub reason: String,
+    /// When the policy detected the conflict.
+    pub detected_at: DateTime<Utc>,
+    /// When the user chose a side.
+    pub resolved_at: Option<DateTime<Utc>>,
+    /// `keep_local` or `keep_remote`.
+    pub strategy: Option<String>,
+    /// Snapshot that was already on the server.
+    pub existing: SaveSnapshot,
+    /// Snapshot uploaded by the syncing device.
+    pub candidate: SaveSnapshot,
+}
+
+/// Per-game conflict policy (#296): `ask` (default) or `prefer_device`.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePolicyView {
+    /// `ask` or `prefer_device`.
+    pub policy: String,
+    /// Device that always wins when `policy` is `prefer_device`.
+    pub device_id: Option<String>,
 }
 
 /// Login request.

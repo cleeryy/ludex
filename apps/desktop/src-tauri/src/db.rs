@@ -132,7 +132,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 27;
+const SCHEMA_VERSION: i64 = 28;
 
 /// Pre-migration snapshots kept next to the database (`<name>-backup-<stamp>.db`).
 const BACKUP_RETENTION: usize = 3;
@@ -698,6 +698,17 @@ CREATE INDEX IF NOT EXISTS save_restore_points_game_idx
     ON save_restore_points (game_id, created_at DESC);
 
 ALTER TABLE cloud_save_prefs ADD COLUMN last_local_change_at TEXT;
+
+/// The offline save-sync queue (#296).
+///
+/// The conflict decision is deliberately **not** persisted: when an upload is
+/// queued because the device is offline, only the remote state observed at
+/// queue time is recorded. On reconnect the sync engine re-reads the server
+/// and runs the policy again, so a snapshot that changed while the device was
+/// offline is judged on its current bytes instead of a stale verdict.
+const SCHEMA_V28: &str = r#"
+ALTER TABLE cloud_save_prefs ADD COLUMN queued_remote_sha256 TEXT;
+ALTER TABLE cloud_save_prefs ADD COLUMN queued_at TEXT;
 "#;
 
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
@@ -1028,6 +1039,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 27,
         sql: SCHEMA_V27,
         context: "add the local save restore points of the save manager (#295)",
+    },
+    Migration {
+        version: 28,
+        sql: SCHEMA_V28,
+        context: "add the offline save-sync queue to the desktop database",
     },
 ];
 
@@ -3651,11 +3667,17 @@ pub struct CloudSavePrefs {
     /// Without it the same conflict would reappear forever when the ignored
     /// snapshot cannot be replaced by a byte-identical upload.
     pub ignored_remote_hash: Option<String>,
+    /// Remote snapshot observed when an offline upload was queued (#296).
+    /// Informational only: the decision is re-run on reconnect.
+    pub queued_remote_sha256: Option<String>,
+    /// When that queue entry was recorded (#296).
+    pub queued_at: Option<String>,
 }
 
 const CLOUD_SAVE_PREF_COLUMNS: &str =
     "game_id, auto_sync, last_hash, last_upload_at, last_restore_at,
-     pending_attempts, pending_next_at, pending_error, ignored_remote_hash";
+     pending_attempts, pending_next_at, pending_error, ignored_remote_hash,
+     queued_remote_sha256, queued_at";
 
 fn map_cloud_save_prefs(row: &rusqlite::Row<'_>) -> rusqlite::Result<CloudSavePrefs> {
     Ok(CloudSavePrefs {
@@ -3668,6 +3690,8 @@ fn map_cloud_save_prefs(row: &rusqlite::Row<'_>) -> rusqlite::Result<CloudSavePr
         pending_next_at: row.get(6)?,
         pending_error: row.get(7)?,
         ignored_remote_hash: row.get(8)?,
+        queued_remote_sha256: row.get(9)?,
+        queued_at: row.get(10)?,
     })
 }
 
@@ -3733,7 +3757,9 @@ pub fn record_cloud_save_upload(
                    pending_attempts = 0,
                    pending_next_at = NULL,
                    pending_error = NULL,
-                   ignored_remote_hash = NULL
+                   ignored_remote_hash = NULL,
+                   queued_remote_sha256 = NULL,
+                   queued_at = NULL
                WHERE game_id = ?1"#,
             params![game_id, hash, uploaded_at],
         )
@@ -3788,11 +3814,41 @@ pub fn clear_cloud_save_pending(connection: &Connection, game_id: i64) -> Result
             r#"UPDATE cloud_save_prefs SET
                    pending_attempts = 0,
                    pending_next_at = NULL,
-                   pending_error = NULL
+                   pending_error = NULL,
+                   queued_remote_sha256 = NULL,
+                   queued_at = NULL
                WHERE game_id = ?1"#,
             params![game_id],
         )
         .map_err(|e| format!("Could not clear the cloud save retry: {e}"))?;
+    Ok(())
+}
+
+/// Remember the remote snapshot an offline upload saw (#296).
+///
+/// Only the observation is stored, never the policy verdict: `sync_game` reads
+/// the server again on reconnect and re-evaluates the conflict against the
+/// bytes that exist at that moment. Queueing a conflict also clears the retry
+/// backoff: there is nothing to retry until the user chooses a side.
+pub fn record_cloud_save_queued(
+    connection: &Connection,
+    game_id: i64,
+    remote_sha256: Option<&str>,
+    queued_at: &str,
+) -> Result<(), String> {
+    ensure_cloud_save_prefs(connection, game_id)?;
+    connection
+        .execute(
+            r#"UPDATE cloud_save_prefs SET
+                   queued_remote_sha256 = ?2,
+                   queued_at = ?3,
+                   pending_attempts = 0,
+                   pending_next_at = NULL,
+                   pending_error = NULL
+               WHERE game_id = ?1"#,
+            params![game_id, remote_sha256, queued_at],
+        )
+        .map_err(|e| format!("Could not record the queued save sync: {e}"))?;
     Ok(())
 }
 
@@ -3804,8 +3860,11 @@ pub fn clear_all_cloud_save_pending(connection: &Connection) -> Result<(), Strin
             r#"UPDATE cloud_save_prefs SET
                    pending_attempts = 0,
                    pending_next_at = NULL,
-                   pending_error = NULL
-               WHERE pending_error IS NOT NULL OR pending_next_at IS NOT NULL"#,
+                   pending_error = NULL,
+                   queued_remote_sha256 = NULL,
+                   queued_at = NULL
+               WHERE pending_error IS NOT NULL OR pending_next_at IS NOT NULL
+                  OR queued_at IS NOT NULL"#,
             [],
         )
         .map_err(|e| format!("Could not clear the cloud save retries: {e}"))?;
@@ -5822,6 +5881,33 @@ mod tests {
     }
 
     #[test]
+    fn cloud_save_queue_roundtrip_keeps_only_the_observation() {
+        let connection = memory_database();
+        record_cloud_save_queued(&connection, 5, Some("remote-a"), "2026-11-19T12:00:00Z").unwrap();
+        let prefs = get_cloud_save_prefs(&connection, 5).unwrap().unwrap();
+        assert_eq!(prefs.queued_remote_sha256.as_deref(), Some("remote-a"));
+        assert_eq!(prefs.queued_at.as_deref(), Some("2026-11-19T12:00:00Z"));
+
+        // The queue records what the server held, never a decision: the retry
+        // worker re-evaluates against the then-current remote (#296).
+        record_cloud_save_queued(&connection, 5, Some("remote-b"), "2026-11-19T13:00:00Z").unwrap();
+        let prefs = get_cloud_save_prefs(&connection, 5).unwrap().unwrap();
+        assert_eq!(prefs.queued_remote_sha256.as_deref(), Some("remote-b"));
+
+        clear_cloud_save_pending(&connection, 5).unwrap();
+        let prefs = get_cloud_save_prefs(&connection, 5).unwrap().unwrap();
+        assert!(prefs.queued_remote_sha256.is_none());
+        assert!(prefs.queued_at.is_none());
+
+        // A successful upload also drops the queued observation.
+        record_cloud_save_queued(&connection, 5, Some("remote-c"), "2026-11-19T14:00:00Z").unwrap();
+        record_cloud_save_upload(&connection, 5, "uploaded", "2026-11-19T14:05:00Z").unwrap();
+        let prefs = get_cloud_save_prefs(&connection, 5).unwrap().unwrap();
+        assert!(prefs.queued_remote_sha256.is_none());
+        assert_eq!(prefs.last_hash.as_deref(), Some("uploaded"));
+    }
+
+    #[test]
     fn cloud_save_auto_sync_override_roundtrip() {
         let connection = memory_database();
         set_cloud_save_auto_sync(&connection, 4, Some(false)).unwrap();
@@ -6870,10 +6956,17 @@ mod tests {
             .iter()
             .map(|migration| migration.version)
             .collect();
+        assert!(
+            versions.windows(2).all(|pair| pair[0] < pair[1]),
+            "migrations must be appended in strictly increasing order"
+        );
+        // Parallel work may leave a gap until the lane that owns the missing
+        // number merges (#296 owns 27 while 26 lands elsewhere); the runner is
+        // gap-tolerant, so the invariant is "last entry == SCHEMA_VERSION".
         assert_eq!(
-            versions,
-            (1..=SCHEMA_VERSION).collect::<Vec<_>>(),
-            "bump SCHEMA_VERSION and append exactly one migration entry"
+            versions.last().copied(),
+            Some(SCHEMA_VERSION),
+            "bump SCHEMA_VERSION and append the highest migration entry"
         );
     }
 

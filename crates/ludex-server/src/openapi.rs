@@ -581,6 +581,8 @@ pub fn document() -> OpenApi {
         .schema_from::<crate::models::RestoreSnapshotResponse>()
         .schema_from::<crate::models::PruneSavesRequest>()
         .schema_from::<crate::models::SavePruneReport>()
+        .schema_from::<crate::models::SaveConflictView>()
+        .schema_from::<crate::models::SavePolicyView>()
         .schema_from::<crate::models::ApiKey>()
         .schema_from::<crate::models::CreateApiKeyRequest>()
         .schema_from::<crate::models::CreateApiKeyResponse>()

@@ -29,6 +29,9 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use crate::bridge::save_conflict::{
+    decide, ConflictReason, SaveDecision, SaveSide, SaveSideKind, CLOCK_SKEW_LIMIT_SECS,
+};
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -156,7 +159,31 @@ pub struct SaveSnapshotSummary {
     pub sha256: String,
     pub created_at: String,
     pub source: String,
+    #[serde(default)]
     pub device_id: Option<String>,
+    /// Newest save file mtime on the uploading device (#296).
+    #[serde(default)]
+    pub client_mtime: Option<String>,
+    /// Device clock minus server clock at upload time (#296).
+    #[serde(default)]
+    pub clock_offset_secs: i64,
+    /// The game's own save counter, when the uploading client knew it (#296).
+    #[serde(default)]
+    pub save_seq: Option<i64>,
+    /// Set when this row is the losing side of a conflict (#296). Such a row is
+    /// a restore point, never the latest save.
+    #[serde(default)]
+    pub conflict_of: Option<i64>,
+}
+
+impl SaveSnapshotSummary {
+    /// The canonical save among `snapshots` (newest first): conflict copies are
+    /// restore points and never become "latest".
+    pub fn latest_of(snapshots: &[Self]) -> Option<&Self> {
+        snapshots
+            .iter()
+            .find(|snapshot| snapshot.conflict_of.is_none())
+    }
 }
 
 /// Pending upload state, persisted in SQLite so it survives a restart.
@@ -171,6 +198,9 @@ pub struct CloudSavePending {
 }
 
 /// Conflict between local save files and a newer server snapshot.
+///
+/// Since #296 both sides are described so the UI can show them side by side;
+/// the server keeps both regardless of the choice.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudSaveConflict {
@@ -180,6 +210,68 @@ pub struct CloudSaveConflict {
     pub remote_sha256: String,
     pub remote_created_at: String,
     pub remote_device_id: Option<String>,
+    /// This machine's device id and readable label.
+    pub local_device_id: Option<String>,
+    pub local_device_label: Option<String>,
+    /// Local save folder totals, for the side-by-side choice.
+    pub local_files: u64,
+    pub local_bytes: u64,
+    /// Server archive totals.
+    pub remote_size: i64,
+    pub remote_label: String,
+    /// `both_changed`, `clock_skew` or `counter_diverged`.
+    pub reason: String,
+    /// Device clock minus server clock, in seconds (#296).
+    pub clock_offset_secs: i64,
+    /// True when the clock is too far from the server to order the saves.
+    pub clock_skewed: bool,
+    /// Open conflict row on the server, when the server saw this first.
+    pub server_conflict_id: Option<i64>,
+}
+
+/// Per-game conflict policy (#296). `ask` is the default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSavePolicy {
+    /// `ask` or `prefer_device`.
+    pub policy: String,
+    /// Device that always wins when `policy` is `prefer_device`.
+    pub device_id: Option<String>,
+}
+
+impl Default for CloudSavePolicy {
+    fn default() -> Self {
+        Self {
+            policy: "ask".to_string(),
+            device_id: None,
+        }
+    }
+}
+
+impl CloudSavePolicy {
+    /// True when this machine is the configured winner.
+    pub fn prefers(&self, device_id: Option<&str>) -> bool {
+        self.policy == "prefer_device"
+            && self.device_id.is_some()
+            && self.device_id.as_deref() == device_id
+    }
+}
+
+/// One open conflict row from the server (#296).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerSaveConflict {
+    pub id: i64,
+    pub game_id: i64,
+    pub status: String,
+    pub reason: String,
+    pub detected_at: String,
+    #[serde(default)]
+    pub resolved_at: Option<String>,
+    #[serde(default)]
+    pub strategy: Option<String>,
+    pub existing: SaveSnapshotSummary,
+    pub candidate: SaveSnapshotSummary,
 }
 
 /// Everything the game page needs to render the cloud saves section.
@@ -201,6 +293,10 @@ pub struct CloudSaveStatus {
     pub last_restore_at: Option<String>,
     pub toggle: CloudSaveToggle,
     pub conflict: Option<CloudSaveConflict>,
+    /// Per-game conflict policy (#296), `ask` when the server is unreachable.
+    pub policy: CloudSavePolicy,
+    /// Device clock minus server clock, in seconds (#296). 0 when unknown.
+    pub clock_offset_secs: i64,
     pub pending: CloudSavePending,
     /// Save identities that need one explicit choice on this machine (#294).
     pub pending_mappings: Vec<CloudSavePendingMapping>,
@@ -708,6 +804,8 @@ pub struct ArchiveInfo {
     pub files: u64,
     pub bytes: u64,
     pub sha256: String,
+    /// Newest save file mtime seen while archiving (#296), in the device clock.
+    pub newest: Option<DateTime<Utc>>,
 }
 
 /// Archive every existing save path into one zip.
@@ -730,6 +828,7 @@ pub fn create_archive(rows: &[SavePathRecord], dest: &Path) -> Result<ArchiveInf
     let mut builder = ArchiveBuilder {
         files: 0,
         bytes: 0,
+        newest: None,
         archived: Vec::new(),
         seen: HashSet::new(),
     };
@@ -780,12 +879,14 @@ pub fn create_archive(rows: &[SavePathRecord], dest: &Path) -> Result<ArchiveInf
         files: builder.files,
         bytes,
         sha256,
+        newest: builder.newest,
     })
 }
 
 struct ArchiveBuilder {
     files: u64,
     bytes: u64,
+    newest: Option<DateTime<Utc>>,
     archived: Vec<PathBuf>,
     /// Lowercased entry names already written. Two files that differ only by
     /// case are one save: Windows cannot produce both, and keeping both would
@@ -875,6 +976,7 @@ impl ArchiveBuilder {
             return Ok(());
         }
         self.bytes = self.bytes.saturating_add(metadata.len());
+        self.newest = max_time(self.newest, metadata.modified().ok());
         if self.bytes > MAX_ARCHIVE_BYTES {
             return Err(format!(
                 "The save files are larger than {}; automatic snapshots are capped.",
@@ -984,6 +1086,23 @@ pub fn effective_sync(global: bool, game_override: Option<bool>) -> CloudSaveTog
 
 /* ------------------------------------------------------------- conflicts */
 
+/// Extra facts the game page needs to describe both conflict sides (#296).
+#[derive(Debug, Clone, Default)]
+pub struct ConflictContext {
+    pub device_id: Option<String>,
+    pub device_label: Option<String>,
+    /// Device clock minus server clock, in seconds.
+    pub clock_offset_secs: i64,
+    /// The per-game policy prefers this machine: the user already answered.
+    pub prefer_local: bool,
+    /// Newest open conflict row on the server, when there is one.
+    pub server_conflict_id: Option<i64>,
+    pub server_reason: Option<String>,
+    /// The offline queue recorded a conflict against this exact remote hash
+    /// (#296); it stays offered even if the mtime heuristic alone would not.
+    pub policy_conflict: bool,
+}
+
 /// A conflict exists when both sides changed: local save files are newer than
 /// the last upload from this machine, and the newest server snapshot is not
 /// the hash this machine uploaded. Any one-sided change is handled silently
@@ -992,9 +1111,14 @@ pub fn conflict_between(
     local: &LocalSaveState,
     prefs: Option<&CloudSavePrefs>,
     latest: Option<&SaveSnapshotSummary>,
+    context: &ConflictContext,
 ) -> Option<CloudSaveConflict> {
     let latest = latest?;
     if local.files == 0 {
+        return None;
+    }
+    if context.prefer_local {
+        // "Always prefer this device": the local side wins without asking.
         return None;
     }
     let last_hash = prefs.and_then(|prefs| prefs.last_hash.as_deref());
@@ -1012,18 +1136,27 @@ pub fn conflict_between(
         .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
         .map(|value| value.with_timezone(&Utc));
     let local_newest = local.newest;
-    let local_changed = match (local_newest, last_upload) {
-        (Some(local), Some(upload)) => {
-            local.timestamp() > upload.timestamp() + CONFLICT_TOLERANCE_SECS
-        }
-        // Local files exist but this install never uploaded: there is no
-        // trustworthy baseline, so treat it as a change.
-        (Some(_), None) => true,
-        _ => false,
-    };
+    let local_changed = context.policy_conflict
+        || match (local_newest, last_upload) {
+            (Some(local), Some(upload)) => {
+                local.timestamp() > upload.timestamp() + CONFLICT_TOLERANCE_SECS
+            }
+            // Local files exist but this install never uploaded: there is no
+            // trustworthy baseline, so treat it as a change.
+            (Some(_), None) => true,
+            _ => false,
+        };
     if !local_changed {
         return None;
     }
+    let clock_skewed = context.clock_offset_secs.abs() > CLOCK_SKEW_LIMIT_SECS;
+    let reason = context.server_reason.clone().unwrap_or_else(|| {
+        if clock_skewed {
+            ConflictReason::ClockSkew.as_str().to_string()
+        } else {
+            ConflictReason::BothChanged.as_str().to_string()
+        }
+    });
     Some(CloudSaveConflict {
         local_newest_mtime: local_newest.map(format_time),
         last_upload_at,
@@ -1031,7 +1164,52 @@ pub fn conflict_between(
         remote_sha256: latest.sha256.clone(),
         remote_created_at: latest.created_at.clone(),
         remote_device_id: latest.device_id.clone(),
+        local_device_id: context.device_id.clone(),
+        local_device_label: context.device_label.clone(),
+        local_files: local.files,
+        local_bytes: local.bytes,
+        remote_size: latest.size,
+        remote_label: latest.label.clone(),
+        reason,
+        clock_offset_secs: context.clock_offset_secs,
+        clock_skewed,
+        server_conflict_id: context.server_conflict_id,
     })
+}
+
+/// Builds the policy view of one stored snapshot.
+fn snapshot_side(snapshot: &SaveSnapshotSummary) -> SaveSide {
+    let recorded_at = DateTime::parse_from_rfc3339(&snapshot.created_at)
+        .map(|value| value.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now());
+    SaveSide {
+        sha256: snapshot.sha256.clone(),
+        size: snapshot.size,
+        client_mtime: snapshot
+            .client_mtime
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc)),
+        clock_offset_secs: snapshot.clock_offset_secs,
+        save_seq: snapshot.save_seq,
+        device_id: snapshot.device_id.clone(),
+        recorded_at,
+    }
+}
+
+/// Builds the policy view of the archive this machine just built.
+fn local_side(archive: &ArchiveInfo, device_id: &str, clock_offset_secs: i64) -> SaveSide {
+    SaveSide {
+        sha256: archive.sha256.clone(),
+        size: i64::try_from(archive.bytes).unwrap_or(i64::MAX),
+        client_mtime: archive.newest,
+        clock_offset_secs,
+        // The desktop has no source for the game's own counter yet; the field
+        // is plumbed end to end so a future manifest can supply it.
+        save_seq: None,
+        device_id: Some(device_id.to_string()),
+        recorded_at: Utc::now(),
+    }
 }
 
 /* ------------------------------------------------------------------ retry */
@@ -1098,11 +1276,27 @@ async fn response_error(response: reqwest::Response) -> String {
     }
 }
 
+/// Clock offset from a response `Date` header, in the policy convention
+/// (device clock minus server clock).
+fn server_clock_offset(response: &reqwest::Response) -> i64 {
+    response
+        .headers()
+        .get(reqwest::header::DATE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| DateTime::parse_from_rfc2822(value).ok())
+        .map(|server| {
+            Utc::now()
+                .signed_duration_since(server.with_timezone(&Utc))
+                .num_seconds()
+        })
+        .unwrap_or(0)
+}
+
 async fn fetch_snapshots(
     app: &AppHandle,
     settings: &LocalSettings,
     game_id: i64,
-) -> Result<Vec<SaveSnapshotSummary>, String> {
+) -> Result<(Vec<SaveSnapshotSummary>, i64), String> {
     let context = client_context(settings)?;
     let http = app.state::<AppState>().http.clone();
     let response = http
@@ -1115,10 +1309,121 @@ async fn fetch_snapshots(
     if !response.status().is_success() {
         return Err(response_error(response).await);
     }
-    response
+    let clock_offset_secs = server_clock_offset(&response);
+    let snapshots = response
         .json::<Vec<SaveSnapshotSummary>>()
         .await
-        .map_err(|error| format!("The server sent an unreadable save list: {error}"))
+        .map_err(|error| format!("The server sent an unreadable save list: {error}"))?;
+    Ok((snapshots, clock_offset_secs))
+}
+
+/// Fetch the per-game policy; an unreachable server falls back to `ask` so the
+/// local status still renders offline.
+async fn fetch_policy(
+    app: &AppHandle,
+    settings: &LocalSettings,
+    game_id: i64,
+) -> Result<CloudSavePolicy, String> {
+    let context = client_context(settings)?;
+    let http = app.state::<AppState>().http.clone();
+    let response = http
+        .get(format!("{}/api/games/{game_id}/saves/policy", context.base))
+        .bearer_auth(&context.token)
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the server: {error}"))?;
+    if !response.status().is_success() {
+        return Err(response_error(response).await);
+    }
+    response
+        .json::<CloudSavePolicy>()
+        .await
+        .map_err(|error| format!("The server sent an unreadable save policy: {error}"))
+}
+
+async fn put_policy(
+    app: &AppHandle,
+    settings: &LocalSettings,
+    game_id: i64,
+    policy: &CloudSavePolicy,
+) -> Result<CloudSavePolicy, String> {
+    let context = client_context(settings)?;
+    let http = app.state::<AppState>().http.clone();
+    let response = http
+        .put(format!("{}/api/games/{game_id}/saves/policy", context.base))
+        .bearer_auth(&context.token)
+        .json(policy)
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the server: {error}"))?;
+    if !response.status().is_success() {
+        return Err(response_error(response).await);
+    }
+    response
+        .json::<CloudSavePolicy>()
+        .await
+        .map_err(|error| format!("The server sent an unreadable save policy: {error}"))
+}
+
+async fn fetch_conflicts(
+    app: &AppHandle,
+    settings: &LocalSettings,
+    game_id: i64,
+) -> Result<Vec<ServerSaveConflict>, String> {
+    let context = client_context(settings)?;
+    let http = app.state::<AppState>().http.clone();
+    let response = http
+        .get(format!(
+            "{}/api/games/{game_id}/saves/conflicts",
+            context.base
+        ))
+        .bearer_auth(&context.token)
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the server: {error}"))?;
+    if !response.status().is_success() {
+        return Err(response_error(response).await);
+    }
+    response
+        .json::<Vec<ServerSaveConflict>>()
+        .await
+        .map_err(|error| format!("The server sent an unreadable conflict list: {error}"))
+}
+
+/// Resolve the newest open server conflict for one game.
+///
+/// Best effort: a local sync that already succeeded must not fail because the
+/// server could not record the choice. Returns the resolved conflict id.
+async fn resolve_open_conflict(
+    app: &AppHandle,
+    settings: &LocalSettings,
+    game_id: i64,
+    strategy: &str,
+) -> Result<Option<i64>, String> {
+    let conflicts = fetch_conflicts(app, settings, game_id).await?;
+    let Some(conflict) = conflicts.first() else {
+        return Ok(None);
+    };
+    let context = client_context(settings)?;
+    let http = app.state::<AppState>().http.clone();
+    let response = http
+        .post(format!(
+            "{}/api/games/{game_id}/saves/conflicts/{}/resolve",
+            context.base, conflict.id
+        ))
+        .bearer_auth(&context.token)
+        .json(&serde_json::json!({ "strategy": strategy }))
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the server: {error}"))?;
+    if !response.status().is_success() {
+        return Err(response_error(response).await);
+    }
+    Ok(Some(conflict.id))
 }
 
 /// Best-effort receipt for a server snapshot restored on this device (#295).
@@ -1164,13 +1469,22 @@ enum UploadError {
     Permanent(String),
 }
 
+/// Facts the server needs to arbitrate a save upload (#296).
+struct UploadFacts {
+    device_id: String,
+    device_label: String,
+    /// Newest local save mtime, in device time.
+    client_mtime: Option<DateTime<Utc>>,
+    /// Device clock at request time; the server computes the skew.
+    client_sent_at: DateTime<Utc>,
+}
+
 async fn upload_snapshot(
     app: &AppHandle,
     settings: &LocalSettings,
     game_id: i64,
     archive: &ArchiveInfo,
-    device_id: &str,
-    device_label: &str,
+    facts: &UploadFacts,
 ) -> Result<SaveSnapshotSummary, UploadError> {
     let context = client_context(settings).map_err(UploadError::Permanent)?;
     let file = tokio::fs::File::open(&archive.path)
@@ -1193,15 +1507,20 @@ async fn upload_snapshot(
     .mime_str("application/zip")
     .map_err(|error| UploadError::Permanent(format!("Could not prepare the upload: {error}")))?;
 
-    let label: String = format!("auto · {device_label}")
+    let label: String = format!("auto · {}", facts.device_label)
         .chars()
         .take(MAX_LABEL_CHARS)
         .collect();
-    let form = reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("source", "auto")
-        .text("deviceId", device_id.to_string())
+        .text("deviceId", facts.device_id.clone())
+        .text("deviceLabel", facts.device_label.clone())
+        .text("clientSentAt", format_time(facts.client_sent_at))
         .text("label", label);
+    if let Some(mtime) = facts.client_mtime {
+        form = form.text("clientMtime", format_time(mtime));
+    }
 
     let http = app.state::<AppState>().http.clone();
     let response = http
@@ -1293,10 +1612,54 @@ pub(crate) fn ensure_device_identity(state: &AppState) -> Result<(String, String
 pub enum SyncOutcome {
     Uploaded,
     Unchanged,
+    /// Both sides changed: nothing was uploaded, the choice is offered (#296).
+    Conflict,
+    /// The server already has a strict descendant; the local archive is stale.
+    Stale,
     NoPaths,
     NoFiles,
     Disabled,
     Failed,
+}
+
+/// Everything one remote read yields: snapshots, per-game policy and the
+/// server clock offset used to correct device mtimes.
+struct RemoteState {
+    snapshots: Vec<SaveSnapshotSummary>,
+    policy: CloudSavePolicy,
+    clock_offset_secs: i64,
+}
+
+async fn fetch_remote_state(
+    app: &AppHandle,
+    settings: &LocalSettings,
+    game_id: i64,
+) -> Result<RemoteState, String> {
+    let (snapshots, clock_offset_secs) = fetch_snapshots(app, settings, game_id).await?;
+    // The policy is a convenience, not a prerequisite: an old server without
+    // the route, or a transient failure, keeps the asking behaviour.
+    let policy = match fetch_policy(app, settings, game_id).await {
+        Ok(policy) => policy,
+        Err(error) => {
+            tracing::debug!(error = %error, "cloud save policy unavailable; asking");
+            CloudSavePolicy::default()
+        }
+    };
+    Ok(RemoteState {
+        snapshots,
+        policy,
+        clock_offset_secs,
+    })
+}
+
+/// Remember the remote state an offline/conflicted upload saw (#296).
+fn record_queued(app: &AppHandle, game_id: i64, remote_sha256: &str) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    db::record_cloud_save_queued(&connection, game_id, Some(remote_sha256), &now_rfc3339())
 }
 
 fn temp_archive_path(app: &AppHandle, game_id: i64) -> PathBuf {
@@ -1308,8 +1671,15 @@ fn temp_archive_path(app: &AppHandle, game_id: i64) -> PathBuf {
 }
 
 /// Archive and upload one game's saves. `automatic` respects the effective
-/// toggle; a manual `sync_cloud_save_now` is always allowed.
-async fn sync_game(app: &AppHandle, game_id: i64, automatic: bool) -> Result<SyncOutcome, String> {
+/// toggle; a manual `sync_cloud_save_now` is always allowed. `force` skips the
+/// local pre-check and is only used by an explicit "keep this device" choice:
+/// the server still arbitrates and keeps both sides.
+async fn sync_game(
+    app: &AppHandle,
+    game_id: i64,
+    automatic: bool,
+    force: bool,
+) -> Result<SyncOutcome, String> {
     let (settings, rows, prefs) = {
         let state = app.state::<AppState>();
         let settings = state.settings_snapshot();
@@ -1392,8 +1762,68 @@ async fn sync_game(app: &AppHandle, game_id: i64, automatic: bool) -> Result<Syn
         return Ok(SyncOutcome::Unchanged);
     }
 
-    let result =
-        upload_snapshot(app, &settings, game_id, &archive, &device_id, &device_label).await;
+    // Read the server before uploading so a multi-device divergence is offered
+    // instead of silently overwriting (#296). Offline, this is a no-op and the
+    // upload path queues the sync as before; the next retry reads the server
+    // again and re-evaluates the conflict against the then-current bytes.
+    let remote = if client_context(&settings).is_ok() {
+        match fetch_remote_state(app, &settings, game_id).await {
+            Ok(state) => Some(state),
+            Err(error) => {
+                tracing::debug!(error = %error, "cloud save remote state unavailable");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    if !force {
+        if let Some(remote) = remote.as_ref() {
+            if let Some(latest) = SaveSnapshotSummary::latest_of(&remote.snapshots) {
+                if latest.sha256 == archive.sha256 {
+                    // Another device already uploaded these exact bytes.
+                    clear_pending(app, game_id)?;
+                    let _ = fs::remove_file(&archive.path);
+                    return Ok(SyncOutcome::Unchanged);
+                }
+                let candidate = local_side(&archive, &device_id, remote.clock_offset_secs);
+                let prefer = if remote.policy.policy == "prefer_device" {
+                    remote.policy.device_id.as_deref()
+                } else {
+                    None
+                };
+                match decide(&snapshot_side(latest), &candidate, prefer) {
+                    SaveDecision::Conflict(reason) => {
+                        record_queued(app, game_id, &latest.sha256)?;
+                        let _ = fs::remove_file(&archive.path);
+                        tracing::debug!(
+                            game_id,
+                            reason = reason.as_str(),
+                            "cloud save conflict offered"
+                        );
+                        return Ok(SyncOutcome::Conflict);
+                    }
+                    SaveDecision::FastForward(SaveSideKind::Existing) => {
+                        // The server holds a strict descendant: uploading this
+                        // stale archive would only add noise.
+                        record_queued(app, game_id, &latest.sha256)?;
+                        let _ = fs::remove_file(&archive.path);
+                        return Ok(SyncOutcome::Stale);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let facts = UploadFacts {
+        device_id,
+        device_label,
+        client_mtime: archive.newest,
+        client_sent_at: Utc::now(),
+    };
+    let result = upload_snapshot(app, &settings, game_id, &archive, &facts).await;
     let _ = fs::remove_file(&archive.path);
 
     match result {
@@ -1407,7 +1837,11 @@ async fn sync_game(app: &AppHandle, game_id: i64, automatic: bool) -> Result<Syn
             // whose `createdAt` is still a valid baseline for this content.
             db::record_cloud_save_upload(&connection, game_id, &snapshot.sha256, &now_rfc3339())?;
             invalidate_scan_cache(game_id);
-            Ok(SyncOutcome::Uploaded)
+            if snapshot.conflict_of.is_some() {
+                Ok(SyncOutcome::Conflict)
+            } else {
+                Ok(SyncOutcome::Uploaded)
+            }
         }
         Err(UploadError::Retryable(error)) => {
             record_failure(app, game_id, &error, true)?;
@@ -1518,27 +1952,59 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
         .map_err(|error| format!("The save scan task failed: {error}"))?
     };
     let server_configured = client_context(&settings).is_ok();
-    let (latest, remote_message) = if server_configured {
+    let (latest, policy, clock_offset_secs, server_conflict, remote_message) = if server_configured
+    {
         let started = std::time::Instant::now();
-        let result = match fetch_snapshots(app, &settings, game_id).await {
-            Ok(snapshots) => (snapshots.into_iter().next(), None),
-            Err(error) => (None, Some(error)),
+        let fetched = match fetch_snapshots(app, &settings, game_id).await {
+            Ok((snapshots, offset)) => {
+                let policy = fetch_policy(app, &settings, game_id)
+                    .await
+                    .unwrap_or_else(|error| {
+                        tracing::debug!(error = %error, "cloud save policy unavailable; asking");
+                        CloudSavePolicy::default()
+                    });
+                let conflict = fetch_conflicts(app, &settings, game_id)
+                    .await
+                    .ok()
+                    .and_then(|conflicts| conflicts.into_iter().next());
+                (snapshots, policy, offset, conflict, None)
+            }
+            Err(error) => (Vec::new(), CloudSavePolicy::default(), 0, None, Some(error)),
         };
         tracing::debug!(
             game_id,
             elapsed_ms = started.elapsed().as_millis() as u64,
-            ok = result.1.is_none(),
+            ok = fetched.4.is_none(),
             "cloud save snapshot query"
         );
-        result
+        fetched
     } else {
-        (None, None)
+        (Vec::new(), CloudSavePolicy::default(), 0, None, None)
     };
+    let latest = SaveSnapshotSummary::latest_of(&latest).cloned();
     let toggle = effective_sync(
         settings.cloud_auto_sync,
         prefs.as_ref().and_then(|prefs| prefs.auto_sync),
     );
-    let conflict = conflict_between(&local, prefs.as_ref(), latest.as_ref());
+    let device_id = Some(settings.cloud_device_id.clone()).filter(|id| !id.is_empty());
+    let policy_conflict = latest.as_ref().is_some_and(|latest| {
+        prefs
+            .as_ref()
+            .and_then(|prefs| prefs.queued_remote_sha256.as_deref())
+            == Some(latest.sha256.as_str())
+    });
+    let context = ConflictContext {
+        device_id: device_id.clone(),
+        device_label: settings.cloud_device_label.clone(),
+        clock_offset_secs,
+        prefer_local: policy.prefers(device_id.as_deref()),
+        server_conflict_id: server_conflict.as_ref().map(|conflict| conflict.id),
+        server_reason: server_conflict
+            .as_ref()
+            .map(|conflict| conflict.reason.clone()),
+        policy_conflict,
+    };
+    let conflict = conflict_between(&local, prefs.as_ref(), latest.as_ref(), &context);
     let pending = prefs
         .as_ref()
         .map(|prefs| CloudSavePending {
@@ -1663,6 +2129,8 @@ pub async fn status(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, St
             .or_else(|| restore.map(|restore| restore.restored_at)),
         toggle,
         conflict,
+        policy: policy.clone(),
+        clock_offset_secs,
         pending,
         pending_mappings,
         device_id: Some(settings.cloud_device_id).filter(|id| !id.is_empty()),
@@ -1777,12 +2245,52 @@ pub fn set_sync(
     })
 }
 
+/// Change the per-game conflict policy (#296).
+///
+/// `prefer_device` without an explicit id means "this machine": the id is the
+/// same random UUID the sync engine already sends.
+pub async fn set_policy(
+    app: &AppHandle,
+    game_id: i64,
+    policy: &str,
+    device_id: Option<&str>,
+) -> Result<CloudSavePolicy, String> {
+    let settings = {
+        let state = app.state::<AppState>();
+        state.settings_snapshot()
+    };
+    let policy = policy.trim();
+    let body = match policy {
+        "ask" => CloudSavePolicy::default(),
+        "prefer_device" => {
+            let device_id = match device_id.map(str::trim).filter(|id| !id.is_empty()) {
+                Some(id) => id.to_string(),
+                None => {
+                    let state = app.state::<AppState>();
+                    ensure_device_identity(&state)?.0
+                }
+            };
+            CloudSavePolicy {
+                policy: "prefer_device".to_string(),
+                device_id: Some(device_id),
+            }
+        }
+        other => {
+            return Err(format!(
+                "Unknown save policy '{other}'. Use 'ask' or 'prefer_device'."
+            ))
+        }
+    };
+    put_policy(app, &settings, game_id, &body).await
+}
+
 /// Manual upload for one game. Failures still return a status carrying the
 /// pending retry/error instead of losing the local archive.
 pub async fn sync_now(app: &AppHandle, game_id: i64) -> Result<CloudSaveStatus, String> {
-    // The status carries whether an upload happened, stayed unchanged, or was
-    // queued for retry, so the UI never has to parse an error string.
-    let _ = sync_game(app, game_id, false).await?;
+    // The status carries whether an upload happened, stayed unchanged, was
+    // offered as a conflict, or was queued for retry, so the UI never has to
+    // parse an error string.
+    let _ = sync_game(app, game_id, false, false).await?;
     status(app, game_id).await
 }
 
@@ -1808,9 +2316,9 @@ pub async fn restore(
     if rows.is_empty() {
         return Err(crate::saves::detect::NO_SAVE_MESSAGE.to_string());
     }
-    let snapshots = fetch_snapshots(app, &settings, game_id).await?;
-    let latest = snapshots
-        .first()
+    let (snapshots, _) = fetch_snapshots(app, &settings, game_id).await?;
+    let latest = SaveSnapshotSummary::latest_of(&snapshots)
+        .cloned()
         .ok_or_else(|| "There is no cloud snapshot to restore for this game.".to_string())?;
 
     if strategy == RestoreStrategy::Remote {
@@ -1829,7 +2337,16 @@ pub async fn restore(
 
     match strategy {
         RestoreStrategy::KeepLocal => {
-            let outcome = sync_game(app, game_id, false).await?;
+            // An explicit choice: skip the local pre-check, but let the server
+            // arbitrate and keep both sides (#296).
+            let outcome = sync_game(app, game_id, false, true).await?;
+            if outcome == SyncOutcome::Conflict {
+                if let Err(error) =
+                    resolve_open_conflict(app, &settings, game_id, "keep_local").await
+                {
+                    tracing::warn!(error = %error, game_id, "could not record the keep-local choice");
+                }
+            }
             {
                 let state = app.state::<AppState>();
                 let connection = state
@@ -1849,6 +2366,9 @@ pub async fn restore(
                     "Kept the local saves; they already match the last uploaded snapshot."
                         .to_string()
                 }
+                SyncOutcome::Conflict => {
+                    "Kept the local saves. The server copy is kept as a restore point.".to_string()
+                }
                 SyncOutcome::Failed => {
                     "Kept the local saves. The upload failed and is queued for retry.".to_string()
                 }
@@ -1863,7 +2383,7 @@ pub async fn restore(
             })
         }
         RestoreStrategy::Remote => {
-            let archive = download_snapshot(app, &settings, latest).await?;
+            let archive = download_snapshot(app, &settings, &latest).await?;
             let hash = sha256_file(&archive)?;
             if hash != latest.sha256 {
                 let _ = fs::remove_file(&archive);
@@ -1947,6 +2467,13 @@ pub async fn restore(
             // #295: let the server pin the snapshot and record the receipt.
             let device = Some(settings.cloud_device_id.as_str()).filter(|id| !id.trim().is_empty());
             record_server_restore(app, &settings, latest.id, device).await;
+
+            // A server-conflict copy is no longer needed once the canonical
+            // snapshot was restored locally: mark it resolved, keep the loser.
+            if let Err(error) = resolve_open_conflict(app, &settings, game_id, "keep_remote").await
+            {
+                tracing::warn!(error = %error, game_id, "could not record the keep-remote choice");
+            }
 
             Ok(RestoreOutcome {
                 restored: true,
@@ -2405,9 +2932,13 @@ pub fn schedule_after_exit(app: AppHandle, game_id: i64) {
         // runs even when automatic sync is off.
         crate::saves::history::snapshot_after_exit(app.clone(), game_id).await;
 
-        match sync_game(&app, game_id, true).await {
+        match sync_game(&app, game_id, true, false).await {
             Ok(SyncOutcome::Uploaded | SyncOutcome::Unchanged) => {
                 let _ = app.emit("cloud-save://synced", game_id);
+            }
+            // A conflict is surfaced, never resolved automatically (#296).
+            Ok(SyncOutcome::Conflict | SyncOutcome::Stale) => {
+                let _ = app.emit("cloud-save://conflict", game_id);
             }
             Ok(SyncOutcome::Disabled | SyncOutcome::NoPaths | SyncOutcome::NoFiles) => {}
             Ok(SyncOutcome::Failed) => {
@@ -2444,9 +2975,15 @@ async fn retry_due(app: &AppHandle) -> Result<(), String> {
         db::due_cloud_save_retries(&connection, &now_rfc3339())?
     };
     for game_id in due {
-        match sync_game(app, game_id, true).await {
+        // Re-evaluation happens here, on reconnect: `sync_game` re-reads the
+        // server and runs the policy against the current remote bytes, never
+        // against the verdict that queued the retry (#296).
+        match sync_game(app, game_id, true, false).await {
             Ok(SyncOutcome::Uploaded | SyncOutcome::Unchanged) => {
                 let _ = app.emit("cloud-save://synced", game_id);
+            }
+            Ok(SyncOutcome::Conflict | SyncOutcome::Stale) => {
+                let _ = app.emit("cloud-save://conflict", game_id);
             }
             Ok(_) => {}
             Err(error) => tracing::debug!(error = %error, game_id, "cloud save retry failed"),
@@ -2688,6 +3225,10 @@ mod tests {
             created_at: created_at.into(),
             source: "auto".into(),
             device_id: Some("device-b".into()),
+            client_mtime: None,
+            clock_offset_secs: 0,
+            save_seq: None,
+            conflict_of: None,
         }
     }
 
@@ -2702,6 +3243,8 @@ mod tests {
             pending_next_at: None,
             pending_error: None,
             ignored_remote_hash: None,
+            queued_remote_sha256: None,
+            queued_at: None,
         }
     }
 
@@ -2728,6 +3271,7 @@ mod tests {
             &local_state(2, Some("2026-11-10T13:00:00Z")),
             Some(&prefs(Some("uploaded"), Some("2026-11-10T12:00:00Z"))),
             Some(&latest),
+            &ConflictContext::default(),
         );
         assert!(conflict.is_some());
         assert_eq!(conflict.unwrap().remote_sha256, "remote-hash");
@@ -2738,6 +3282,7 @@ mod tests {
             &local_state(2, Some("2026-11-10T13:00:00Z")),
             Some(&prefs(Some("uploaded"), Some("2026-11-10T12:00:00Z"))),
             Some(&unchanged_remote),
+            &ConflictContext::default(),
         )
         .is_none());
 
@@ -2746,6 +3291,7 @@ mod tests {
             &local_state(2, Some("2026-11-10T11:00:00Z")),
             Some(&prefs(Some("uploaded"), Some("2026-11-10T12:00:00Z"))),
             Some(&latest),
+            &ConflictContext::default(),
         )
         .is_none());
 
@@ -2754,6 +3300,7 @@ mod tests {
             &local_state(0, None),
             Some(&prefs(None, None)),
             Some(&latest),
+            &ConflictContext::default(),
         )
         .is_none());
 
@@ -2762,6 +3309,7 @@ mod tests {
             &local_state(1, Some("2026-11-10T13:00:00Z")),
             None,
             Some(&latest),
+            &ConflictContext::default(),
         )
         .is_some());
 
@@ -2773,6 +3321,7 @@ mod tests {
             &local_state(2, Some("2026-11-10T13:00:00Z")),
             Some(&acknowledged),
             Some(&latest),
+            &ConflictContext::default(),
         )
         .is_none());
         let other = snapshot("another-hash", "2026-11-11T12:00:00Z");
@@ -2780,8 +3329,150 @@ mod tests {
             &local_state(2, Some("2026-11-10T13:00:00Z")),
             Some(&acknowledged),
             Some(&other),
+            &ConflictContext::default(),
         )
         .is_some());
+    }
+
+    #[test]
+    fn conflict_context_describes_both_sides() {
+        let latest = snapshot("remote-hash", "2026-11-10T12:00:00Z");
+        let pref = prefs(Some("uploaded"), Some("2026-11-10T12:00:00Z"));
+        let context = ConflictContext {
+            device_id: Some("laptop".to_string()),
+            device_label: Some("Laptop".to_string()),
+            clock_offset_secs: 7_200,
+            prefer_local: false,
+            server_conflict_id: Some(44),
+            server_reason: Some("clock_skew".to_string()),
+            policy_conflict: false,
+        };
+        let conflict = conflict_between(
+            &local_state(3, Some("2026-11-10T13:00:00Z")),
+            Some(&pref),
+            Some(&latest),
+            &context,
+        )
+        .expect("conflict");
+        // The dialog shows two candidates side by side: local totals and the
+        // server archive, each with its device and date.
+        assert_eq!(conflict.local_files, 3);
+        assert_eq!(conflict.local_device_label.as_deref(), Some("Laptop"));
+        assert_eq!(conflict.remote_size, 12);
+        assert_eq!(conflict.remote_label, "auto");
+        assert_eq!(conflict.remote_device_id.as_deref(), Some("device-b"));
+        assert_eq!(conflict.clock_offset_secs, 7_200);
+        assert!(conflict.clock_skewed);
+        assert_eq!(conflict.reason, "clock_skew");
+        assert_eq!(conflict.server_conflict_id, Some(44));
+
+        // A two-hour clock difference is reported as a skew even without a
+        // server row; the dialog warns instead of letting it win.
+        let skewed = conflict_between(
+            &local_state(3, Some("2026-11-10T13:00:00Z")),
+            Some(&pref),
+            Some(&latest),
+            &ConflictContext {
+                clock_offset_secs: CLOCK_SKEW_LIMIT_SECS + 1,
+                ..ConflictContext::default()
+            },
+        )
+        .expect("conflict");
+        assert_eq!(skewed.reason, "clock_skew");
+        assert!(skewed.clock_skewed);
+
+        // An offline queue entry for this exact remote hash keeps the choice
+        // offered even when the local mtime is not newer than the upload.
+        let queued = conflict_between(
+            &local_state(3, Some("2026-11-10T11:00:00Z")),
+            Some(&pref),
+            Some(&latest),
+            &ConflictContext {
+                policy_conflict: true,
+                ..ConflictContext::default()
+            },
+        );
+        assert!(queued.is_some(), "queued policy conflict must be offered");
+
+        // "Always prefer this device" already answered: no dialog.
+        assert!(conflict_between(
+            &local_state(3, Some("2026-11-10T13:00:00Z")),
+            Some(&pref),
+            Some(&latest),
+            &ConflictContext {
+                prefer_local: true,
+                ..ConflictContext::default()
+            },
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn prefer_device_policy_matches_the_local_device_only() {
+        let policy = CloudSavePolicy {
+            policy: "prefer_device".to_string(),
+            device_id: Some("laptop".to_string()),
+        };
+        assert!(policy.prefers(Some("laptop")));
+        assert!(!policy.prefers(Some("steam-deck")));
+        assert!(!policy.prefers(None));
+        assert!(!CloudSavePolicy::default().prefers(Some("laptop")));
+    }
+
+    /// #296: an offline upload is queued without a verdict. On reconnect the
+    /// policy runs again against the remote bytes that exist at that moment,
+    /// so the same local archive can stop or start a conflict.
+    #[test]
+    fn offline_queue_is_re_evaluated_against_the_current_remote() {
+        let local = SaveSide {
+            sha256: "local".into(),
+            size: 180,
+            client_mtime: Some(
+                DateTime::parse_from_rfc3339("2026-11-10T15:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            clock_offset_secs: 0,
+            save_seq: None,
+            device_id: Some("laptop".into()),
+            recorded_at: Utc::now(),
+        };
+        let side = |sha: &str, size: i64, mtime: &str| SaveSide {
+            sha256: sha.into(),
+            size,
+            client_mtime: Some(
+                DateTime::parse_from_rfc3339(mtime)
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            clock_offset_secs: 0,
+            save_seq: None,
+            device_id: Some("steam-deck".into()),
+            recorded_at: Utc::now(),
+        };
+
+        // Queued at 15:00: both sides changed in incompatible directions.
+        let at_queue_time = side("remote-a", 200, "2026-11-10T12:00:00Z");
+        assert_eq!(
+            decide(&at_queue_time, &local, None),
+            SaveDecision::Conflict(ConflictReason::BothChanged)
+        );
+
+        // Reconnect later: the remote advanced to a strict descendant of the
+        // local archive, so the local upload is stale and must not overwrite.
+        let on_reconnect = side("remote-b", 260, "2026-11-10T16:00:00Z");
+        assert_eq!(
+            decide(&on_reconnect, &local, None),
+            SaveDecision::FastForward(SaveSideKind::Existing)
+        );
+
+        // A different reconnect: the remote went backwards, so the local
+        // archive is now the descendant and the upload fast-forwards.
+        let remote_behind = side("remote-c", 150, "2026-11-10T10:00:00Z");
+        assert_eq!(
+            decide(&remote_behind, &local, None),
+            SaveDecision::FastForward(SaveSideKind::Candidate)
+        );
     }
 
     #[test]
