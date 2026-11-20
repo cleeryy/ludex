@@ -774,6 +774,8 @@ mod tests {
                 mode: DisplayMode::Desktop,
                 ..DisplayProfile::default()
             },
+            audio_sink: String::new(),
+            gamemode: false,
         }
     }
 

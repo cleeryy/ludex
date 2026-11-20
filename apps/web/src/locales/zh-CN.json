@@ -4375,5 +4375,22 @@
   "Logs, versions and the resolved plan, with secrets removed.": "日志、版本和解析后的方案，已移除机密信息。",
   "plan {hash}": "方案 {hash}",
   "Previous launch setup restored": "已恢复上次的启动配置",
-  "Report this game": "报告此游戏"
+  "Report this game": "报告此游戏",
+  "Applying the prerequisite recipe…": "正在应用前置组件配方…",
+  "Chosen from the game, the machine and the rules. No compatibility setting to pick.": "根据游戏、机器和规则自动选择。无需挑选任何兼容性设置。",
+  "Could not cancel the prerequisites": "无法取消前置组件安装",
+  "Could not export the launch plan": "无法导出启动方案",
+  "Could not read the launch plan": "无法读取启动方案",
+  "Could not refresh the launch plan": "无法刷新启动方案",
+  "Exited after": "退出于",
+  "Launch plan": "启动方案",
+  "Launch plan exported": "启动方案已导出",
+  "Ludex handed the session to the auto-revert path instead of retrying the same plan.": "Ludex 已将本次会话交给自动回退流程，而不是重复尝试同一方案。",
+  "Manual override": "手动覆盖",
+  "Prerequisites": "前置组件",
+  "Recalculate": "重新计算",
+  "The JSON file can be shared with support.": "该 JSON 文件可提供给支持团队。",
+  "The last automatic launch failed": "上次自动启动失败",
+  "The machine changed since this plan was stored; recalculate before playing.": "保存此方案后机器已发生变化；请在游玩前重新计算。",
+  "The saved launch options win; the rules are informational.": "已保存的启动选项优先；规则仅供参考。"
 }

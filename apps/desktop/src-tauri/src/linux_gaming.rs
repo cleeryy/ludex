@@ -69,6 +69,14 @@ pub struct LaunchOptions {
     /// Audio output sink for this game (#289). Empty follows the profile
     /// default: the global override, then the sound server's own default.
     pub audio_sink: String,
+    /// In-memory only: the launch plan asked for GameMode (#297).
+    ///
+    /// Set by `launch_plan::apply_to_options`, read by the Linux launch path to
+    /// wrap the entry point with `gamemoderun`. Never written to the database
+    /// and never part of the recovery profile hash, so a saved or reverted
+    /// profile keeps the user's own decisions only.
+    #[serde(skip)]
+    pub gamemode: bool,
 }
 
 impl Default for LaunchOptions {
@@ -83,6 +91,7 @@ impl Default for LaunchOptions {
             working_dir: String::new(),
             display: DisplayProfile::default(),
             audio_sink: String::new(),
+            gamemode: false,
         }
     }
 }

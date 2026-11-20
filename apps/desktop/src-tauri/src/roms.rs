@@ -323,6 +323,8 @@ pub fn launch_rom(
         // A ROM through an emulator has no compatibility plan to revert (#298).
         plan: None,
         stopped: std::sync::atomic::AtomicBool::new(false),
+        // An emulator launch never goes through the rules engine (#297).
+        auto_plan: None,
     });
     {
         let mut processes = state

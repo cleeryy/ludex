@@ -4375,5 +4375,22 @@
   "Logs, versions and the resolved plan, with secrets removed.": "ログ、バージョン、解決済みのプラン（機密情報は除去済み）。",
   "plan {hash}": "プラン {hash}",
   "Previous launch setup restored": "以前の起動設定を復元しました",
-  "Report this game": "このゲームを報告"
+  "Report this game": "このゲームを報告",
+  "Applying the prerequisite recipe…": "前提条件レシピを適用中…",
+  "Chosen from the game, the machine and the rules. No compatibility setting to pick.": "ゲーム、マシン、ルールから自動で決定します。互換性設定を選ぶ必要はありません。",
+  "Could not cancel the prerequisites": "前提条件をキャンセルできませんでした",
+  "Could not export the launch plan": "起動プランをエクスポートできませんでした",
+  "Could not read the launch plan": "起動プランを読み取れませんでした",
+  "Could not refresh the launch plan": "起動プランを更新できませんでした",
+  "Exited after": "終了までの時間",
+  "Launch plan": "起動プラン",
+  "Launch plan exported": "起動プランをエクスポートしました",
+  "Ludex handed the session to the auto-revert path instead of retrying the same plan.": "Ludex は同じプランを再試行せず、セッションを自動復帰に引き継ぎました。",
+  "Manual override": "手動オーバーライド",
+  "Prerequisites": "前提条件",
+  "Recalculate": "再計算",
+  "The JSON file can be shared with support.": "JSON ファイルはサポートと共有できます。",
+  "The last automatic launch failed": "前回の自動起動に失敗しました",
+  "The machine changed since this plan was stored; recalculate before playing.": "このプランの保存後にマシンが変更されました。プレイ前に再計算してください。",
+  "The saved launch options win; the rules are informational.": "保存された起動オプションが優先されます。ルールは参考情報です。"
 }

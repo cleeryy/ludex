@@ -1561,6 +1561,9 @@ pub fn get_launch_options(connection: &Connection, game_id: i64) -> Result<Launc
         display,
         // #289: a sink name is a host-local opaque string, never a path.
         audio_sink: audio_sink.trim().to_string(),
+        // #297: an in-memory wrapper flag, never read from or written to the
+        // database; the plan sets it on the launch copy only.
+        gamemode: false,
     })
 }
 
@@ -6058,7 +6061,7 @@ mod tests {
     }
 
     #[test]
-    fn save_restore_points_survive_a_v26_reopen() {
+    fn save_restore_points_survive_a_schema_reopen() {
         let root = temp_database_dir("restore-points");
         let path = root.join("ludex-desktop.db");
         {
@@ -6074,7 +6077,7 @@ mod tests {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 26);
+        assert_eq!(version, SCHEMA_VERSION);
         let points = list_save_restore_points(&connection, 4).unwrap();
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].file_name, "session-4.zip");

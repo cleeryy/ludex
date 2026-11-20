@@ -3326,6 +3326,104 @@ export interface LaunchRecoveryNotice {
   message: string;
 }
 
+/** One prerequisite recipe step (#297). The verbs are internal. */
+export interface LaunchPlanPrerequisite {
+  /** Stable id (`vcrun`, `directx`). */
+  id: string;
+  /** Human label shown in the plan. */
+  label: string;
+  /** Internal winetricks verbs; never rendered in the primary UI. */
+  verbs: string[];
+}
+
+/** Wrappers the plan asks for (#297). */
+export interface LaunchPlanWrappers {
+  gamescope: boolean;
+  gamemode: boolean;
+  mangohud: boolean;
+}
+
+/** The rules engine's decision for one game (#297). */
+export interface LaunchPlan {
+  version: number;
+  gameId: number;
+  title: string;
+  /** How the game is started. */
+  runtime: "umu" | "native" | "wine" | "launcher-uri";
+  /**
+   * False when no executable is recorded yet; the runtime is then left to the
+   * auto rule at play time and the sentence says "best available runtime".
+   */
+  executableKnown: boolean;
+  /** Proton build preference; `sentence` names it in full. */
+  proton: "pinned" | "steam" | "any" | { build: string };
+  /** Detected compat tool id the preference resolved to. */
+  toolId: string | null;
+  /** UMU GAMEID, when one is known. */
+  gameIdEnv: string | null;
+  env: Record<string, string>;
+  prefix: "per-game";
+  prerequisites: LaunchPlanPrerequisite[];
+  wrappers: LaunchPlanWrappers;
+  /** Display profile the plan asks for. */
+  display: DisplayProfile;
+  /** Seconds the game has to reach its first frame. */
+  firstFrameBudgetSecs: number;
+  notes: string[];
+  /** Matched rule ids, in evaluation order. */
+  rules: string[];
+  rulesVersion: string;
+  /** `auto` applies the plan; `manual` means saved options win. */
+  source: "auto" | "manual";
+  /** The one-sentence plan the UI shows. */
+  sentence: string;
+  generatedAt: string;
+}
+
+/** Why an automatic launch failed (#297 → #298). */
+export interface LaunchPlanFailure {
+  kind: "no-first-frame" | "fatal-exit";
+  exitCode: number;
+  seconds: number;
+  budgetSecs: number;
+  hint: string;
+}
+
+/** Prerequisite progress on `launch://plan-progress`. */
+export interface LaunchPlanProgress {
+  gameId: number;
+  phase: "prerequisites" | "done" | "failed";
+  stepId: string | null;
+  index: number;
+  total: number;
+  percent: number | null;
+  /** Human text; never a winetricks verb. */
+  message: string;
+}
+
+/** Failure payload on `launch://plan-failed`. */
+export interface LaunchPlanFailed {
+  gameId: number;
+  sessionId: string;
+  planSentence: string;
+  rules: string[];
+  failure: LaunchPlanFailure;
+}
+
+/** The plan plus what the view needs to explain it (#297). */
+export interface LaunchPlanView {
+  plan: LaunchPlan;
+  /** Where the stored plan JSON lives (exportable). */
+  path: string;
+  stored: boolean;
+  /** The stored plan was built from different inputs. */
+  stale: boolean;
+  /** Prerequisites are being applied right now. */
+  running: boolean;
+  lastFailure: LaunchPlanFailure | null;
+  lastFailureAt: string | null;
+}
+
 export interface CompatTool {
   id: string;
   name: string;

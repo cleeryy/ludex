@@ -67,6 +67,9 @@ import type {
   LaunchOptions,
   LocalSaveRestoreOutcome,
   LaunchRecoveryNotice,
+  LaunchPlanFailed,
+  LaunchPlanProgress,
+  LaunchPlanView,
   LocalSettings,
   LocationStatus,
   ManifestProgress,
@@ -1060,6 +1063,26 @@ export const native = {
     await invoke<null>("set_audio_default_sink", { sink });
   },
 
+  /** The auto-configuration plan for one game (#297). */
+  async launchPlanGet(gameId: number): Promise<LaunchPlanView> {
+    return invoke<LaunchPlanView>("launch_plan_get", { gameId });
+  },
+
+  /** Re-evaluate and store the plan; the next launch reuses it. */
+  async launchPlanRefresh(gameId: number): Promise<LaunchPlanView> {
+    return invoke<LaunchPlanView>("launch_plan_refresh", { gameId });
+  },
+
+  /** Portable JSON export of the plan. */
+  async launchPlanExport(gameId: number): Promise<string> {
+    return invoke<string>("launch_plan_export", { gameId });
+  },
+
+  /** Cancel the prerequisite recipe currently applied to this game. */
+  async launchPlanCancel(gameId: number): Promise<boolean> {
+    return invoke<boolean>("launch_plan_cancel", { gameId });
+  },
+
   async winePrefixInfo(gameId: number): Promise<PrefixInfo> {
     return invoke<PrefixInfo>("wine_prefix_info", { gameId });
   },
@@ -1152,6 +1175,16 @@ export const native = {
 
   async onRuntimeProgress(handler: (progress: RuntimeProgress) => void): Promise<() => void> {
     return listen<RuntimeProgress>("runtime://progress", handler);
+  },
+
+  /** Prerequisite recipe progress of an automatic launch (#297). */
+  async onLaunchPlanProgress(handler: (progress: LaunchPlanProgress) => void): Promise<() => void> {
+    return listen<LaunchPlanProgress>("launch://plan-progress", handler);
+  },
+
+  /** An automatic launch failed; the auto-revert path consumes it (#298). */
+  async onLaunchPlanFailed(handler: (payload: LaunchPlanFailed) => void): Promise<() => void> {
+    return listen<LaunchPlanFailed>("launch://plan-failed", handler);
   },
 
   /** An automatic or manual save-database update finished (#153). */

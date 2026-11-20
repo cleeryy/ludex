@@ -27,6 +27,7 @@ mod install_health;
 mod installer;
 mod launch;
 mod launch_bundle;
+mod launch_plan;
 mod launch_recovery;
 mod launchers;
 mod linux_gaming;
@@ -379,6 +380,10 @@ pub fn run() {
             host_preflight::host_preflight_install,
             commands::get_launch_options,
             commands::set_launch_options,
+            launch_plan::launch_plan_get,
+            launch_plan::launch_plan_refresh,
+            launch_plan::launch_plan_export,
+            launch_plan::launch_plan_cancel,
             audio::audio_sinks,
             audio::audio_test_sink,
             audio::audio_volume_state,

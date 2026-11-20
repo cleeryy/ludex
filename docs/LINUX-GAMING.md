@@ -3,9 +3,11 @@
 How Ludex starts a Windows game on Linux, what it cleans from the environment,
 where the tool output goes and how to read it when a game dies immediately.
 
-Related: [INTEGRATIONS.md](INTEGRATIONS.md) (compat detection, prefixes,
-winetricks, ProtonDB), [GAMESCOPE.md](GAMESCOPE.md) (per-game display
-profiles), [SHADERS.md](SHADERS.md) (shader warm start after install),
+Related: [LAUNCH-PLANS.md](LAUNCH-PLANS.md) (the rules engine that picks
+the mode for you and the auto-revert that follows it, #297/#298),
+[INTEGRATIONS.md](INTEGRATIONS.md) (compat detection, prefixes, winetricks,
+ProtonDB), [GAMESCOPE.md](GAMESCOPE.md) (per-game display profiles),
+[SHADERS.md](SHADERS.md) (shader warm start after install),
 [DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage install) and
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -63,6 +65,17 @@ as per-game overrides in Settings → Launch options.
 If a wrapper script of your own starts the game, unset the same variables
 (`env -u PYTHONHOME -u PYTHONPATH -u PYTHONNOUSERSITE -u LD_LIBRARY_PATH -u LD_PRELOAD …`)
 before calling `umu-run`; Ludex already does this for its own spawns.
+
+## Launch plans (#297)
+
+The launch mode above is normally chosen for you: a rules engine evaluates the
+executable, engine markers, a known GAMEID, the archive origin and the GPU
+driver, then applies a launch plan (runtime, Proton build, environment, prefix,
+prerequisite recipe, wrappers). The game page states it in one sentence, the
+plan is stored under `<appDataDir>/launch-plans/` and the launch log records the
+same decision. See [LAUNCH-PLANS.md](LAUNCH-PLANS.md); saving any launch option
+by hand still wins over the plan, and a profile restored by the auto-revert
+(#298) is treated as such until the options are cleared.
 
 ## Launch logs (#280)
 

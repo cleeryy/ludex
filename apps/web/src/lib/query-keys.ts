@@ -160,6 +160,8 @@ export const qk = {
   /** Launch-time input devices and the per-game preferred controller (#314). */
   controllerInventory: ["controller-inventory"] as const,
   gameControllers: (gameId: number) => key("game-controllers", gameId),
+  /** Auto-configuration plan (#297): stored per game, re-evaluated on demand. */
+  launchPlan: (gameId: number) => key("launch-plan", gameId),
   prefixInfo: (gameId: number) => key("prefix-info", gameId),
   /** Audio output devices and the global override (#289). */
   audioSinks: ["audio-sinks"] as const,

@@ -397,6 +397,62 @@ pub async fn launch(
     // #280: the session id names the compatibility log, so it exists before
     // the process is built.
     let session_id = uuid::Uuid::new_v4().to_string();
+    // #297: on Linux the rules engine decides the launch. An imported launcher
+    // URI has no compatibility decision, so it is skipped.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let auto = if external_uri.is_none() {
+        let settings = state.settings_snapshot();
+        let scan = crate::compat::scan(&settings);
+        Some(
+            crate::launch_plan::prepare_for_launch(
+                app,
+                &installed,
+                &options,
+                &prefix,
+                &scan,
+                &crate::util::now_rfc3339(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    let auto: Option<crate::launch_plan::AutoLaunch> = None;
+
+    // The plan fills only the fields still on their default; the options the
+    // recovery snapshot records are therefore the effective ones (#298).
+    let options = match &auto {
+        Some(auto) => auto.options.clone(),
+        None => options,
+    };
+    if let Some(auto) = &auto {
+        for line in crate::launch_plan::log_lines(&auto.plan) {
+            tracing::info!(game_id, reused = auto.reused, plan = %line, "launch plan");
+        }
+        if !auto.prerequisites.applied.is_empty() {
+            tracing::info!(
+                game_id,
+                applied = ?auto.prerequisites.applied,
+                "launch plan prerequisites applied"
+            );
+        }
+        if !auto.prerequisites.failed.is_empty() {
+            tracing::warn!(
+                game_id,
+                failed = ?auto.prerequisites.failed,
+                "launch plan prerequisite recipe failed; the launch continues"
+            );
+        }
+        if !auto.prerequisites.skipped.is_empty() {
+            tracing::warn!(
+                game_id,
+                skipped = ?auto.prerequisites.skipped,
+                "winetricks is missing; the prerequisite recipe was skipped"
+            );
+        }
+    }
+
     let prepared = prepare_launch(
         app,
         game_id,
@@ -411,6 +467,15 @@ pub async fn launch(
     )?;
     let tool = prepared.tool;
     let launch_log = prepared.launch_log;
+    // #297: the launch log starts with the plan too, so support can reproduce
+    // the exact configuration. The header belongs to `prepare_launch` (#298),
+    // so the plan section is appended right after it, before the process
+    // writes its own output.
+    if let (Some(log), Some(auto)) = (launch_log.as_deref(), auto.as_ref()) {
+        if let Err(error) = crate::launch_plan::append_log(log, &auto.plan) {
+            tracing::warn!(error = %error, "could not write the launch plan into the log");
+        }
+    }
     // #298: remember the profile this session runs, so the watcher can count a
     // failure against it and revert on the second one.
     let executable_text = executable_path
@@ -498,6 +563,7 @@ pub async fn launch(
         launch_log,
         plan: Some(plan),
         stopped: std::sync::atomic::AtomicBool::new(false),
+        auto_plan: auto.as_ref().map(|auto| Box::new(auto.plan.clone())),
     });
 
     {
@@ -802,6 +868,10 @@ fn linux_prepare_launch(
             });
         }
 
+        let mut resolved = resolved;
+        // #297: GameMode wraps the entry point, inside Gamescope when one is
+        // used. The built-in rules only ask for it on Windows launches.
+        apply_gamemode_wrapper(&mut resolved, options.gamemode);
         // #278: Gamescope is a host program even when Ludex is an AppImage.
         let appimage = linux_gaming::appimage_env();
         let mut command = Command::new(&resolved.program);
@@ -879,6 +949,10 @@ fn linux_prepare_launch(
         &plan.args,
     );
     warn_display_fallback(game_id, &resolved);
+    let mut resolved = resolved;
+    // #297: `gamemoderun umu-run <exe>`, before the Gamescope wrapper when one
+    // is active: the plan states GameMode, the launch applies it.
+    apply_gamemode_wrapper(&mut resolved, options.gamemode);
 
     // #278: the tool is a host program even when Ludex is an AppImage.
     let appimage = linux_gaming::appimage_env();
@@ -1044,6 +1118,27 @@ fn warn_display_fallback(game_id: i64, resolved: &crate::linux_gaming::ResolvedL
             tracing::warn!(game_id, warning, "gamescope profile downgraded");
         }
     }
+}
+
+/// #297: put `gamemoderun` in front of the resolved entry point when the plan
+/// asks for GameMode. `options.gamemode` is in-memory only and defaults to
+/// false, so an unplanned launch never gains a wrapper.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn apply_gamemode_wrapper(resolved: &mut crate::linux_gaming::ResolvedLaunch, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    let (program, args) = crate::launch_plan::wrap_entry(
+        std::mem::take(&mut resolved.program),
+        std::mem::take(&mut resolved.args),
+        &crate::launch_plan::Wrappers {
+            gamemode: true,
+            ..crate::launch_plan::Wrappers::default()
+        },
+        crate::launch_plan::gamemoderun_path(),
+    );
+    resolved.program = program;
+    resolved.args = args;
 }
 
 /// #278: drop the AppImage bundle's Python, loader and Gtk variables before a
@@ -1785,6 +1880,55 @@ fn spawn_focus_watch(app: AppHandle, game_id: i64, session_id: String, pid: u32)
     });
 }
 
+/// #297: tell the shell that an automatic plan failed, and store the failure
+/// next to the plan. Called from the single #298 recovery failure arm, so the
+/// decision (and the failure counter) stays in one place.
+#[allow(clippy::too_many_arguments)]
+fn emit_plan_failure(
+    app: &AppHandle,
+    state: &AppState,
+    game_id: i64,
+    session_id: &str,
+    auto_plan: Option<&crate::launch_plan::LaunchPlan>,
+    exit_code: Option<u32>,
+    seconds: u64,
+    at: &str,
+) {
+    let Some(plan) = auto_plan else {
+        return;
+    };
+    if plan.source != crate::launch_plan::PlanSource::Auto {
+        return;
+    }
+    let failure = crate::launch_plan::PlanFailure::from_recovery(
+        exit_code,
+        seconds,
+        crate::launch_recovery::FIRST_FRAME_BUDGET.as_secs() as u32,
+        crate::launch_recovery::is_fatal_exit(exit_code),
+    );
+    tracing::warn!(
+        game_id,
+        exit_code = %exit_code_hex(failure.exit_code),
+        kind = ?failure.kind,
+        budget_secs = failure.budget_secs,
+        plan = %plan.sentence,
+        "the launch plan failed; the recovery path owns the revert"
+    );
+    if let Err(error) = crate::launch_plan::record_failure(&state.app_data, game_id, &failure, at) {
+        tracing::warn!(error = %error, "could not record the plan failure");
+    }
+    let _ = app.emit(
+        "launch://plan-failed",
+        crate::launch_plan::PlanFailedEvent {
+            game_id,
+            session_id: session_id.to_string(),
+            plan_sentence: plan.sentence.clone(),
+            rules: plan.rules.clone(),
+            failure,
+        },
+    );
+}
+
 fn spawn_watcher(
     app: AppHandle,
     entry: Arc<ProcessEntry>,
@@ -1889,6 +2033,12 @@ fn spawn_watcher(
                     {
                         tracing::warn!(error = %error, game_id, "could not record the working launch plan");
                     }
+                    // #297: the plan reached its frame; clear a stored failure
+                    // so the panel stops offering the auto-revert warning.
+                    if let Err(error) = crate::launch_plan::clear_failure(&state.app_data, game_id)
+                    {
+                        tracing::warn!(error = %error, game_id, "could not confirm the launch plan");
+                    }
                 }
                 crate::launch_recovery::LaunchOutcome::NotCounted => {
                     if let Err(error) = crate::launch_recovery::record_neutral(&path, game_id, plan)
@@ -1897,6 +2047,19 @@ fn spawn_watcher(
                     }
                 }
                 crate::launch_recovery::LaunchOutcome::Failure => {
+                    // #297 → #298: one failure decision feeds both the recovery
+                    // counters above and the plan-facing event; the plan is
+                    // never classified a second time.
+                    emit_plan_failure(
+                        &app,
+                        &state,
+                        game_id,
+                        &session_id,
+                        entry.auto_plan.as_deref(),
+                        code,
+                        elapsed_seconds,
+                        &ended_at,
+                    );
                     let failure = crate::launch_recovery::FailureRecord {
                         at: ended_at.clone(),
                         exit_code: code,
