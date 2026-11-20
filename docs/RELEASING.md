@@ -98,6 +98,17 @@ without reading logs.
 - Switching between stable and early persists the channel and re-checks
   immediately. Early installs show the edge warning in the center.
 
+### Installing the update, by install kind (#312)
+
+The bundle type compiled into the binary is not the install kind: a build made
+for the rpm bundle keeps calling `rpm` even when the file was hand-placed in
+`/opt/ludex`. `install_update` therefore detects the kind at update time — an
+AppImage (`$APPIMAGE`), a dpkg/rpm-owned executable, or a portable ELF — and a
+portable install is updated by Ludex itself: the release `.deb` is verified with
+the same minisign key, `usr/bin/ludex` is extracted, and the executable is
+replaced atomically (backup `.old`, rollback on failure, precise error when the
+folder is root-owned). See [UPDATES.md](UPDATES.md).
+
 ### Desktop database schema across channels
 
 The desktop index (SQLite) is migrated forward automatically, with two

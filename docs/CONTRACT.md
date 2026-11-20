@@ -3224,7 +3224,7 @@ interface RemotePlayCleanup {
 | `check_game_updates` | — | `GameUpdate[]`; per-game failures are skipped |
 | `update_game` | `{ gameId }` | `InstallJob`; installs the newest server version, keeps the previous install until the new files are in place |
 | `check_for_updates` | `{ manual? }` | `UpdateStatus`; manual checks bypass the 24 h throttle. A skipped version keeps `available` but sets `notify: false` (#163) |
-| `install_update` | — | `UpdateStatus` after download+install; refuses when no signing key is configured. Signature, disk and network failures return a specific message (#163) |
+| `install_update` | — | `UpdateStatus` after download+install; refuses when no signing key is configured. Signature, disk and network failures return a specific message (#163). The install kind (AppImage, dpkg/rpm-owned, portable ELF) is detected at update time and a portable install is replaced atomically; the error names the path, owner and the `sudo install` command when it cannot write (#312) |
 | `restart_app` | — | `null` (restarts Ludex; Linux/macOS after an update) |
 | `update_status` | — | `UpdateStatus` without a network check: current version, channel, endpoint, skipped version, last check (#163) |
 | `set_update_channel` | `{ channel }` | Persists `updateChannel` then re-checks on it; unknown values are rejected (#163) |
@@ -4148,7 +4148,13 @@ stops every write. Each applied change appears in the Backups tab with
   `updateChannel` and re-checks immediately. Install requires a configured
   signing key; without one the status reports `configured: false` and
   `install_update` refuses explicitly. Signature, disk and network failures are
-  mapped to specific messages. No token, signing key or password is logged.
+  mapped to specific messages, and the raw updater error is logged before it is
+  mapped. The install kind is detected at update time (#312): an AppImage or a
+  dpkg/rpm-owned binary keeps the plugin flow, a portable ELF is replaced by
+  Ludex itself with the release `.deb` (same minisign key, atomic rename, `.old`
+  backup, rollback), and a non-writable target reports its owner, mode and the
+  exact `sudo install` command. See `docs/UPDATES.md`. No token, signing key or
+  password is logged.
   The browser build has no updater: `/updates` explains that updates are
   desktop-only and links to the release page.
 - **Installed-binary self-check (#186).** Every build embeds
