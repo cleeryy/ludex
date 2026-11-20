@@ -708,6 +708,68 @@ fn is_32bit_icd(path: &Path) -> bool {
     name.contains("i686") || name.contains(".32.") || name.ends_with("_32.json")
 }
 
+/// What an ICD manifest says about the library it points at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IcdLibrary {
+    /// The JSON was read and parsed but carries no usable `library_path`.
+    Absent,
+    /// The `ICD.library_path` value, as written in the manifest.
+    Path(String),
+    /// The file could not be read or parsed as JSON.
+    Unreadable,
+}
+
+fn icd_library(path: &Path) -> IcdLibrary {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return IcdLibrary::Unreadable;
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return IcdLibrary::Unreadable;
+    };
+    match json
+        .get("ICD")
+        .and_then(|icd| icd.get("library_path"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(library) => IcdLibrary::Path(library.to_string()),
+        None => IcdLibrary::Absent,
+    }
+}
+
+/// Resolve a manifest `library_path` for the 32-bit loader (#313).
+///
+/// A bare soname is resolved per architecture by whichever loader opens the
+/// manifest, so it is 32-bit-capable when the name exists in a 32-bit folder:
+/// Arch ships `nvidia_icd.json` with `library_path: "libGLX_nvidia.so.0"` and
+/// `lib32-nvidia-utils` puts that soname in `/usr/lib32`. An absolute path is
+/// only usable when the file already lives inside a 32-bit folder, because the
+/// loader opens it verbatim and cannot load a 64-bit ELF.
+fn resolve_icd32(env: &ProbeEnv, library: &str) -> Option<PathBuf> {
+    let path = Path::new(library);
+    if path.is_absolute() {
+        return (path.is_file() && env.lib32_dirs.iter().any(|dir| path.starts_with(dir)))
+            .then(|| path.to_path_buf());
+    }
+    let name = path.file_name().and_then(|name| name.to_str())?;
+    find_library(&env.lib32_dirs, name)
+}
+
+/// Diagnostic-only guidance for the 32-bit finding.
+///
+/// A package transaction is never suggested: on Arch and CachyOS the usual
+/// `nvidia-dkms` recipe conflicts with the prebuilt `linux-*-nvidia-open`
+/// modules the running kernel uses, and replacing them breaks a working host.
+/// The finding therefore hands out checks, not commands that change packages.
+fn vulkan32_manual() -> HostManual {
+    HostManual {
+        instruction: "Check before changing packages: run vulkaninfo --summary with a 32-bit vulkaninfo when your distribution ships one, and ldd the ICD library (for example /usr/lib32/libGLX_nvidia.so.0) to see whether it is a 32-bit build. The 32-bit loader is owned by a package your distribution can name (pacman -Qo /usr/lib32/libvulkan.so.1 on Arch, dpkg -S on Debian). If that package is missing, install only the 32-bit Vulkan packages your distribution provides; never remove or replace a driver package that already works, and never force a dependency conflict to add 32-bit support. Ludex never installs drivers."
+            .to_string(),
+        url: Some("https://wiki.archlinux.org/title/Vulkan".to_string()),
+    }
+}
+
 fn probe_vulkan(env: &ProbeEnv) -> HostCheck {
     let icds = icd_files(&env.vulkan_icd_dirs);
     let hardware: Vec<&PathBuf> = icds.iter().filter(|path| !is_software_icd(path)).collect();
@@ -790,16 +852,26 @@ fn probe_vulkan(env: &ProbeEnv) -> HostCheck {
 
 fn probe_vulkan32(env: &ProbeEnv) -> HostCheck {
     let icds = icd_files(&env.vulkan_icd_dirs);
-    let icd32: Vec<PathBuf> = icds
-        .iter()
-        .filter(|path| is_32bit_icd(path))
-        .cloned()
-        .collect();
     let loader32 = find_library(&env.lib32_dirs, "libvulkan.so.1")
         .or_else(|| find_library(&env.lib32_dirs, "libvulkan.so"));
+    let Some(loader) = loader32 else {
+        return HostCheck {
+            id: FINDING_VULKAN32.to_string(),
+            label: label_of(FINDING_VULKAN32).to_string(),
+            status: HostStatus::Missing,
+            detail: "The 32-bit Vulkan runtime is not installed; many Windows games are 32-bit and cannot start without it."
+                .to_string(),
+            hint: None,
+            installable: false,
+            packages: Vec::new(),
+            manual: Some(vulkan32_manual()),
+        };
+    };
 
-    match (loader32, icd32.first()) {
-        (Some(loader), Some(icd)) => HostCheck {
+    // Some vendors ship a manifest per architecture (`radeon_icd.i686.json`,
+    // `*_32.json`); the file name is a direct hit when it is present.
+    if let Some(icd) = icds.iter().find(|path| is_32bit_icd(path)) {
+        return HostCheck {
             id: FINDING_VULKAN32.to_string(),
             label: label_of(FINDING_VULKAN32).to_string(),
             status: HostStatus::Ok,
@@ -813,29 +885,91 @@ fn probe_vulkan32(env: &ProbeEnv) -> HostCheck {
             installable: false,
             packages: Vec::new(),
             manual: None,
-        },
-        (Some(loader), None) => HostCheck {
+        };
+    }
+
+    // Otherwise parse each manifest and resolve `library_path` the way the
+    // 32-bit loader would (#313): one arch-agnostic ICD serves both loaders.
+    let mut readable = 0_usize;
+    let mut unresolved: Option<(String, String)> = None;
+    for icd in &icds {
+        let name = icd
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        match icd_library(icd) {
+            IcdLibrary::Unreadable => {}
+            IcdLibrary::Absent => readable += 1,
+            IcdLibrary::Path(library) => {
+                readable += 1;
+                if let Some(resolved) = resolve_icd32(env, &library) {
+                    return HostCheck {
+                        id: FINDING_VULKAN32.to_string(),
+                        label: label_of(FINDING_VULKAN32).to_string(),
+                        status: HostStatus::Ok,
+                        detail: format!(
+                            "The 32-bit Vulkan loader is installed; {name} serves both architectures and resolves to {}, so 32-bit Windows games can render.",
+                            resolved.display()
+                        ),
+                        hint: Some(format!("{} · {name} → {}", loader.display(), resolved.display())),
+                        installable: false,
+                        packages: Vec::new(),
+                        manual: None,
+                    };
+                }
+                unresolved.get_or_insert((name, library));
+            }
+        }
+    }
+
+    let hint = if let Some((name, library)) = unresolved {
+        format!(
+            "{} · {name} → {library} (not resolved in a 32-bit library folder)",
+            loader.display()
+        )
+    } else {
+        loader.display().to_string()
+    };
+
+    if icds.is_empty() {
+        return HostCheck {
             id: FINDING_VULKAN32.to_string(),
             label: label_of(FINDING_VULKAN32).to_string(),
             status: HostStatus::TooOld,
-            detail: "The 32-bit Vulkan loader is installed, but no 32-bit driver ICD is exposed, so 32-bit games fall back to OpenGL."
+            detail: "The 32-bit Vulkan loader is installed, but no driver ICD manifest exists, so 32-bit games fall back to OpenGL."
                 .to_string(),
-            hint: Some(loader.display().to_string()),
+            hint: Some(hint),
             installable: false,
             packages: Vec::new(),
-            manual: Some(driver_manual()),
-        },
-        _ => HostCheck {
+            manual: Some(vulkan32_manual()),
+        };
+    }
+
+    if readable == 0 {
+        return HostCheck {
             id: FINDING_VULKAN32.to_string(),
             label: label_of(FINDING_VULKAN32).to_string(),
-            status: HostStatus::Missing,
-            detail: "The 32-bit Vulkan runtime is not installed; many Windows games are 32-bit and cannot start without it."
+            status: HostStatus::Unknown,
+            detail: "The 32-bit Vulkan loader is installed, but none of the Vulkan ICD manifests could be read, so 32-bit support could not be confirmed."
                 .to_string(),
-            hint: None,
+            hint: Some(hint),
             installable: false,
             packages: Vec::new(),
-            manual: Some(driver_manual()),
-        },
+            manual: Some(vulkan32_manual()),
+        };
+    }
+
+    HostCheck {
+        id: FINDING_VULKAN32.to_string(),
+        label: label_of(FINDING_VULKAN32).to_string(),
+        status: HostStatus::TooOld,
+        detail: "The 32-bit Vulkan loader is installed, but no 32-bit driver ICD is exposed, so 32-bit games fall back to OpenGL."
+            .to_string(),
+        hint: Some(hint),
+        installable: false,
+        packages: Vec::new(),
+        manual: Some(vulkan32_manual()),
     }
 }
 
@@ -1861,6 +1995,143 @@ mod tests {
         );
         assert_eq!(probe_vulkan32(&env).status, HostStatus::Ok);
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vulkan_32bit_accepts_an_arch_agnostic_nvidia_icd() {
+        let root = temp_dir("vulkan32-nvidia");
+        let env = base_env(&root);
+        // Arch ships exactly one NVIDIA manifest: a bare soname that the
+        // loader resolves per architecture (#313).
+        write(
+            &root.join("usr/share/vulkan/icd.d/nvidia_icd.json"),
+            r#"{"file_format_version":"1.0.1","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.4.357"}}"#,
+        );
+        write(&root.join("usr/lib32/libvulkan.so.1"), "");
+        write(&root.join("usr/lib32/libGLX_nvidia.so.0"), "");
+
+        let check = probe_vulkan32(&env);
+        assert_eq!(check.status, HostStatus::Ok, "{}", check.detail);
+        assert!(check.detail.contains("serves both architectures"));
+        let hint = check.hint.unwrap_or_default();
+        assert!(hint.contains("nvidia_icd.json"), "{hint}");
+        assert!(
+            hint.contains(&*root.join("usr/lib32/libGLX_nvidia.so.0").to_string_lossy()),
+            "{hint}"
+        );
+
+        // Without lib32-nvidia-utils the bare soname does not resolve.
+        std::fs::remove_file(root.join("usr/lib32/libGLX_nvidia.so.0")).unwrap();
+        let check = probe_vulkan32(&env);
+        assert_eq!(check.status, HostStatus::TooOld);
+        assert!(check.hint.unwrap_or_default().contains("not resolved"));
+        let manual = check
+            .manual
+            .expect("the 32-bit finding keeps a manual step");
+        assert!(manual.instruction.contains("vulkaninfo --summary"));
+        assert!(!manual.instruction.to_ascii_lowercase().contains("dkms"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vulkan_32bit_accepts_a_manifest_inside_the_i386_folder() {
+        let root = temp_dir("vulkan32-i386");
+        let mut env = base_env(&root);
+        let i386 = root.join("usr/lib/i386-linux-gnu");
+        env.lib32_dirs = vec![root.join("usr/lib32"), i386.clone()];
+        write(&i386.join("libvulkan.so.1"), "");
+        write(&i386.join("libvulkan_radeon.so"), "");
+        write(
+            &root.join("usr/share/vulkan/icd.d/radeon_icd.json"),
+            &format!(
+                r#"{{"ICD":{{"library_path":"{}"}}}}"#,
+                i386.join("libvulkan_radeon.so").display()
+            ),
+        );
+
+        assert_eq!(probe_vulkan32(&env).status, HostStatus::Ok);
+
+        // A vendor manifest that names the architecture is still a direct hit.
+        std::fs::remove_file(root.join("usr/share/vulkan/icd.d/radeon_icd.json")).unwrap();
+        write(
+            &root.join("usr/share/vulkan/icd.d/radeon_icd.i686.json"),
+            "{}",
+        );
+        assert_eq!(probe_vulkan32(&env).status, HostStatus::Ok);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vulkan_32bit_ignores_a_64bit_library() {
+        let root = temp_dir("vulkan32-lib64");
+        let env = base_env(&root);
+        write(&root.join("usr/lib32/libvulkan.so.1"), "");
+        write(&root.join("usr/lib/libGLX_nvidia.so.0"), "");
+        write(
+            &root.join("usr/share/vulkan/icd.d/nvidia_icd.json"),
+            r#"{"ICD":{"library_path":"libGLX_nvidia.so.0"}}"#,
+        );
+
+        // The soname exists only in the 64-bit folder: the 32-bit loader cannot
+        // open it, so the finding stays actionable.
+        let check = probe_vulkan32(&env);
+        assert_eq!(check.status, HostStatus::TooOld);
+        assert!(check.hint.unwrap_or_default().contains("nvidia_icd.json"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vulkan_32bit_unreadable_manifests_are_unknown() {
+        let root = temp_dir("vulkan32-unreadable");
+        let env = base_env(&root);
+        write(&root.join("usr/lib32/libvulkan.so.1"), "");
+        write(
+            &root.join("usr/share/vulkan/icd.d/nvidia_icd.json"),
+            "not json at all",
+        );
+
+        let check = probe_vulkan32(&env);
+        assert_eq!(check.status, HostStatus::Unknown, "{}", check.detail);
+        assert!(check.detail.contains("none of the Vulkan ICD manifests"));
+
+        // One parseable manifest is enough to classify the rest.
+        write(
+            &root.join("usr/share/vulkan/icd.d/intel_icd.x86_64.json"),
+            "{}",
+        );
+        assert_eq!(probe_vulkan32(&env).status, HostStatus::TooOld);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vulkan_32bit_guidance_never_offers_a_driver_transaction() {
+        let manual = vulkan32_manual();
+        let text = format!("{} {}", manual.instruction, manual.url.unwrap_or_default())
+            .to_ascii_lowercase();
+        for forbidden in [
+            "nvidia-dkms",
+            "dkms",
+            "pacman -r",
+            "pacman -rn",
+            "pacman -rns",
+            "apt remove",
+            "apt-get remove",
+            "dnf remove",
+            "zypper remove",
+            "uninstall",
+            "remove nvidia",
+        ] {
+            assert!(
+                !text.contains(forbidden),
+                "the 32-bit guidance must not suggest {forbidden}"
+            );
+        }
+        for expected in ["vulkaninfo --summary", "ldd", "pacman -qo", "dpkg -s"] {
+            assert!(
+                text.contains(expected),
+                "the 32-bit guidance should mention {expected}"
+            );
+        }
     }
 
     #[test]

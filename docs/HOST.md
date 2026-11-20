@@ -26,7 +26,7 @@ that probes again and replaces it.
 |---|---|---|---|---|---|
 | Graphics driver (`gpu`) | `/sys/class/drm/card*/device/uevent` (`DRIVER`, `PCI_ID`); `lspci -nn` as a fallback description; `nvidia-smi` as a hint only | a kernel driver is bound to a card, not a firmware framebuffer | `nouveau` is loaded (no vendor Vulkan driver through it) | firmware framebuffer (`simpledrm`, `efifb`, …) or a GPU in `lspci` with no driver | no card and no `lspci` entry |
 | Vulkan (`vulkan`) | `/usr/share/vulkan/icd.d/*.json`, `/usr/local/share/…`, `/etc/vulkan/…`; `vulkaninfo --summary` as a hint | a hardware ICD is installed and `vulkaninfo` does not fail | only a software ICD (`lvp`, `lavapipe`, SwiftShader) or `vulkaninfo` fails | no ICD at all | — |
-| 32-bit Vulkan (`vulkan32`) | `libvulkan.so.1` in `/usr/lib32`, `/usr/lib/i386-linux-gnu`, … plus an `i686`/32-bit ICD JSON | loader **and** a 32-bit ICD | 32-bit loader without a 32-bit ICD | no 32-bit loader | — |
+| 32-bit Vulkan (`vulkan32`) | `libvulkan.so.1` in `/usr/lib32`, `/usr/lib/i386-linux-gnu`, …; each `icd.d/*.json` `library_path` resolved in those folders (plus `i686`/`_32` manifest names) | loader **and** a 32-bit-capable ICD, separate or arch-agnostic | 32-bit loader without a 32-bit-capable ICD | 32-bit loader but every ICD manifest is unreadable | no 32-bit loader |
 | WebKitGTK runtime (`webkitgtk`) | `libwebkit2gtk-4.1.so.0` in the library folders | the 4.1 runtime is installed | only `libwebkit2gtk-4.0.so.0` | neither | — |
 | UMU (`umu`) | the existing compatibility scan (`compat.rs`) plus `umu-run`/`umu-launcher` on `PATH` | found | — | not found | the scan did not run |
 | Proton builds (`proton`) | the existing compatibility scan: Steam roots, `compatibilitytools.d`, `steamapps/common` | at least one build | — | none | the scan did not run |
@@ -110,6 +110,35 @@ Drivers are the one thing this feature refuses to install:
 A test asserts that no package in the table contains a driver keyword
 (`nvidia`, `nouveau`, `mesa`, `amdgpu`, `i915`, `firmware`).
 
+### 32-bit Vulkan on Arch and CachyOS
+
+Arch and its derivatives ship **one arch-agnostic ICD per vendor** instead of a
+32-bit manifest. `nvidia_icd.json` carries the bare soname
+`libGLX_nvidia.so.0`, and whichever loader opens it chooses the architecture:
+`/usr/lib32/libvulkan.so.1` (package `lib32-vulkan-icd-loader`) resolves the
+same manifest to `/usr/lib32/libGLX_nvidia.so.0` as soon as the 32-bit driver
+package is installed (`lib32-nvidia-utils` for NVIDIA, `lib32-vulkan-radeon` or
+`lib32-vulkan-intel` for Mesa). The probe parses `library_path` and resolves it
+in the 32-bit folders, so this setup is **ok**; a file named `*i686*` or
+`*_32.json` is no longer required. AMD still ships `radeon_icd.x86_64.json` plus
+`radeon_icd.i686.json`, and both paths work.
+
+When the finding is **too old**, check before changing packages:
+
+- `vulkaninfo --summary` with a 32-bit `vulkaninfo` when your distribution
+  ships one — the 64-bit command only exercises the 64-bit loader;
+- `ldd /usr/lib32/libGLX_nvidia.so.0` (or the library named by the manifest) to
+  confirm the 32-bit build is installed;
+- `pacman -Qo /usr/lib32/libvulkan.so.1` on Arch (`dpkg -S` on Debian,
+  `rpm -qf` on Fedora) to see which package owns the loader.
+
+On CachyOS, an `nvidia-dkms` transaction conflicts with the prebuilt
+`linux-cachyos-nvidia-open` modules the running kernel uses, and
+`lib32-nvidia-utils` pins `nvidia-utils` to its exact version. The finding
+therefore never names driver packages and never offers a command that changes
+them: it reports the diagnostics above and the conservative sentence that
+32-bit games fall back to OpenGL until a 32-bit ICD is available.
+
 ## Re-run and persistence
 
 - First start: `spawn_startup_probe` runs once, off the runtime, and stores the
@@ -127,7 +156,8 @@ A test asserts that no package in the table contains a driver keyword
 - UMU on Ubuntu/Debian (release zipapp or Flatpak).
 - Proton builds: **Make it run** or Steam.
 - 32-bit Vulkan when the distribution has no 32-bit driver build; the report
-  explains that 32-bit games fall back to OpenGL.
+  explains that 32-bit games fall back to OpenGL and offers diagnostics that
+  never replace a working driver package.
 - A machine where neither `/etc/os-release` nor `PATH` names a known package
   manager.
 
