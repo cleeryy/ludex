@@ -140,6 +140,11 @@ export const qk = {
     root: ["cloud-save-status"] as const,
     forGame: (gameId: number) => key("cloud-save-status", gameId),
   },
+  /** Local per-session restore points (#295). */
+  saveRestorePoints: {
+    root: ["save-restore-points"] as const,
+    forGame: (gameId: number) => key("save-restore-points", gameId),
+  },
   saveCandidates: ["save-candidates"] as const,
   ludusaviManifest: ["ludusavi-manifest"] as const,
 

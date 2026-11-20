@@ -1118,6 +1118,8 @@ interface SaveSnapshot {
   source: "manual" | "auto";
   /** Opaque device identifier; display only, never authorisation. */
   deviceId: string | null;
+  /** Promoted to a restore point; retention never prunes it (#295). */
+  pinned: boolean;
 }
 ```
 
@@ -1125,7 +1127,10 @@ interface SaveSnapshot {
 |---|---|---|
 | GET | `/api/games/{id}/saves` | current user's snapshots, newest first |
 | POST | `/api/games/{id}/saves` | multipart `file`, optional `label`, `source` (`manual` \| `auto`), optional `deviceId`; max 2 GiB. An `auto` upload whose SHA-256 already exists for the user and game returns `200` with the existing snapshot; a new one returns `201` |
+| GET | `/api/games/{id}/saves/history` | snapshots with `pinned` (newest first), restore receipts and `autoRetention` (#295) |
 | GET | `/api/saves/{id}/download` | owner (or admin) download, `Content-Disposition` |
+| POST | `/api/saves/{id}/restore` | body `{ deviceId?, kind?: "server" \| "local" }`; pins the snapshot, stores a receipt and returns `{ snapshot, receipt }` (`201`, #295) |
+| POST | `/api/games/{id}/saves/prune` | body `{ keep? }` (1–50); deletes unpinned automatic snapshots beyond the window, keeps the newest snapshot and every pinned point, returns `{ removed, kept, protected }` (#295) |
 | DELETE | `/api/saves/{id}` | owner (or admin), 204 |
 
 Storage: `{data_dir}/saves/{user_id}/{game_id}/{snapshot_id}-{sanitized_name}`.
@@ -1133,7 +1138,8 @@ The file name is sanitised again on read, so a tampered row cannot escape the
 user/game directory; a stored name that cannot be confined is `400
 invalid_path` (#266). A user can never see another user's snapshots. Automatic
 uploads are pruned to the newest **10 per user and game**; manual snapshots are
-never pruned. The
+never pruned, and neither are pinned restore points or the newest snapshot
+(#295). The
 desktop game page shows the latest snapshot, last upload/restore, effective
 automatic-backup toggle and a conflict dialog; `lib/cloud-saves.ts` wraps the
 Tauri commands. The browser build can still upload/download manual archives and
@@ -3287,6 +3293,11 @@ interface RemotePlayCleanup {
 | `restore_cloud_save` | `{ gameId, strategy: "remote" \| "keep_local" }` | `CloudSaveRestoreOutcome`; verifies the SHA-256, backs up newer local files before a `remote` restore and returns `backupPath`, runs at most once per snapshot. `keep_local` records and uploads the local state (#108) |
 | `resolve_cloud_save_conflict` | `{ gameId, strategy }` | `CloudSaveRestoreOutcome`; same operation as `restore_cloud_save`, using the explicit strategy |
 | `resolve_save_identity` | `{ gameId, identity, path }` | `CloudSaveStatus`; records the folder chosen for an ambiguous cross-platform save identity (#294). The path must classify to the same root kind and relative path as `identity`, so it cannot point at an unrelated folder; the choice is persisted in `settings.json` (`saveIdentityMappings`) and reused, so the ambiguity is asked once. Local only |
+| `list_save_restore_points` | `{ gameId }` | `SaveRestorePointsView`; local per-session restore points, retention window, total size and last capture (#295) |
+| `capture_save_restore_point` | `{ gameId, label? }` | `SaveRestorePoint \| null`; manual point, `null` when the save already matches the newest one (#295) |
+| `restore_save_point` | `{ gameId, pointId }` | `LocalSaveRestoreOutcome`; verifies the SHA-256, archives the current files as a `pre_restore` point, then extracts (#295) |
+| `prune_save_restore_points` | `{ gameId, keep? }` | `SavePruneReport`; explicit retention pass, never removes the newest point (#295) |
+| `set_save_restore_retention` | `{ sessions }` | clamped 1–50 (default 5); returns the stored window (#295) |
 | `list_locations` | — | `LocationStatus[]`; probes every named location, default first then roomiest writable. Never fails on a missing drive |
 | `check_location` | `{ id?, path?, requiredBytes? }` | `LocationStatus`; one location by id or path, with `freeSpaceOk` when `requiredBytes` is set |
 | `suggest_storage_locations` | — | `StorageSuggestions`; detected fixed drives as `<drive>:\Games` candidates on Windows (`~/Games`, `/mnt/...`, `/media/...`, `/Volumes/...` elsewhere), with free/total bytes, writability, `recommended`/`current`/`fallback` flags and `needsChoice`. Read-only: never creates a folder or changes settings (#145) |

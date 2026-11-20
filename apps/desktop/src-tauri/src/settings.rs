@@ -366,6 +366,11 @@ pub struct LocalSettings {
     /// stays visible for a manual override. 0 disables the cap.
     #[serde(default = "default_cloud_save_folder_cap_mb")]
     pub cloud_save_folder_cap_mb: u64,
+    /// Per-session local restore points kept per game (#295). The newest point
+    /// is always kept, even when the window is lowered to one. 0 is never
+    /// stored: the value is clamped to 1–50 before use.
+    #[serde(default = "default_save_restore_retention")]
+    pub save_restore_retention: u32,
     /// Stable opaque identifier generated once per install and sent with every
     /// automatic snapshot (#108). Not a hardware fingerprint.
     pub cloud_device_id: String,
@@ -655,6 +660,11 @@ pub const fn default_cloud_save_folder_cap_mb() -> u64 {
     2048
 }
 
+/// Restore points kept per game by default (#295): five sessions.
+pub const fn default_save_restore_retention() -> u32 {
+    5
+}
+
 /// Seconds without a byte before a download response is abandoned and resumed
 /// with Range (#195).
 pub const fn default_download_stall_timeout_secs() -> u64 {
@@ -847,6 +857,7 @@ impl Default for LocalSettings {
             save_identity_mappings: Vec::new(),
             cloud_auto_sync: true,
             cloud_save_folder_cap_mb: default_cloud_save_folder_cap_mb(),
+            save_restore_retention: default_save_restore_retention(),
             cloud_device_id: String::new(),
             cloud_device_label: None,
             servers: Vec::new(),

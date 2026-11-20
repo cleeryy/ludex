@@ -72,6 +72,10 @@ pub mod actions {
     pub const SAVE_UPLOADED: &str = "save.uploaded";
     /// Cloud save snapshot deleted.
     pub const SAVE_DELETED: &str = "save.deleted";
+    /// A snapshot was promoted to a restore point and restored (#295).
+    pub const SAVE_RESTORED: &str = "save.restored";
+    /// An explicit snapshot retention pass ran (#295).
+    pub const SAVE_PRUNED: &str = "save.pruned";
     /// Successful OIDC login on an already-linked account.
     pub const OIDC_LOGIN: &str = "oidc.login";
     /// OIDC identity linked to an existing local account.

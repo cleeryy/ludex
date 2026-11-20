@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::Response;
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use tokio_util::io::ReaderStream;
 use utoipa::openapi::HttpMethod;
@@ -21,8 +21,11 @@ use crate::error::ApiError;
 use crate::events::Event;
 use crate::extract::{ApiPath, MultipartBody};
 use crate::media::content_disposition;
-use crate::models::{SaveSnapshot, SaveSnapshotRow};
-use crate::openapi::{ok, route, Auth, Payload, RouteDoc};
+use crate::models::{
+    PruneSavesRequest, RestoreSnapshotRequest, RestoreSnapshotResponse, SaveHistory,
+    SavePruneReport, SaveRestoreReceipt, SaveRestoreReceiptRow, SaveSnapshot, SaveSnapshotRow,
+};
+use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::saves::{self, PendingSave, SaveError};
 use crate::state::AppState;
 
@@ -32,6 +35,17 @@ const MAX_LABEL_CHARS: usize = 200;
 const AUTO_SNAPSHOT_RETENTION: i64 = 10;
 /// Longest accepted device identifier, in characters.
 const MAX_DEVICE_ID_CHARS: usize = 100;
+/// Bounds for an explicit retention request (#295).
+const MIN_PRUNE_KEEP: i64 = 1;
+const MAX_PRUNE_KEEP: i64 = 50;
+/// History page sizes (#295); snapshots per game stay small in practice.
+const HISTORY_SNAPSHOT_LIMIT: i64 = 100;
+const HISTORY_RECEIPT_LIMIT: i64 = 50;
+
+/// Snapshot columns shared by every read path; `pinned` is the restore-point
+/// flag added in migration 0036.
+const SNAPSHOT_COLUMNS: &str = "id, user_id, game_id, version_id, label, file_name, size, sha256,
+     created_at, source, device_id, pinned";
 
 /// Save routes, relative to `/api`.
 ///
@@ -44,7 +58,10 @@ pub fn router(max_upload_bytes: u64) -> Router<AppState> {
             "/games/{id}/saves",
             get(list).post(upload).layer(upload_limit),
         )
+        .route("/games/{id}/saves/history", get(history))
+        .route("/games/{id}/saves/prune", post(prune))
         .route("/saves/{id}/download", get(download))
+        .route("/saves/{id}/restore", post(restore))
         .route("/saves/{id}", delete(delete_snapshot))
 }
 
@@ -54,13 +71,12 @@ async fn list(
     ApiPath(game_id): ApiPath<i64>,
 ) -> Result<Json<Vec<SaveSnapshot>>, ApiError> {
     ensure_game(&state, game_id).await?;
-    let rows = db::query_as::<SaveSnapshotRow>(
-        "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
-                source, device_id
+    let rows = db::query_as::<SaveSnapshotRow>(&format!(
+        "SELECT {SNAPSHOT_COLUMNS}
          FROM save_snapshots
          WHERE user_id = ? AND game_id = ?
-         ORDER BY created_at DESC, id DESC",
-    )
+         ORDER BY created_at DESC, id DESC"
+    ))
     .bind(user.id)
     .bind(game_id)
     .fetch_all(&state.core.pool)
@@ -166,13 +182,12 @@ async fn upload(
     // Automatic uploads are idempotent by content hash: an unchanged save
     // returns the snapshot that already holds those bytes (#108).
     if source == "auto" {
-        let existing = db::query_as::<SaveSnapshotRow>(
-            "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
-                    source, device_id
+        let existing = db::query_as::<SaveSnapshotRow>(&format!(
+            "SELECT {SNAPSHOT_COLUMNS}
              FROM save_snapshots
              WHERE user_id = ? AND game_id = ? AND sha256 = ?
-             ORDER BY created_at DESC, id DESC LIMIT 1",
-        )
+             ORDER BY created_at DESC, id DESC LIMIT 1"
+        ))
         .bind(user.id)
         .bind(game_id)
         .bind(&sha256)
@@ -253,6 +268,7 @@ async fn upload(
             created_at: db::parse_time(&now).unwrap_or_else(chrono::Utc::now),
             source,
             device_id,
+            pinned: false,
         }),
     ))
 }
@@ -338,44 +354,77 @@ async fn delete_snapshot(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Keeps only the newest `keep` automatic snapshots for one user and game.
+/// Retention pass shared by the post-upload cleanup and the explicit prune
+/// endpoint (#295). Returns the report described by [`SavePruneReport`].
 ///
-/// Manual snapshots are never touched. Row deletions happen before the file
-/// deletions so a crash leaves an orphaned file (removed by the media GC
-/// rules) instead of a row pointing at a missing archive.
-async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep: i64) {
-    let stale = db::query_as::<(i64, String)>(
-        "SELECT id, file_name FROM save_snapshots
-         WHERE user_id = ? AND game_id = ? AND source = 'auto'
-           AND id NOT IN (
-               SELECT id FROM save_snapshots
-               WHERE user_id = ? AND game_id = ? AND source = 'auto'
-               ORDER BY created_at DESC, id DESC LIMIT ?
-           )",
+/// Rules, in order:
+/// - pinned snapshots are restore points and are never removed;
+/// - the newest snapshot of the game is the last known-good copy and stays
+///   even when it is neither pinned nor inside the keep window;
+/// - only automatic snapshots are candidates, so manual uploads are safe;
+/// - row deletions happen before the file deletions so a crash leaves an
+///   orphaned file (removed by the media GC rules) instead of a row pointing
+///   at a missing archive.
+async fn prune_snapshots(
+    state: &AppState,
+    user_id: i64,
+    game_id: i64,
+    keep: i64,
+) -> SavePruneReport {
+    let keep = keep.clamp(MIN_PRUNE_KEEP, MAX_PRUNE_KEEP);
+    let rows = db::query_as::<(i64, String, String, i64)>(
+        "SELECT id, file_name, source, pinned FROM save_snapshots
+         WHERE user_id = ? AND game_id = ?
+         ORDER BY created_at DESC, id DESC",
     )
     .bind(user_id)
     .bind(game_id)
-    .bind(user_id)
-    .bind(game_id)
-    .bind(keep)
     .fetch_all(&state.core.pool)
     .await;
 
-    let stale = match stale {
+    let rows = match rows {
         Ok(rows) => rows,
         Err(error) => {
-            tracing::warn!(error = %error, "could not list stale save snapshots");
-            return;
+            tracing::warn!(error = %error, "could not list save snapshots for pruning");
+            return SavePruneReport {
+                removed: 0,
+                kept: 0,
+                protected: 0,
+            };
         }
     };
+
+    let total = i64::try_from(rows.len()).unwrap_or(i64::MAX);
+    let protected = i64::try_from(rows.iter().filter(|(_, _, _, pinned)| *pinned != 0).count())
+        .unwrap_or(i64::MAX);
+
+    let mut auto_seen = 0i64;
+    let mut stale = Vec::new();
+    for (id, file_name, source, pinned) in rows {
+        if source != "auto" || pinned != 0 {
+            continue;
+        }
+        // The newest automatic snapshot counts toward the window first, so a
+        // game whose latest session is also its only copy never loses it.
+        if auto_seen < keep {
+            auto_seen += 1;
+            continue;
+        }
+        stale.push((id, file_name));
+    }
+
+    let mut removed = 0i64;
     for (id, file_name) in stale {
-        if let Err(error) = db::query("DELETE FROM save_snapshots WHERE id = ?")
+        match db::query("DELETE FROM save_snapshots WHERE id = ?")
             .bind(id)
             .execute(&state.core.pool)
             .await
         {
-            tracing::warn!(error = %error, snapshot = id, "could not prune a save snapshot row");
-            continue;
+            Ok(_) => removed += 1,
+            Err(error) => {
+                tracing::warn!(error = %error, snapshot = id, "could not prune a save snapshot row");
+                continue;
+            }
         }
         saves::delete_file(
             &state.core.config.data_dir,
@@ -386,6 +435,180 @@ async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep
         )
         .await;
     }
+
+    SavePruneReport {
+        removed,
+        kept: total - removed,
+        protected,
+    }
+}
+
+/// Promotes a cloud snapshot to a restore point and records the restore in the
+/// game history (#295). The device that writes the local files reports itself
+/// here, so the panel can answer "which machine wrote this save last".
+async fn restore(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(id): ApiPath<i64>,
+    Json(request): Json<RestoreSnapshotRequest>,
+) -> Result<(StatusCode, Json<RestoreSnapshotResponse>), ApiError> {
+    user.require_scope(Scope::Write)?;
+    let row = fetch_snapshot(&state, id).await?;
+    ensure_access(&user, &row)?;
+
+    let device_id = request
+        .device_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(device_id) = device_id.as_deref() {
+        if device_id.chars().count() > MAX_DEVICE_ID_CHARS
+            || device_id.chars().any(char::is_control)
+        {
+            return Err(ApiError::bad_request(
+                "invalid_device_id",
+                "The device identifier is invalid",
+            ));
+        }
+    }
+    let kind = request.kind.as_deref().unwrap_or("server").trim();
+    if kind != "server" && kind != "local" {
+        return Err(ApiError::bad_request(
+            "invalid_restore_kind",
+            "kind must be 'server' or 'local'",
+        ));
+    }
+
+    db::query("UPDATE save_snapshots SET pinned = 1 WHERE id = ?")
+        .bind(id)
+        .execute(&state.core.pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    let now = db::db_time(db::now());
+    let receipt_id = db::query(
+        "INSERT INTO save_restore_receipts
+            (user_id, game_id, snapshot_id, device_id, kind, restored_at)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(user.id)
+    .bind(row.game_id)
+    .bind(id)
+    .bind(device_id.as_deref())
+    .bind(kind)
+    .bind(&now)
+    .returning_id(&state.core.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    state.core.events.emit(
+        Event::new(actions::SAVE_RESTORED, user.actor())
+            .target("save", id.to_string())
+            .metadata(serde_json::json!({
+                "snapshotId": id,
+                "gameId": row.game_id,
+                "userId": user.id,
+                "deviceId": device_id,
+                "kind": kind,
+            })),
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        Json(RestoreSnapshotResponse {
+            snapshot: fetch_snapshot(&state, id).await?.to_public(),
+            receipt: SaveRestoreReceipt {
+                id: receipt_id,
+                game_id: row.game_id,
+                snapshot_id: id,
+                device_id,
+                kind: kind.to_string(),
+                restored_at: db::parse_time(&now).unwrap_or_else(chrono::Utc::now),
+            },
+        }),
+    ))
+}
+
+/// Explicit retention pass (#295). `keep` defaults to the automatic retention;
+/// pinned restore points and the newest snapshot are always kept.
+async fn prune(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(game_id): ApiPath<i64>,
+    Json(request): Json<PruneSavesRequest>,
+) -> Result<Json<SavePruneReport>, ApiError> {
+    user.require_scope(Scope::Write)?;
+    ensure_game(&state, game_id).await?;
+    let keep = request.keep.unwrap_or(AUTO_SNAPSHOT_RETENTION);
+    let report = prune_snapshots(&state, user.id, game_id, keep).await;
+    state.core.events.emit(
+        Event::new(actions::SAVE_PRUNED, user.actor())
+            .target("game", game_id.to_string())
+            .metadata(serde_json::json!({
+                "gameId": game_id,
+                "userId": user.id,
+                "removed": report.removed,
+                "kept": report.kept,
+                "protected": report.protected,
+            })),
+    );
+    Ok(Json(report))
+}
+
+/// Snapshot history and restore receipts for the game page (#295).
+async fn history(
+    State(state): State<AppState>,
+    user: AuthUser,
+    ApiPath(game_id): ApiPath<i64>,
+) -> Result<Json<SaveHistory>, ApiError> {
+    ensure_game(&state, game_id).await?;
+    let snapshots = db::query_as::<SaveSnapshotRow>(&format!(
+        "SELECT {SNAPSHOT_COLUMNS}
+         FROM save_snapshots
+         WHERE user_id = ? AND game_id = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?"
+    ))
+    .bind(user.id)
+    .bind(game_id)
+    .bind(HISTORY_SNAPSHOT_LIMIT)
+    .fetch_all(&state.core.pool)
+    .await
+    .map_err(ApiError::from)?;
+    let receipts = db::query_as::<SaveRestoreReceiptRow>(
+        "SELECT id, game_id, snapshot_id, device_id, kind, restored_at
+         FROM save_restore_receipts
+         WHERE user_id = ? AND game_id = ?
+         ORDER BY restored_at DESC, id DESC
+         LIMIT ?",
+    )
+    .bind(user.id)
+    .bind(game_id)
+    .bind(HISTORY_RECEIPT_LIMIT)
+    .fetch_all(&state.core.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(Json(SaveHistory {
+        snapshots: snapshots
+            .into_iter()
+            .map(SaveSnapshotRow::to_public)
+            .collect(),
+        receipts: receipts
+            .into_iter()
+            .map(SaveRestoreReceiptRow::to_public)
+            .collect(),
+        auto_retention: AUTO_SNAPSHOT_RETENTION,
+    }))
+}
+
+/// Keeps only the newest `keep` automatic snapshots for one user and game.
+///
+/// Same rules as [`prune_snapshots`]: pinned restore points, manual uploads and
+/// the newest snapshot are never touched.
+async fn prune_auto_snapshots(state: &AppState, user_id: i64, game_id: i64, keep: i64) {
+    let _ = prune_snapshots(state, user_id, game_id, keep).await;
 }
 
 async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
@@ -400,11 +623,9 @@ async fn ensure_game(state: &AppState, game_id: i64) -> Result<(), ApiError> {
 }
 
 async fn fetch_snapshot(state: &AppState, id: i64) -> Result<SaveSnapshotRow, ApiError> {
-    db::query_as::<SaveSnapshotRow>(
-        "SELECT id, user_id, game_id, version_id, label, file_name, size, sha256, created_at,
-                source, device_id
-         FROM save_snapshots WHERE id = ?",
-    )
+    db::query_as::<SaveSnapshotRow>(&format!(
+        "SELECT {SNAPSHOT_COLUMNS} FROM save_snapshots WHERE id = ?"
+    ))
     .bind(id)
     .fetch_optional(&state.core.pool)
     .await
@@ -472,6 +693,39 @@ pub(crate) const DOCS: &[RouteDoc] = &[
         "Upload a save archive (multipart)",
         Auth::Session,
         Payload::Schema("SaveSnapshot"),
+    ),
+    route(
+        HttpMethod::Get,
+        "/games/{id}/saves/history",
+        "Cloud saves",
+        "List snapshot history and restore receipts",
+        Auth::Session,
+        Payload::Schema("SaveHistory"),
+    ),
+    body(
+        ok(
+            route(
+                HttpMethod::Post,
+                "/games/{id}/saves/prune",
+                "Cloud saves",
+                "Prune old automatic snapshots (pinned and newest are kept)",
+                Auth::Session,
+                Payload::Schema("SavePruneReport"),
+            ),
+            200,
+        ),
+        "PruneSavesRequest",
+    ),
+    body(
+        route(
+            HttpMethod::Post,
+            "/saves/{id}/restore",
+            "Cloud saves",
+            "Promote a snapshot to a restore point and record the restore",
+            Auth::Session,
+            Payload::Schema("RestoreSnapshotResponse"),
+        ),
+        "RestoreSnapshotRequest",
     ),
     route(
         HttpMethod::Get,

@@ -1121,6 +1121,42 @@ async fn fetch_snapshots(
         .map_err(|error| format!("The server sent an unreadable save list: {error}"))
 }
 
+/// Best-effort receipt for a server snapshot restored on this device (#295).
+///
+/// The server pins the snapshot as a restore point and shows the receipt in the
+/// game history. A failure never fails the restore: the local files are already
+/// written and the restore point row already exists on this machine.
+async fn record_server_restore(
+    app: &AppHandle,
+    settings: &LocalSettings,
+    snapshot_id: i64,
+    device_id: Option<&str>,
+) {
+    let Ok(context) = client_context(settings) else {
+        return;
+    };
+    let http = app.state::<AppState>().http.clone();
+    let response = http
+        .post(format!("{}/api/saves/{snapshot_id}/restore", context.base))
+        .bearer_auth(&context.token)
+        .json(&serde_json::json!({
+            "deviceId": device_id,
+            "kind": "server",
+        }))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await;
+    match response {
+        Ok(response) if response.status().is_success() => {}
+        Ok(response) => {
+            tracing::debug!(status = %response.status(), snapshot_id, "restore receipt rejected");
+        }
+        Err(error) => {
+            tracing::debug!(error = %error, snapshot_id, "restore receipt not delivered");
+        }
+    }
+}
+
 enum UploadError {
     /// Worth retrying (network, 5xx, throttling).
     Retryable(String),
@@ -1223,7 +1259,7 @@ fn default_device_label() -> String {
 
 /// Return the stable device id, generating it (and a label) on first use.
 /// The id is a random UUID stored in `settings.json`, not a machine id.
-fn ensure_device_identity(state: &AppState) -> Result<(String, String), String> {
+pub(crate) fn ensure_device_identity(state: &AppState) -> Result<(String, String), String> {
     let settings = state.settings_snapshot();
     let needs_id = settings.cloud_device_id.trim().is_empty();
     let needs_label = settings.cloud_device_label.is_none();
@@ -1908,6 +1944,9 @@ pub async fn restore(
                 db::clear_cloud_save_pending(&connection, game_id)?;
             }
             invalidate_scan_cache(game_id);
+            // #295: let the server pin the snapshot and record the receipt.
+            let device = Some(settings.cloud_device_id.as_str()).filter(|id| !id.trim().is_empty());
+            record_server_restore(app, &settings, latest.id, device).await;
 
             Ok(RestoreOutcome {
                 restored: true,
@@ -1988,7 +2027,7 @@ async fn download_snapshot(
 ///
 /// Rejects absolute paths, `..`, backslashes, control characters, symlink
 /// entries and anything that escapes its save root.
-fn extract_archive(archive: &Path, rows: &[SavePathRecord]) -> Result<(), String> {
+pub(crate) fn extract_archive(archive: &Path, rows: &[SavePathRecord]) -> Result<(), String> {
     let file = File::open(archive).map_err(|e| format!("Could not open the save archive: {e}"))?;
     let mut zip = ZipArchive::new(file)
         .map_err(|e| format!("The save archive is not a readable zip: {e}"))?;
@@ -2359,6 +2398,12 @@ pub fn schedule_after_exit(app: AppHandle, game_id: i64) {
                 "save detection skipped: paths and manifest are current"
             );
         }
+
+        // #295: keep this session's save state locally before the upload, so a
+        // corrupt save or a wrong-way sync is recoverable without the server.
+        // Detection above persisted the paths a first session created; this
+        // runs even when automatic sync is off.
+        crate::saves::history::snapshot_after_exit(app.clone(), game_id).await;
 
         match sync_game(&app, game_id, true).await {
             Ok(SyncOutcome::Uploaded | SyncOutcome::Unchanged) => {

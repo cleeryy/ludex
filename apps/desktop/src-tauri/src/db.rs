@@ -132,7 +132,7 @@ pub struct CachedRating {
     pub fetched_at: String,
 }
 
-const SCHEMA_VERSION: i64 = 26;
+const SCHEMA_VERSION: i64 = 27;
 
 /// Pre-migration snapshots kept next to the database (`<name>-backup-<stamp>.db`).
 const BACKUP_RETENTION: usize = 3;
@@ -672,6 +672,34 @@ const SCHEMA_V26: &str = r#"
 ALTER TABLE game_launch_options ADD COLUMN audio_sink TEXT NOT NULL DEFAULT '';
 "#;
 
+/// Local per-session restore points of the save manager (#295).
+///
+/// Every game exit captures the save files into one bounded zip under
+/// `{appDataDir}/restore-points/game-<id>/`; the row names the archive and
+/// carries the hash, size, device and session so the panel can show a
+/// one-click rollback with date, device and size. Retention keeps the newest
+/// `saveRestoreRetention` sessions (default 5) and never removes the newest
+/// point, which is the last known-good copy.
+const SCHEMA_V27: &str = r#"
+CREATE TABLE IF NOT EXISTS save_restore_points (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id     INTEGER NOT NULL,
+    session_id  TEXT,
+    source      TEXT    NOT NULL DEFAULT 'session',
+    label       TEXT    NOT NULL DEFAULT '',
+    file_name   TEXT    NOT NULL,
+    size_bytes  INTEGER NOT NULL DEFAULT 0,
+    sha256      TEXT    NOT NULL DEFAULT '',
+    device_id   TEXT,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS save_restore_points_game_idx
+    ON save_restore_points (game_id, created_at DESC);
+
+ALTER TABLE cloud_save_prefs ADD COLUMN last_local_change_at TEXT;
+"#;
+
 /// One recorded config write (#105/#106), shown in the game's Settings tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -995,6 +1023,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 26,
         sql: SCHEMA_V26,
         context: "add the per-game audio output to the desktop database",
+    },
+    Migration {
+        version: 27,
+        sql: SCHEMA_V27,
+        context: "add the local save restore points of the save manager (#295)",
     },
 ];
 
@@ -3873,6 +3906,211 @@ pub fn record_cloud_save_restored_hash(
     Ok(())
 }
 
+/* ------------------------------------------------- save restore points */
+
+/// One local save restore point (#295). The archive lives under
+/// `{appDataDir}/restore-points/game-<game_id>/` and never leaves the machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveRestorePoint {
+    pub id: i64,
+    pub game_id: i64,
+    /// Launch session that produced the save, when the snapshot came from an
+    /// exit hook rather than a manual capture.
+    pub session_id: Option<String>,
+    /// `session`, `manual` or `pre_restore`.
+    pub source: String,
+    /// Human label shown in the panel, empty for automatic captures.
+    pub label: String,
+    /// Archive file name inside the game's restore-point folder.
+    pub file_name: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    /// Opaque identifier of the device that wrote the save (#108).
+    pub device_id: Option<String>,
+    pub created_at: String,
+}
+
+/// Values needed to insert a restore point; `id` is assigned by SQLite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewSaveRestorePoint {
+    pub game_id: i64,
+    pub session_id: Option<String>,
+    pub source: String,
+    pub label: String,
+    pub file_name: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub device_id: Option<String>,
+    pub created_at: String,
+}
+
+const SAVE_RESTORE_POINT_COLUMNS: &str = "id, game_id, session_id, source, label, file_name,
+     size_bytes, sha256, device_id, created_at";
+
+fn map_save_restore_point(row: &rusqlite::Row<'_>) -> rusqlite::Result<SaveRestorePoint> {
+    Ok(SaveRestorePoint {
+        id: row.get(0)?,
+        game_id: row.get(1)?,
+        session_id: row.get(2)?,
+        source: row.get(3)?,
+        label: row.get(4)?,
+        file_name: row.get(5)?,
+        size_bytes: row.get(6)?,
+        sha256: row.get(7)?,
+        device_id: row.get(8)?,
+        created_at: row.get(9)?,
+    })
+}
+
+pub fn insert_save_restore_point(
+    connection: &Connection,
+    point: &NewSaveRestorePoint,
+) -> Result<SaveRestorePoint, String> {
+    connection
+        .execute(
+            r#"INSERT INTO save_restore_points
+                   (game_id, session_id, source, label, file_name, size_bytes, sha256,
+                    device_id, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            params![
+                point.game_id,
+                point.session_id,
+                point.source,
+                point.label,
+                point.file_name,
+                point.size_bytes,
+                point.sha256,
+                point.device_id,
+                point.created_at,
+            ],
+        )
+        .map_err(|e| format!("Could not record the save restore point: {e}"))?;
+    let id = connection.last_insert_rowid();
+    get_save_restore_point(connection, id)?
+        .ok_or_else(|| "The save restore point disappeared after it was written.".to_string())
+}
+
+pub fn get_save_restore_point(
+    connection: &Connection,
+    id: i64,
+) -> Result<Option<SaveRestorePoint>, String> {
+    connection
+        .query_row(
+            &format!("SELECT {SAVE_RESTORE_POINT_COLUMNS} FROM save_restore_points WHERE id = ?1"),
+            params![id],
+            map_save_restore_point,
+        )
+        .optional()
+        .map_err(|e| format!("Could not read the save restore point: {e}"))
+}
+
+/// Restore points for one game, newest first.
+pub fn list_save_restore_points(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Vec<SaveRestorePoint>, String> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {SAVE_RESTORE_POINT_COLUMNS} FROM save_restore_points
+             WHERE game_id = ?1
+             ORDER BY created_at DESC, id DESC"
+        ))
+        .map_err(|e| format!("Could not read the save restore points: {e}"))?;
+    let rows = statement
+        .query_map(params![game_id], map_save_restore_point)
+        .map_err(|e| format!("Could not read the save restore points: {e}"))?;
+    let mut points = Vec::new();
+    for row in rows {
+        points.push(row.map_err(|e| format!("Could not read the save restore points: {e}"))?);
+    }
+    Ok(points)
+}
+
+/// Newest restore point, used to skip an unchanged session.
+pub fn latest_save_restore_point(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<SaveRestorePoint>, String> {
+    Ok(list_save_restore_points(connection, game_id)?
+        .into_iter()
+        .next())
+}
+
+pub fn count_save_restore_points(connection: &Connection, game_id: i64) -> Result<i64, String> {
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM save_restore_points WHERE game_id = ?1",
+            params![game_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Could not count the save restore points: {e}"))
+}
+
+pub fn delete_save_restore_point(connection: &Connection, id: i64) -> Result<bool, String> {
+    let deleted = connection
+        .execute("DELETE FROM save_restore_points WHERE id = ?1", params![id])
+        .map_err(|e| format!("Could not delete the save restore point: {e}"))?;
+    Ok(deleted > 0)
+}
+
+/// Retention pass: keep the newest `keep` restore points and return the rows
+/// that were removed so the caller can delete their archives.
+///
+/// `keep` is clamped to at least one: the newest point is the last known-good
+/// copy and must survive every cleanup. Pinning is not needed for that
+/// guarantee, so the rule holds even after the database lost its setting.
+pub fn prune_save_restore_points(
+    connection: &Connection,
+    game_id: i64,
+    keep: i64,
+) -> Result<Vec<SaveRestorePoint>, String> {
+    let keep = keep.max(1);
+    let points = list_save_restore_points(connection, game_id)?;
+    let mut removed = Vec::new();
+    for point in points
+        .into_iter()
+        .skip(usize::try_from(keep).unwrap_or(usize::MAX))
+    {
+        if delete_save_restore_point(connection, point.id)? {
+            removed.push(point);
+        }
+    }
+    Ok(removed)
+}
+
+/// Remember when this device last captured a save, including games whose save
+/// paths are not configured (the panel can still show a capture date).
+pub fn record_local_save_snapshot(
+    connection: &Connection,
+    game_id: i64,
+    at: &str,
+) -> Result<(), String> {
+    ensure_cloud_save_prefs(connection, game_id)?;
+    connection
+        .execute(
+            "UPDATE cloud_save_prefs SET last_local_change_at = ?2 WHERE game_id = ?1",
+            params![game_id, at],
+        )
+        .map_err(|e| format!("Could not record the local save change: {e}"))?;
+    Ok(())
+}
+
+pub fn last_local_save_change(
+    connection: &Connection,
+    game_id: i64,
+) -> Result<Option<String>, String> {
+    connection
+        .query_row(
+            "SELECT last_local_change_at FROM cloud_save_prefs WHERE game_id = ?1",
+            params![game_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(|value| value.flatten())
+        .map_err(|e| format!("Could not read the local save change: {e}"))
+}
+
 /// Record one config write (#105). The backup file already exists when this is
 /// called; the row is what the Settings tab lists and what restore validates.
 pub fn insert_config_edit(
@@ -5748,6 +5986,102 @@ mod tests {
         let restore = get_cloud_save_restore(&connection, 3).unwrap().unwrap();
         assert_eq!(restore.snapshot_id, 42);
         assert!(restore.local_backup_path.is_none());
+    }
+
+    fn restore_point(game_id: i64, name: &str, created_at: &str) -> NewSaveRestorePoint {
+        NewSaveRestorePoint {
+            game_id,
+            session_id: Some("session-1".into()),
+            source: "session".into(),
+            label: String::new(),
+            file_name: name.into(),
+            size_bytes: 2048,
+            sha256: "a".repeat(64),
+            device_id: Some("device-a".into()),
+            created_at: created_at.into(),
+        }
+    }
+
+    #[test]
+    fn save_restore_points_roundtrip_and_retention_keeps_the_newest() {
+        let connection = memory_database();
+        let first = insert_save_restore_point(
+            &connection,
+            &restore_point(7, "a.zip", "2026-11-01T10:00:00Z"),
+        )
+        .unwrap();
+        assert_eq!(first.game_id, 7);
+        assert_eq!(first.size_bytes, 2048);
+        assert_eq!(first.device_id.as_deref(), Some("device-a"));
+        for (name, at) in [
+            ("b.zip", "2026-11-02T10:00:00Z"),
+            ("c.zip", "2026-11-03T10:00:00Z"),
+            ("d.zip", "2026-11-04T10:00:00Z"),
+        ] {
+            insert_save_restore_point(&connection, &restore_point(7, name, at)).unwrap();
+        }
+        let points = list_save_restore_points(&connection, 7).unwrap();
+        assert_eq!(points.len(), 4);
+        assert_eq!(points[0].file_name, "d.zip", "newest first");
+        assert_eq!(count_save_restore_points(&connection, 7).unwrap(), 4);
+
+        let removed = prune_save_restore_points(&connection, 7, 2).unwrap();
+        assert_eq!(
+            removed
+                .iter()
+                .map(|p| p.file_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b.zip", "a.zip"],
+            "older sessions are pruned"
+        );
+        let kept = list_save_restore_points(&connection, 7).unwrap();
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0].file_name, "d.zip");
+        assert_eq!(kept[1].file_name, "c.zip");
+
+        // A zero/negative window still keeps the last known-good copy.
+        let removed = prune_save_restore_points(&connection, 7, 0).unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].file_name, "c.zip");
+        let last = list_save_restore_points(&connection, 7).unwrap();
+        assert_eq!(last.len(), 1);
+        assert_eq!(last[0].file_name, "d.zip");
+        assert!(prune_save_restore_points(&connection, 7, 0)
+            .unwrap()
+            .is_empty());
+
+        assert!(delete_save_restore_point(&connection, last[0].id).unwrap());
+        assert!(list_save_restore_points(&connection, 7).unwrap().is_empty());
+        assert!(get_save_restore_point(&connection, last[0].id)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn save_restore_points_survive_a_v26_reopen() {
+        let root = temp_database_dir("restore-points");
+        let path = root.join("ludex-desktop.db");
+        {
+            let connection = open(&path).unwrap();
+            insert_save_restore_point(
+                &connection,
+                &restore_point(4, "session-4.zip", "2026-11-05T10:00:00Z"),
+            )
+            .unwrap();
+            record_local_save_snapshot(&connection, 4, "2026-11-05T10:00:05Z").unwrap();
+        }
+        let connection = open(&path).unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 26);
+        let points = list_save_restore_points(&connection, 4).unwrap();
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].file_name, "session-4.zip");
+        assert_eq!(
+            last_local_save_change(&connection, 4).unwrap().as_deref(),
+            Some("2026-11-05T10:00:05Z")
+        );
     }
 
     #[test]

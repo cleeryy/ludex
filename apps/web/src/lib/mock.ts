@@ -245,6 +245,7 @@ let saves: SaveSnapshot[] = [
     createdAt: "2026-11-08T22:14:00Z",
     source: "auto",
     deviceId: "demo-device-01",
+    pinned: false,
   },
   {
     id: 2,
@@ -257,6 +258,7 @@ let saves: SaveSnapshot[] = [
     createdAt: "2026-10-27T19:02:00Z",
     source: "manual",
     deviceId: null,
+    pinned: false,
   },
   {
     id: 3,
@@ -269,6 +271,7 @@ let saves: SaveSnapshot[] = [
     createdAt: "2026-11-06T20:41:00Z",
     source: "manual",
     deviceId: null,
+    pinned: false,
   },
 ];
 let nextSaveId = 4;
@@ -2517,6 +2520,7 @@ export const mockApi = {
       createdAt: nowIso(),
       source: "manual",
       deviceId: null,
+      pinned: false,
     };
     saves = [snapshot, ...saves];
     return clone(snapshot);
