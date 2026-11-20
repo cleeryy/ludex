@@ -643,9 +643,21 @@ async fn webhook_signs_delivers_and_skips_disabled_hooks() {
         .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{test}");
     assert!(test["deliveryId"].as_i64().is_some());
-    wait_for_hits(&receiver, 3).await;
-    let test_hit = &receiver.hits()[2];
-    let payload: Value = serde_json::from_slice(&test_hit.body).expect("payload");
+    // Other hooks (the disabled one is skipped, but user.created deliveries
+    // race with this one) make a positional index unreliable: select by event.
+    let mut test_payload = None;
+    for _ in 0..400 {
+        if let Some(hit) = receiver.hits().iter().find(|hit| {
+            serde_json::from_slice::<Value>(&hit.body)
+                .map(|payload| payload["event"] == "webhook.test")
+                .unwrap_or(false)
+        }) {
+            test_payload = Some(serde_json::from_slice::<Value>(&hit.body).expect("payload"));
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let payload = test_payload.expect("the test delivery is received");
     assert_eq!(payload["event"], "webhook.test");
 
     // Validation and SSRF defaults.
@@ -766,8 +778,19 @@ async fn webhook_emits_game_and_save_events() {
     // Deleting the library file is picked up by the next scan.
     std::fs::remove_file(&game_path).expect("remove game");
     server.run_scan(&admin).await;
-    wait_for_hits(&receiver, 3).await;
-    let payload: Value = serde_json::from_slice(&receiver.hits()[2].body).expect("payload");
+    let mut deleted = None;
+    for _ in 0..400 {
+        if let Some(hit) = receiver.hits().iter().find(|hit| {
+            serde_json::from_slice::<Value>(&hit.body)
+                .map(|payload| payload["event"] == "game.deleted")
+                .unwrap_or(false)
+        }) {
+            deleted = Some(serde_json::from_slice::<Value>(&hit.body).expect("payload"));
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let payload = deleted.expect("the deletion delivery is received");
     assert_eq!(payload["event"], "game.deleted");
     assert_eq!(payload["data"]["source"], "scan");
 
