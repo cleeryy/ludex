@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Gamepad2, RefreshCw } from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
-import type { ControllerRole, InputDevice } from "@/lib/types";
+import type { ControllerRole, InputDevice, VirtualPadStatus } from "@/lib/types";
 import { Badge, Button } from "@/components/ui/controls";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
@@ -25,10 +25,20 @@ export function ControllerDiagnostics() {
     staleTime: 15_000,
     retry: false,
   });
+  // #315: the virtual gamepad is a host capability, not a per-game setting.
+  // The status sentence is the same one the game's launch options show.
+  const virtualPad = useQuery({
+    queryKey: qk.virtualPadStatus,
+    queryFn: () => native.virtualPadStatus(),
+    enabled: isNative(),
+    staleTime: 60_000,
+    retry: false,
+  });
   if (!isNative()) return null;
 
   const inventory = query.data;
   const joysticks: InputDevice[] = inventory?.devices.filter((device) => device.isJoystick) ?? [];
+  const padStatus = virtualPad.data;
 
   return (
     <section
@@ -55,6 +65,33 @@ export function ControllerDiagnostics() {
           {t("Refresh")}
         </Button>
       </header>
+
+      {padStatus ? (
+        <div className="mt-3 border-t border-line pt-3">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-[12px] text-ink-2">{t("Virtual gamepad")}</span>
+            <Badge
+              tone={
+                padStatus.status === "available"
+                  ? "ok"
+                  : padStatus.status === "missingPermission"
+                    ? "signal"
+                    : "outline"
+              }
+            >
+              {virtualPadStatusLabel(padStatus.status)}
+            </Badge>
+            {padStatus.path ? (
+              <span className="font-mono text-[10.5px] text-ink-3">{padStatus.path}</span>
+            ) : null}
+          </span>
+          <p className="mt-1 max-w-[68ch] text-[11.5px] leading-relaxed text-ink-3">
+            {padStatus.status === "available"
+              ? t("Ludex can create one virtual pad per game that asks for it.")
+              : padStatus.detail}
+          </p>
+        </div>
+      ) : null}
 
       {query.isError ? (
         <p className="mt-3 border-l-2 border-danger/60 pl-3 text-[12px] leading-relaxed text-ink-2">
@@ -112,5 +149,16 @@ function roleLabel(role: ControllerRole): string {
       return t("Keyboard");
     default:
       return t("Other device");
+  }
+}
+
+function virtualPadStatusLabel(status: VirtualPadStatus): string {
+  switch (status) {
+    case "available":
+      return t("Available");
+    case "missingPermission":
+      return t("Missing permission");
+    default:
+      return t("Unsupported platform");
   }
 }

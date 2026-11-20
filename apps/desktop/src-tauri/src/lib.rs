@@ -72,6 +72,8 @@ mod test_support;
 mod tray;
 mod update;
 mod util;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod virtual_pad;
 mod webview_profile;
 mod window_focus;
 mod window_policy;
@@ -381,6 +383,8 @@ pub fn run() {
             commands::controller_inventory,
             commands::game_controllers,
             commands::set_game_controller,
+            commands::set_game_virtual_pad,
+            commands::virtual_pad_status,
             compat_rules::compat_rules_status,
             compat_rules::compat_rules_report,
             compat_rules::compat_rules_update,

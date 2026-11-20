@@ -564,6 +564,8 @@ pub async fn launch(
         plan: Some(plan),
         stopped: std::sync::atomic::AtomicBool::new(false),
         auto_plan: auto.as_ref().map(|auto| Box::new(auto.plan.clone())),
+        // #315: `None` unless the per-game opt-in ran and the device exists.
+        virtual_pad: prepared.virtual_pad,
     });
 
     {
@@ -666,6 +668,8 @@ struct PreparedLaunch {
     tool: Option<String>,
     launch_log: Option<PathBuf>,
     resolved: Option<crate::launch_recovery::ResolvedPlan>,
+    /// #315: the virtual gamepad started before the spawn, if the game opted in.
+    virtual_pad: Option<crate::virtual_pad::VirtualPadBridge>,
 }
 
 /// Build the process for a launch: URI handler, native executable, or a Linux
@@ -698,6 +702,9 @@ fn prepare_launch(
             tool: None,
             launch_log: None,
             resolved: None,
+            // #315: a launcher URI is started as-is; the opt-in needs a local
+            // executable to wrap, and the UI says so.
+            virtual_pad: None,
         });
     }
 
@@ -745,6 +752,7 @@ fn prepare_launch(
             tool: None,
             launch_log: None,
             resolved: None,
+            virtual_pad: None,
         });
     }
 
@@ -762,6 +770,8 @@ fn prepare_launch(
         tool: None,
         launch_log: None,
         resolved: Some(resolved),
+        // #315: the virtual gamepad is Linux-only for now.
+        virtual_pad: None,
     })
 }
 
@@ -816,6 +826,32 @@ fn linux_prepare_launch(
     if let Some(summary) = &controllers.summary {
         tracing::info!(game_id, summary, "preferred controller applied");
     }
+    // #315: when the game opted in, one virtual pad is created before the
+    // spawn and every physical joystick is hidden from SDL. Anything that can
+    // go wrong (no /dev/uinput, no pad, ioctl refused) keeps the #314
+    // environment and adds a warning: the launch itself never fails.
+    let virtual_pad_preference =
+        crate::virtual_pad::preference(&settings.game_virtual_pads, game_id);
+    let virtual_pad = match virtual_pad_preference {
+        Some(preference) => {
+            let preferred = crate::controllers::preference(&settings.game_controllers, game_id);
+            let inventory = crate::controllers::inventory(Path::new("/"));
+            crate::virtual_pad::prepare_launch(
+                Some(&preference),
+                preferred.as_ref(),
+                &inventory.devices,
+                controllers,
+            )
+        }
+        None => crate::virtual_pad::VirtualPadLaunch::untouched(controllers),
+    };
+    if let Some(warning) = &virtual_pad.warning {
+        tracing::warn!(game_id, warning, "virtual gamepad not applied");
+    }
+    if let Some(summary) = &virtual_pad.summary {
+        tracing::info!(game_id, summary, "virtual gamepad applied");
+    }
+    let controllers = virtual_pad.controllers;
 
     // #287: probe Gamescope only when the per-game profile asks for it, so an
     // ordinary launch pays nothing and never depends on the wrapper.
@@ -865,6 +901,9 @@ fn linux_prepare_launch(
                 resolved: Some(crate::launch_recovery::ResolvedPlan::native(
                     &program, &base_args, None, None,
                 )),
+                // #315: the bridge started before the command was built; it
+                // lives until the session ends.
+                virtual_pad: virtual_pad.bridge,
             });
         }
 
@@ -916,6 +955,7 @@ fn linux_prepare_launch(
                 None,
                 Some(&resolved),
             )),
+            virtual_pad: virtual_pad.bridge,
         });
     }
 
@@ -1002,6 +1042,7 @@ fn linux_prepare_launch(
         resolved: Some(crate::launch_recovery::ResolvedPlan::from_plan(
             &plan, &resolved,
         )),
+        virtual_pad: virtual_pad.bridge,
     })
 }
 
@@ -2194,6 +2235,12 @@ pub fn stop(app: &AppHandle, session_id: &str) -> Result<(), String> {
             .map_err(|e| format!("Could not stop the game: {e}")),
         Err(error) => Err(format!("Could not inspect the game process: {error}")),
     }?;
+
+    // #315: destroy the virtual pad as soon as the game is stopped; the watcher
+    // also drops it when the session ends, and `stop` is idempotent.
+    if let Some(pad) = entry.virtual_pad.as_ref() {
+        pad.stop();
+    }
 
     tracing::info!(session_id, killed, "stopped the game process tree");
     Ok(())

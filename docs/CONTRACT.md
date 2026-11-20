@@ -3258,6 +3258,8 @@ interface RemotePlayCleanup {
 | `controller_inventory` | — | `ControllerInventory`; launch-time joysticks from `/proc/bus/input/devices` and `/dev/input/js*` with role, `vendor:product`, node index and connection state. Read-only, Linux only; never opens a device (#314) |
 | `game_controllers` | `{ gameId }` | `GameControllers`; the inventory, the stored preference and the environment the next launch adds (#314) |
 | `set_game_controller` | `{ gameId, deviceId }` | `GameControllers`; stores a `vendor:product` pair or clears it with `null`. SDL wildcards (`0000`, `ffff`) are refused (#314) |
+| `virtual_pad_status` | — | `VirtualPadAvailability`; `status` = `available` (the `/dev/uinput` node is writable), `missingPermission` (absent or not writable) or `unsupportedPlatform`, with `path` and the sentence naming the fix (#315) |
+| `set_game_virtual_pad` | `{ gameId, enabled }` | `GameControllers`; stores or clears the per-game virtual gamepad opt-in in the device settings (never synced). Saving succeeds even when the host cannot create the device yet: the launch re-probes (#315) |
 | `runtime_catalog` | — | `RuntimeCatalog`; the shipped, version-pinned "Make it run" manifest (#178). Managed providers carry an allow-listed HTTPS URL, size and SHA-256; `refresh.enabled` stays false until a signing key ships |
 | `make_it_run_diagnose` | `{ gameId }` | `RuntimeDiagnosis`; platform/arch, detections, issues and the numbered plan. Reads filesystem/registry only, never the network (#178) |
 | `make_it_run_apply` | `{ gameId, stepIds, consent }` | `RuntimeApplyReport`; refuses without `consent: true`, accepts only steps the current plan offers, downloads/verifies/installs in order, re-diagnoses after each step. Progress on `runtime://progress` |
@@ -3640,6 +3642,15 @@ the manifest and never streams.
   other connected joysticks and `SDL_JOYSTICK_DEVICE` for the chosen node. A
   missing device leaves the environment untouched and logs a warning; the
   overlay and Console mode are untouched. See `docs/CONTROLLERS.md`.
+  Virtual gamepad (#315): a per-game opt-in (`set_game_virtual_pad`, device
+  settings, never synced) makes the Linux launch create one `uinput` device
+  named `Ludex Virtual Gamepad` before the spawn, feed it from the preferred
+  controller's `/dev/input/eventN` node, and hide every connected physical
+  joystick from SDL. The environment is only changed once the device exists;
+  a missing or read-only `/dev/uinput`, no readable pad or a refused ioctl
+  keeps the physical pads untouched and writes a warning. The device is
+  destroyed when the session ends. `virtual_pad_status` reports host readiness
+  for Settings → Controllers.
   Launch profiles are counted per SHA-256 of the options/executable/arguments
   (#298): a launch that ends inside the 30 s first-frame budget, or with a fatal
   exit (`53`/`0x35`, `0xC0000409`), is a failure; the second consecutive

@@ -4427,5 +4427,17 @@
   "This device now wins conflicts": "Теперь это устройство побеждает в конфликтах",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "Часы этого устройства отличаются от сервера на {minutes} мин. Порядок сохранений определяется временем сервера.",
   "This machine": "Этот компьютер",
-  "When both devices changed": "Когда изменились оба устройства"
+  "When both devices changed": "Когда изменились оба устройства",
+  "Could not save the virtual gamepad option": "Не удалось сохранить параметр виртуального геймпада",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "Включайте для игр, которые назначают руль вместо геймпада. Применяется со следующего запуска; оверлей и режим консоли продолжают использовать все геймпады.",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex может создать виртуальный геймпад для каждой игры, которая его запросит.",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex создаёт для этой игры виртуальный геймпад в стиле Xbox, скрывает все физические геймпады от SDL и сам читает предпочтительный контроллер.",
+  "Missing permission": "Нет разрешения",
+  "Reads {pad}": "Читает {pad}",
+  "The next launch creates one virtual pad and hides the physical ones.": "Следующий запуск создаст виртуальный геймпад и скроет физические.",
+  "The next launch keeps the physical pads and the host order.": "Следующий запуск сохранит физические геймпады и порядок хоста.",
+  "Unsupported platform": "Неподдерживаемая платформа",
+  "Virtual gamepad": "Виртуальный геймпад",
+  "Virtual gamepad disabled": "Виртуальный геймпад отключён",
+  "Virtual gamepad enabled": "Виртуальный геймпад включён"
 }

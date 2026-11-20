@@ -4427,5 +4427,17 @@
   "This device now wins conflicts": "Dieses Gerät gewinnt jetzt Konflikte",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "Die Uhr dieses Geräts weicht {minutes} Minuten vom Server ab. Die Serverzeit entscheidet die Reihenfolge der Speicherstände.",
   "This machine": "Dieser Rechner",
-  "When both devices changed": "Wenn beide Geräte geändert wurden"
+  "When both devices changed": "Wenn beide Geräte geändert wurden",
+  "Could not save the virtual gamepad option": "Die Option für das virtuelle Gamepad konnte nicht gespeichert werden",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "Aktiviere sie für Spiele, die das Lenkrad statt des Gamepads binden. Sie gilt ab dem nächsten Start; Overlay und Konsolenmodus nutzen weiterhin alle Gamepads.",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex kann für jedes Spiel, das es anfordert, ein virtuelles Gamepad erstellen.",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex erstellt für dieses Spiel ein virtuelles Gamepad im Xbox-Stil, blendet alle physischen Gamepads aus SDL aus und liest den bevorzugten Controller selbst.",
+  "Missing permission": "Fehlende Berechtigung",
+  "Reads {pad}": "Liest {pad}",
+  "The next launch creates one virtual pad and hides the physical ones.": "Der nächste Start erstellt ein virtuelles Gamepad und blendet die physischen aus.",
+  "The next launch keeps the physical pads and the host order.": "Der nächste Start behält die physischen Gamepads und die Host-Reihenfolge.",
+  "Unsupported platform": "Nicht unterstützte Plattform",
+  "Virtual gamepad": "Virtuelles Gamepad",
+  "Virtual gamepad disabled": "Virtuelles Gamepad deaktiviert",
+  "Virtual gamepad enabled": "Virtuelles Gamepad aktiviert"
 }

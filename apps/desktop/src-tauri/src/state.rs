@@ -139,6 +139,10 @@ pub struct ProcessEntry {
     /// [`Self::plan`], which is the recovery snapshot: the plan explains the
     /// decision, the snapshot is what a revert restores.
     pub auto_plan: Option<Box<crate::launch_plan::LaunchPlan>>,
+    /// Virtual gamepad created for this session (#315). `Some` only when the
+    /// game opted in, `/dev/uinput` was usable and a physical pad could be
+    /// read; dropping the entry (or calling `stop`) destroys the device.
+    pub virtual_pad: Option<crate::virtual_pad::VirtualPadBridge>,
 }
 
 /// OS network reachability reported by the web shell (#212).

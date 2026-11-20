@@ -4427,5 +4427,17 @@
   "This device now wins conflicts": "이제 이 기기가 충돌에서 우선합니다",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "이 기기의 시계가 서버와 {minutes}분 차이입니다. 저장 순서는 서버 시간으로 결정됩니다.",
   "This machine": "이 컴퓨터",
-  "When both devices changed": "두 기기 모두 변경된 경우"
+  "When both devices changed": "두 기기 모두 변경된 경우",
+  "Could not save the virtual gamepad option": "가상 게임패드 옵션을 저장하지 못했습니다",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "패드 대신 휠이 할당되는 게임에서 켜세요. 다음 실행부터 적용되며 오버레이와 콘솔 모드는 모든 패드를 계속 사용합니다.",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex는 요청한 게임마다 가상 패드를 하나 만들 수 있습니다.",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex는 이 게임용 Xbox 스타일 가상 패드를 하나 만들고 모든 물리 패드를 SDL에서 숨기며 선호 컨트롤러를 직접 읽습니다.",
+  "Missing permission": "권한 없음",
+  "Reads {pad}": "{pad} 읽기",
+  "The next launch creates one virtual pad and hides the physical ones.": "다음 실행에서 가상 패드를 하나 만들고 물리 패드를 숨깁니다.",
+  "The next launch keeps the physical pads and the host order.": "다음 실행에서는 물리 패드와 호스트 순서를 유지합니다.",
+  "Unsupported platform": "지원되지 않는 플랫폼",
+  "Virtual gamepad": "가상 게임패드",
+  "Virtual gamepad disabled": "가상 게임패드 비활성화됨",
+  "Virtual gamepad enabled": "가상 게임패드 활성화됨"
 }

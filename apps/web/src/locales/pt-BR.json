@@ -4427,5 +4427,17 @@
   "This device now wins conflicts": "Agora este dispositivo vence os conflitos",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "O relógio deste dispositivo está {minutes} minutos distante do servidor. A hora do servidor decide a ordem dos saves.",
   "This machine": "Esta máquina",
-  "When both devices changed": "Quando os dois dispositivos mudaram"
+  "When both devices changed": "Quando os dois dispositivos mudaram",
+  "Could not save the virtual gamepad option": "Não foi possível salvar a opção do controle virtual",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "Ative para jogos que associam o volante em vez do controle. Ela vale no próximo início; a sobreposição e o modo Console continuam usando todos os controles.",
+  "Ludex can create one virtual pad per game that asks for it.": "O Ludex pode criar um controle virtual para cada jogo que solicitar.",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "O Ludex cria um controle virtual no estilo Xbox para este jogo, oculta todos os controles físicos do SDL e lê o controle preferido por conta própria.",
+  "Missing permission": "Permissão ausente",
+  "Reads {pad}": "Lê {pad}",
+  "The next launch creates one virtual pad and hides the physical ones.": "O próximo início cria um controle virtual e oculta os físicos.",
+  "The next launch keeps the physical pads and the host order.": "O próximo início mantém os controles físicos e a ordem do host.",
+  "Unsupported platform": "Plataforma não suportada",
+  "Virtual gamepad": "Controle virtual",
+  "Virtual gamepad disabled": "Controle virtual desativado",
+  "Virtual gamepad enabled": "Controle virtual ativado"
 }

@@ -4427,5 +4427,17 @@
   "This device now wins conflicts": "このデバイスが競合で優先されます",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "このデバイスの時計はサーバーと {minutes} 分ずれています。セーブの順序はサーバー時刻で決まります。",
   "This machine": "このマシン",
-  "When both devices changed": "両方のデバイスが変更された場合"
+  "When both devices changed": "両方のデバイスが変更された場合",
+  "Could not save the virtual gamepad option": "仮想ゲームパッドのオプションを保存できませんでした",
+  "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.": "パッドの代わりにホイールが割り当てられるゲームで有効にします。次回の起動から適用され、オーバーレイとコンソールモードはすべてのパッドを使い続けます。",
+  "Ludex can create one virtual pad per game that asks for it.": "Ludex は、要求したゲームごとに仮想パッドを 1 つ作成できます。",
+  "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.": "Ludex はこのゲーム用に Xbox 風の仮想パッドを 1 つ作成し、すべての物理パッドを SDL から隠し、優先コントローラーを自身で読み取ります。",
+  "Missing permission": "権限がありません",
+  "Reads {pad}": "{pad} を読み取る",
+  "The next launch creates one virtual pad and hides the physical ones.": "次回の起動で仮想パッドを 1 つ作成し、物理パッドを隠します。",
+  "The next launch keeps the physical pads and the host order.": "次回の起動では物理パッドとホストの順序を維持します。",
+  "Unsupported platform": "サポートされていないプラットフォーム",
+  "Virtual gamepad": "仮想ゲームパッド",
+  "Virtual gamepad disabled": "仮想ゲームパッドは無効です",
+  "Virtual gamepad enabled": "仮想ゲームパッドは有効です"
 }

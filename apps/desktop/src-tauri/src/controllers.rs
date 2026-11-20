@@ -199,6 +199,8 @@ pub struct GameControllers {
     pub inventory: ControllerInventory,
     pub preferred: Option<ControllerPreference>,
     pub launch: ControllerLaunch,
+    /// #315: host readiness plus the per-game virtual gamepad opt-in.
+    pub virtual_pad: crate::virtual_pad::VirtualPadView,
 }
 
 /* ------------------------------- parsing -------------------------------- */
@@ -527,6 +529,66 @@ pub fn preference(
         .get(&game_id.to_string())
         .cloned()
         .and_then(ControllerPreference::normalized)
+}
+
+/// Hide every connected physical joystick so the game sees only the virtual pad
+/// (#315).
+///
+/// Same two SDL variables as [`launch_for_preference`], but with no exception:
+/// the virtual device does not exist yet when this runs, and it is created with
+/// a vendor/product pair no real pad uses ([`crate::virtual_pad::VIRTUAL_VENDOR`]),
+/// so it can never appear in this list. A device without a `vendor:product`
+/// pair cannot be named and stays visible; the summary says so.
+///
+/// `SDL_JOYSTICK_DEVICE` is deliberately not set: it names a `jsN` node, and
+/// the virtual pad's node does not exist before it is created. Legacy `js`
+/// consumers keep the host order; that limit is documented.
+pub fn launch_ignoring_all_pads(devices: &[InputDevice]) -> ControllerLaunch {
+    let mut env = BTreeMap::new();
+    let mut ignored: Vec<String> = Vec::new();
+    let mut ignored_labels: Vec<String> = Vec::new();
+    let mut hidden = 0usize;
+    let mut unmatched = 0usize;
+    for device in devices
+        .iter()
+        .filter(|device| device.is_joystick && device.connected)
+    {
+        // #315: another Ludex session may already have a virtual pad with the
+        // reserved pair; hiding it would leave the second game with no pad.
+        if device.device_id.as_deref() == Some(crate::virtual_pad::VIRTUAL_DEVICE_ID) {
+            continue;
+        }
+        hidden += 1;
+        match device.ignore_pair() {
+            Some(pair) => {
+                if !ignored.contains(&pair) {
+                    ignored.push(pair);
+                    ignored_labels.push(device.label());
+                }
+            }
+            None => unmatched += 1,
+        }
+    }
+    if !ignored.is_empty() {
+        let list = ignored.join(",");
+        env.insert(SDL_IGNORE_DEVICES.to_string(), list.clone());
+        env.insert(SDL_GAMEPAD_IGNORE_DEVICES.to_string(), list);
+    }
+    let mut summary =
+        format!("virtual gamepad; hiding every physical joystick ({hidden} connected)");
+    if !ignored_labels.is_empty() {
+        summary.push_str(&format!(": {}", ignored_labels.join(", ")));
+    }
+    let warning = (unmatched > 0).then(|| {
+        format!(
+            "{unmatched} connected joystick(s) have no vendor:product pair and stay visible to the game alongside the virtual pad."
+        )
+    });
+    ControllerLaunch {
+        env,
+        summary: Some(summary),
+        warning,
+    }
 }
 
 /// Resolve the launch environment from the device settings and the real host.
@@ -944,5 +1006,78 @@ H: Handlers=event11 js1
         assert_eq!(found.name, "Pad");
         assert!(preference(&stored, 43).is_none());
         assert!(preference(&stored, 7).is_none());
+    }
+
+    // #315: the virtual gamepad hides every physical pad and never names one
+    // for legacy consumers, because the virtual node does not exist yet.
+    #[test]
+    fn the_virtual_pad_hides_every_connected_joystick() {
+        let root = fixture("virtual-all");
+        touch_js(&root, 0);
+        touch_js(&root, 2);
+        let joysticks = devices(&root);
+        let launch = launch_ignoring_all_pads(&joysticks);
+        assert!(launch.warning.is_none());
+        let list = launch
+            .env
+            .get(SDL_IGNORE_DEVICES)
+            .expect("an ignore list is written");
+        assert_eq!(list, "0x046d/0xc260,0x045e/0x028e");
+        assert_eq!(
+            launch.env.get(SDL_GAMEPAD_IGNORE_DEVICES),
+            launch.env.get(SDL_IGNORE_DEVICES)
+        );
+        assert!(!launch.env.contains_key(SDL_JOYSTICK_DEVICE));
+        let summary = launch.summary.unwrap_or_default();
+        assert!(summary.contains("hiding every physical joystick (2 connected)"));
+        assert!(summary.contains("Logitech G29"));
+        assert!(summary.contains("Microsoft X-Box 360 pad"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_unplugged_or_unidentifiable_pad_is_not_hidden_silently() {
+        let mut connected =
+            manual_device("Microsoft X-Box 360 pad", Some("045e:028e"), Some(2), true);
+        let unplugged = manual_device("Logitech G29", Some("046d:c260"), Some(0), false);
+        let mystery = manual_device("Mystery stick", None, Some(1), true);
+        let launch = launch_ignoring_all_pads(&[connected.clone(), unplugged, mystery]);
+        assert_eq!(
+            launch.env.get(SDL_IGNORE_DEVICES).map(String::as_str),
+            Some("0x045e/0x028e")
+        );
+        assert!(launch
+            .warning
+            .as_deref()
+            .unwrap_or_default()
+            .contains("1 connected joystick(s) have no vendor:product pair"));
+        assert!(launch
+            .summary
+            .as_deref()
+            .unwrap_or_default()
+            .contains("(2 connected)"));
+        // Mutating the fixture device after the call changes nothing: the
+        // environment is built from the snapshot it received.
+        connected.connected = false;
+        assert_eq!(
+            launch.env.get(SDL_IGNORE_DEVICES).map(String::as_str),
+            Some("0x045e/0x028e")
+        );
+    }
+
+    #[test]
+    fn another_ludex_virtual_pad_is_never_hidden() {
+        // A second Ludex session may already present the reserved pair; hiding
+        // it would leave that session's game with no pad at all.
+        let devices = vec![
+            manual_device("Ludex Virtual Gamepad", Some("4c44:0001"), Some(4), true),
+            manual_device("Microsoft X-Box 360 pad", Some("045e:028e"), Some(2), true),
+        ];
+        let launch = launch_ignoring_all_pads(&devices);
+        assert_eq!(
+            launch.env.get(SDL_IGNORE_DEVICES).map(String::as_str),
+            Some("0x045e/0x028e")
+        );
+        assert!(launch.summary.unwrap_or_default().contains("(1 connected)"));
     }
 }
