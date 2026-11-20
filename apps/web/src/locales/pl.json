@@ -4427,5 +4427,22 @@
   "This device now wins conflicts": "To urządzenie wygrywa teraz konflikty",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "Zegar tego urządzenia różni się od serwera o {minutes} min. Kolejność zapisów ustala czas serwera.",
   "This machine": "Ten komputer",
-  "When both devices changed": "Gdy oba urządzenia zostały zmienione"
+  "When both devices changed": "Gdy oba urządzenia zostały zmienione",
+  "Apply profile": "Zastosuj profil",
+  "Could not apply the profile": "Nie udało się zastosować profilu",
+  "Could not export the profile": "Nie udało się wyeksportować profilu",
+  "Could not read this profile": "Nie udało się odczytać tego profilu",
+  "Export profile": "Eksportuj profil",
+  "Game profile": "Profil gry",
+  "One TOML document for this game: launch plan, display profile and prerequisites, without folders or user names. Export it to share a working setup, or paste one to compare it before anything changes.": "Jeden dokument TOML na grę: plan uruchamiania, profil wyświetlania i wymagania, bez folderów i nazw użytkowników. Wyeksportuj go, aby udostępnić działającą konfigurację, albo wklej, aby porównać przed zmianami.",
+  "Paste a TOML profile here, then preview it.": "Wklej tutaj profil TOML, a następnie go obejrzyj.",
+  "Preview import": "Podejrzyj import",
+  "Profile applied": "Profil zastosowany",
+  "Profile document": "Dokument profilu",
+  "Profile exported": "Profil wyeksportowany",
+  "Review the TOML, then copy it.": "Sprawdź TOML, a następnie go skopiuj.",
+  "schema {schema} · app {version} · rules {rules}": "schemat {schema} · aplikacja {version} · reguły {rules}",
+  "The launch plan and the declared prerequisites were updated.": "Plan uruchamiania i zadeklarowane wymagania zostały zaktualizowane.",
+  "This profile changes nothing.": "Ten profil niczego nie zmienia.",
+  "Untitled profile": "Profil bez nazwy"
 }

@@ -36,8 +36,10 @@ ludex-server = { path = "../../../crates/ludex-server", default-features = false
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Compatibility rules (#301): TOML data, minisign verification and the same
-# base64 public key the updater already uses.
+# TOML data: compatibility rules (#301, minisign verification and the same base64
+# public key the updater already uses) and declarative per-game profiles (#300,
+# one TOML document per game, with the unknown keys preserved so a newer profile
+# round-trips through an older build).
 toml = "0.8"
 encoding_rs = "0.8"
 # The Ludusavi manifest is YAML (#107). The manifest is never bundled: Ludex

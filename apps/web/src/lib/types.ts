@@ -3466,6 +3466,39 @@ export interface LaunchPlanView {
   lastFailureAt: string | null;
 }
 
+/** One warning or blocking problem from a per-game profile (#300). */
+export interface ProfileWarning {
+  /** Stable code (`missing-build`, `local-path-omitted`, …). */
+  code: string;
+  detail: string;
+}
+
+/** One changed field between the current and the incoming profile (#300). */
+export interface ProfileChange {
+  /** Dotted path (`launch.mode`, `launch.env.DXVK_HUD`, `display.width`). */
+  field: string;
+  before: string | null;
+  after: string | null;
+}
+
+/** A profile export: the TOML document plus what had to stay local (#300). */
+export interface ProfileExport {
+  toml: string;
+  warnings: ProfileWarning[];
+}
+
+/** The proposal shown before an import writes anything (#300). */
+export interface ProfileProposal {
+  title: string;
+  schemaVersion: number;
+  appVersion: string;
+  rulesVersion: string;
+  diff: ProfileChange[];
+  warnings: ProfileWarning[];
+  errors: string[];
+  canApply: boolean;
+}
+
 export interface CompatTool {
   id: string;
   name: string;

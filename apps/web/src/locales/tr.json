@@ -4427,5 +4427,22 @@
   "This device now wins conflicts": "Artık bu cihaz çakışmaları kazanır",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "Bu cihazın saati sunucudan {minutes} dakika farklı. Kayıt sırasını sunucu saati belirler.",
   "This machine": "Bu makine",
-  "When both devices changed": "İki cihaz da değiştiğinde"
+  "When both devices changed": "İki cihaz da değiştiğinde",
+  "Apply profile": "Profili uygula",
+  "Could not apply the profile": "Profil uygulanamadı",
+  "Could not export the profile": "Profil dışa aktarılamadı",
+  "Could not read this profile": "Bu profil okunamadı",
+  "Export profile": "Profili dışa aktar",
+  "Game profile": "Oyun profili",
+  "One TOML document for this game: launch plan, display profile and prerequisites, without folders or user names. Export it to share a working setup, or paste one to compare it before anything changes.": "Oyun başına tek bir TOML belgesi: klasör veya kullanıcı adı olmadan başlatma planı, görüntü profili ve ön koşullar. Çalışan bir yapılandırmayı paylaşmak için dışa aktarın veya değişiklikten önce karşılaştırmak için yapıştırın.",
+  "Paste a TOML profile here, then preview it.": "Buraya bir TOML profili yapıştırın, sonra önizleyin.",
+  "Preview import": "İçe aktarmayı önizle",
+  "Profile applied": "Profil uygulandı",
+  "Profile document": "Profil belgesi",
+  "Profile exported": "Profil dışa aktarıldı",
+  "Review the TOML, then copy it.": "TOML'yi inceleyin, sonra kopyalayın.",
+  "schema {schema} · app {version} · rules {rules}": "şema {schema} · uygulama {version} · kurallar {rules}",
+  "The launch plan and the declared prerequisites were updated.": "Başlatma planı ve bildirilen ön koşullar güncellendi.",
+  "This profile changes nothing.": "Bu profil hiçbir şeyi değiştirmiyor.",
+  "Untitled profile": "Başlıksız profil"
 }

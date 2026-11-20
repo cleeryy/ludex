@@ -10,6 +10,7 @@ database and its "why" panel, #301), [INTEGRATIONS.md](INTEGRATIONS.md)
 (compat detection, prefixes, winetricks, ProtonDB),
 [GAMESCOPE.md](GAMESCOPE.md) (per-game display profiles),
 [SHADERS.md](SHADERS.md) (shader warm start after install),
+[PROFILES.md](PROFILES.md) (exportable TOML profiles),
 [DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage install) and
 [ARCHITECTURE.md](ARCHITECTURE.md).
 

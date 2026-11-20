@@ -4427,5 +4427,22 @@
   "This device now wins conflicts": "Теперь это устройство побеждает в конфликтах",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "Часы этого устройства отличаются от сервера на {minutes} мин. Порядок сохранений определяется временем сервера.",
   "This machine": "Этот компьютер",
-  "When both devices changed": "Когда изменились оба устройства"
+  "When both devices changed": "Когда изменились оба устройства",
+  "Apply profile": "Применить профиль",
+  "Could not apply the profile": "Не удалось применить профиль",
+  "Could not export the profile": "Не удалось экспортировать профиль",
+  "Could not read this profile": "Не удалось прочитать этот профиль",
+  "Export profile": "Экспортировать профиль",
+  "Game profile": "Профиль игры",
+  "One TOML document for this game: launch plan, display profile and prerequisites, without folders or user names. Export it to share a working setup, or paste one to compare it before anything changes.": "Один документ TOML на игру: план запуска, профиль дисплея и требования, без папок и имён пользователей. Экспортируйте его, чтобы поделиться рабочей конфигурацией, или вставьте чужой, чтобы сравнить до любых изменений.",
+  "Paste a TOML profile here, then preview it.": "Вставьте профиль TOML сюда, затем просмотрите его.",
+  "Preview import": "Предпросмотр импорта",
+  "Profile applied": "Профиль применён",
+  "Profile document": "Документ профиля",
+  "Profile exported": "Профиль экспортирован",
+  "Review the TOML, then copy it.": "Проверьте TOML и скопируйте его.",
+  "schema {schema} · app {version} · rules {rules}": "схема {schema} · приложение {version} · правила {rules}",
+  "The launch plan and the declared prerequisites were updated.": "План запуска и заявленные требования обновлены.",
+  "This profile changes nothing.": "Этот профиль ничего не меняет.",
+  "Untitled profile": "Профиль без названия"
 }

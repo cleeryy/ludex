@@ -90,6 +90,8 @@ import type {
   OverlaySettingsPatch,
   OverlayStatus,
   PrefixInfo,
+  ProfileExport,
+  ProfileProposal,
   ProtonDbRating,
   RemotePlayCleanup,
   RemotePlayPortPlan,
@@ -1100,6 +1102,24 @@ export const native = {
   /** Cancel the prerequisite recipe currently applied to this game. */
   async launchPlanCancel(gameId: number): Promise<boolean> {
     return invoke<boolean>("launch_plan_cancel", { gameId });
+  },
+
+  /** Export one game as a shareable TOML profile (#300). */
+  async exportGameProfile(gameId: number): Promise<ProfileExport> {
+    return invoke<ProfileExport>("export_game_profile", { gameId });
+  },
+
+  /**
+   * Diff an incoming profile against the current one (#300). Read only: the
+   * returned proposal must be confirmed before `applyGameProfileImport` runs.
+   */
+  async previewGameProfileImport(gameId: number, text: string): Promise<ProfileProposal> {
+    return invoke<ProfileProposal>("preview_game_profile_import", { gameId, text });
+  },
+
+  /** Write a reviewed profile. The Wine prefix is never touched (#300). */
+  async applyGameProfileImport(gameId: number, text: string): Promise<LaunchOptions> {
+    return invoke<LaunchOptions>("apply_game_profile_import", { gameId, text });
   },
 
   async winePrefixInfo(gameId: number): Promise<PrefixInfo> {
