@@ -4375,5 +4375,22 @@
   "Logs, versions and the resolved plan, with secrets removed.": "Registros, versões e o plano resolvido, sem segredos.",
   "plan {hash}": "plano {hash}",
   "Previous launch setup restored": "Configuração de inicialização anterior restaurada",
-  "Report this game": "Informar este jogo"
+  "Report this game": "Informar este jogo",
+  "Applying the prerequisite recipe…": "Aplicando a receita de pré-requisitos…",
+  "Chosen from the game, the machine and the rules. No compatibility setting to pick.": "Escolhido a partir do jogo, da máquina e das regras. Nenhuma configuração de compatibilidade para selecionar.",
+  "Could not cancel the prerequisites": "Não foi possível cancelar os pré-requisitos",
+  "Could not export the launch plan": "Não foi possível exportar o plano de lançamento",
+  "Could not read the launch plan": "Não foi possível ler o plano de lançamento",
+  "Could not refresh the launch plan": "Não foi possível atualizar o plano de lançamento",
+  "Exited after": "Encerrado após",
+  "Launch plan": "Plano de lançamento",
+  "Launch plan exported": "Plano de lançamento exportado",
+  "Ludex handed the session to the auto-revert path instead of retrying the same plan.": "O Ludex entregou a sessão ao caminho de reversão automática em vez de repetir o mesmo plano.",
+  "Manual override": "Substituição manual",
+  "Prerequisites": "Pré-requisitos",
+  "Recalculate": "Recalcular",
+  "The JSON file can be shared with support.": "O arquivo JSON pode ser compartilhado com o suporte.",
+  "The last automatic launch failed": "O último lançamento automático falhou",
+  "The machine changed since this plan was stored; recalculate before playing.": "A máquina mudou desde que este plano foi salvo; recalcule antes de jogar.",
+  "The saved launch options win; the rules are informational.": "As opções de lançamento salvas prevalecem; as regras são informativas."
 }

@@ -135,6 +135,10 @@ pub struct ProcessEntry {
     /// Set by `stop_game` and force close: an intentional stop is never a
     /// failed launch (#298).
     pub stopped: std::sync::atomic::AtomicBool,
+    /// The auto-configuration plan this session applied (#297). Separate from
+    /// [`Self::plan`], which is the recovery snapshot: the plan explains the
+    /// decision, the snapshot is what a revert restores.
+    pub auto_plan: Option<Box<crate::launch_plan::LaunchPlan>>,
 }
 
 /// OS network reachability reported by the web shell (#212).

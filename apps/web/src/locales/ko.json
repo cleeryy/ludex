@@ -4375,5 +4375,22 @@
   "Logs, versions and the resolved plan, with secrets removed.": "로그, 버전 및 확인된 계획, 비밀 정보 제거됨.",
   "plan {hash}": "계획 {hash}",
   "Previous launch setup restored": "이전 실행 설정 복원됨",
-  "Report this game": "이 게임 신고"
+  "Report this game": "이 게임 신고",
+  "Applying the prerequisite recipe…": "필수 구성 요소 레시피 적용 중…",
+  "Chosen from the game, the machine and the rules. No compatibility setting to pick.": "게임, 시스템, 규칙을 기준으로 자동 선택됩니다. 호환성 설정을 고를 필요가 없습니다.",
+  "Could not cancel the prerequisites": "필수 구성 요소를 취소할 수 없습니다",
+  "Could not export the launch plan": "실행 계획을 내보낼 수 없습니다",
+  "Could not read the launch plan": "실행 계획을 읽을 수 없습니다",
+  "Could not refresh the launch plan": "실행 계획을 새로 고칠 수 없습니다",
+  "Exited after": "종료 시점",
+  "Launch plan": "실행 계획",
+  "Launch plan exported": "실행 계획을 내보냈습니다",
+  "Ludex handed the session to the auto-revert path instead of retrying the same plan.": "Ludex가 동일한 계획을 재시도하지 않고 세션을 자동 되돌리기 경로로 넘겼습니다.",
+  "Manual override": "수동 재정의",
+  "Prerequisites": "필수 구성 요소",
+  "Recalculate": "다시 계산",
+  "The JSON file can be shared with support.": "JSON 파일을 지원팀과 공유할 수 있습니다.",
+  "The last automatic launch failed": "마지막 자동 실행이 실패했습니다",
+  "The machine changed since this plan was stored; recalculate before playing.": "이 계획을 저장한 후 시스템이 변경되었습니다. 플레이 전에 다시 계산하세요.",
+  "The saved launch options win; the rules are informational.": "저장된 실행 옵션이 우선합니다. 규칙은 참고용입니다."
 }

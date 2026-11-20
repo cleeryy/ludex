@@ -4375,5 +4375,22 @@
   "Logs, versions and the resolved plan, with secrets removed.": "Журналы, версии и разрешённый план без секретов.",
   "plan {hash}": "план {hash}",
   "Previous launch setup restored": "Предыдущая конфигурация запуска восстановлена",
-  "Report this game": "Сообщить об этой игре"
+  "Report this game": "Сообщить об этой игре",
+  "Applying the prerequisite recipe…": "Применение рецепта зависимостей…",
+  "Chosen from the game, the machine and the rules. No compatibility setting to pick.": "Выбрано на основе игры, машины и правил. Никаких настроек совместимости выбирать не нужно.",
+  "Could not cancel the prerequisites": "Не удалось отменить зависимости",
+  "Could not export the launch plan": "Не удалось экспортировать план запуска",
+  "Could not read the launch plan": "Не удалось прочитать план запуска",
+  "Could not refresh the launch plan": "Не удалось обновить план запуска",
+  "Exited after": "Завершено через",
+  "Launch plan": "План запуска",
+  "Launch plan exported": "План запуска экспортирован",
+  "Ludex handed the session to the auto-revert path instead of retrying the same plan.": "Ludex передал сеанс в механизм автоматического отката вместо повторной попытки с тем же планом.",
+  "Manual override": "Ручное переопределение",
+  "Prerequisites": "Зависимости",
+  "Recalculate": "Пересчитать",
+  "The JSON file can be shared with support.": "Файл JSON можно передать в поддержку.",
+  "The last automatic launch failed": "Последний автоматический запуск не удался",
+  "The machine changed since this plan was stored; recalculate before playing.": "Машина изменилась с момента сохранения плана; пересчитайте перед игрой.",
+  "The saved launch options win; the rules are informational.": "Сохранённые параметры запуска имеют приоритет; правила носят информационный характер."
 }
