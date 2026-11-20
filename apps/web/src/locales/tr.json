@@ -4392,5 +4392,21 @@
   "The JSON file can be shared with support.": "JSON dosyası destek ekibiyle paylaşılabilir.",
   "The last automatic launch failed": "Son otomatik başlatma başarısız oldu",
   "The machine changed since this plan was stored; recalculate before playing.": "Bu plan kaydedildikten sonra makine değişti; oynamadan önce yeniden hesaplayın.",
-  "The saved launch options win; the rules are informational.": "Kaydedilen başlatma seçenekleri geçerlidir; kurallar bilgilendirme amaçlıdır."
+  "The saved launch options win; the rules are informational.": "Kaydedilen başlatma seçenekleri geçerlidir; kurallar bilgilendirme amaçlıdır.",
+  "Already set": "Zaten ayarlandı",
+  "Another rule set this first": "Bunu önce başka bir kural ayarladı",
+  "Blocks launch": "Başlatmayı engeller",
+  "Extra arguments": "Ek bağımsız değişkenler",
+  "Known issues": "Bilinen sorunlar",
+  "Learned locally": "Bu cihazda öğrenildi",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "Bu oyun için henüz bir uyumluluk kuralı yok. Ludex başlatma seçeneklerini olduğu gibi kullanır.",
+  "Prerequisites: {list}": "Ön koşullar: {list}",
+  "Rule {version}": "Kural {version}",
+  "Source: {source}": "Kaynak: {source}",
+  "The rules could not be read for this game.": "Bu oyunun kuralları okunamadı.",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "Kural dosyası okunamadı. Ludex uygulamayla gelen varsayılanları kullanır.",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Ludex'in bu oyun için eşleştirdiği kurallar. Yalnızca varsayılanları doldururlar: Başlatma seçeneklerinde ayarladığınız her şey önceliklidir.",
+  "Why these launch settings": "Bu başlatma ayarları neden",
+  "Windows components": "Windows bileşenleri",
+  "Your choice kept": "Seçiminiz korundu"
 }

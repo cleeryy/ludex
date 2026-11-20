@@ -3798,6 +3798,90 @@ export interface RuntimeDiagnosis {
   generatedAt: string;
 }
 
+/** Where a compatibility rule came from (#301). */
+export type CompatRuleOrigin = "shipped" | "cached" | "local";
+export type CompatConfidence = "certain" | "likely" | "guess";
+export type CompatIssueSeverity = "info" | "warning" | "blocking";
+
+/** One plan field a rule wanted to set, and whether it was applied. */
+export interface CompatRuleChange {
+  /** Stable field name: `mode`, `env.PROTON_ENABLE_NVAPI`, `display.hdr`. */
+  field: string;
+  value: string;
+  applied: boolean;
+  /** `user-choice`, `rule-conflict` or `duplicate` when the field was kept. */
+  skipped: string | null;
+}
+
+export interface CompatKnownIssue {
+  code: string;
+  severity: CompatIssueSeverity;
+  detail: string;
+}
+
+/** A matched rule and what it did, as the "why" panel shows it. */
+export interface CompatEvaluatedRule {
+  id: string;
+  origin: CompatRuleOrigin;
+  /** `2026.11` for a database rule, empty for a local one. */
+  rulesVersion: string;
+  reason: string;
+  confidence: CompatConfidence;
+  source: string;
+  /** True when the rule changed the plan or declared a prerequisite. */
+  applied: boolean;
+  changes: CompatRuleChange[];
+  prerequisites: string[];
+  knownIssues: CompatKnownIssue[];
+}
+
+export interface CompatReportedIssue {
+  ruleId: string;
+  code: string;
+  severity: CompatIssueSeverity;
+  detail: string;
+}
+
+/** The result of applying the matched rules to one game's stored plan. */
+export interface CompatRuleEvaluation {
+  /** Base options with every applied override. */
+  options: LaunchOptions;
+  /** Extra arguments, appended after the user's own startup command. */
+  extraArgs: string[];
+  rules: CompatEvaluatedRule[];
+  prerequisites: string[];
+  issues: CompatReportedIssue[];
+}
+
+/** Returned by `compat_rules_report`; read-only. */
+export interface CompatRulesReport {
+  gameId: number;
+  version: string;
+  origin: CompatRuleOrigin;
+  localRuleCount: number;
+  degraded: boolean;
+  notes: string[];
+  evaluation: CompatRuleEvaluation;
+}
+
+/** Returned by `compat_rules_status` / `compat_rules_update`. */
+export interface CompatRulesStatus {
+  schema: number;
+  supportedSchema: number;
+  version: string;
+  origin: CompatRuleOrigin;
+  ruleCount: number;
+  localRuleCount: number;
+  degraded: boolean;
+  notes: string[];
+  cachePath: string;
+  localPath: string;
+  signatureConfigured: boolean;
+  lastCheckedAt: string | null;
+  fetchedAt: string | null;
+  message: string | null;
+}
+
 /** Returned by `launch_game`; `tool` names the Linux compatibility tool used. */
 export interface GameLaunchResult {
   sessionId: string;

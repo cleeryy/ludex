@@ -4392,5 +4392,21 @@
   "The JSON file can be shared with support.": "JSON ファイルはサポートと共有できます。",
   "The last automatic launch failed": "前回の自動起動に失敗しました",
   "The machine changed since this plan was stored; recalculate before playing.": "このプランの保存後にマシンが変更されました。プレイ前に再計算してください。",
-  "The saved launch options win; the rules are informational.": "保存された起動オプションが優先されます。ルールは参考情報です。"
+  "The saved launch options win; the rules are informational.": "保存された起動オプションが優先されます。ルールは参考情報です。",
+  "Already set": "設定済み",
+  "Another rule set this first": "別のルールが先に設定しました",
+  "Blocks launch": "起動をブロック",
+  "Extra arguments": "追加の引数",
+  "Known issues": "既知の問題",
+  "Learned locally": "この PC で学習",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "このゲームに一致する互換性ルールはまだありません。Ludex は起動オプションをそのまま使用します。",
+  "Prerequisites: {list}": "前提条件: {list}",
+  "Rule {version}": "ルール {version}",
+  "Source: {source}": "ソース: {source}",
+  "The rules could not be read for this game.": "このゲームのルールを読み取れませんでした。",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "ルールファイルを読み取れませんでした。Ludex は同梱の既定値を使用します。",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Ludex がこのゲームに一致させたルールです。既定値のみを埋めます。起動オプションで設定した内容が優先されます。",
+  "Why these launch settings": "この起動設定の理由",
+  "Windows components": "Windows コンポーネント",
+  "Your choice kept": "選択を維持"
 }

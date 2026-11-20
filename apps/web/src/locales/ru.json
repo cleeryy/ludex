@@ -4392,5 +4392,21 @@
   "The JSON file can be shared with support.": "Файл JSON можно передать в поддержку.",
   "The last automatic launch failed": "Последний автоматический запуск не удался",
   "The machine changed since this plan was stored; recalculate before playing.": "Машина изменилась с момента сохранения плана; пересчитайте перед игрой.",
-  "The saved launch options win; the rules are informational.": "Сохранённые параметры запуска имеют приоритет; правила носят информационный характер."
+  "The saved launch options win; the rules are informational.": "Сохранённые параметры запуска имеют приоритет; правила носят информационный характер.",
+  "Already set": "Уже задано",
+  "Another rule set this first": "Другое правило задало это раньше",
+  "Blocks launch": "Блокирует запуск",
+  "Extra arguments": "Дополнительные аргументы",
+  "Known issues": "Известные проблемы",
+  "Learned locally": "Изучено на этом устройстве",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "Для этой игры пока нет правил совместимости. Ludex использует ваши параметры запуска как есть.",
+  "Prerequisites: {list}": "Требования: {list}",
+  "Rule {version}": "Правило {version}",
+  "Source: {source}": "Источник: {source}",
+  "The rules could not be read for this game.": "Не удалось прочитать правила для этой игры.",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "Не удалось прочитать файл правил. Ludex использует встроенные значения по умолчанию.",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Правила, которые Ludex сопоставил для этой игры. Они задают только значения по умолчанию: всё, что вы указали в параметрах запуска, имеет приоритет.",
+  "Why these launch settings": "Почему выбраны эти параметры запуска",
+  "Windows components": "Компоненты Windows",
+  "Your choice kept": "Ваш выбор сохранён"
 }

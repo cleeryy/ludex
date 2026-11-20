@@ -4392,5 +4392,21 @@
   "The JSON file can be shared with support.": "JSON 파일을 지원팀과 공유할 수 있습니다.",
   "The last automatic launch failed": "마지막 자동 실행이 실패했습니다",
   "The machine changed since this plan was stored; recalculate before playing.": "이 계획을 저장한 후 시스템이 변경되었습니다. 플레이 전에 다시 계산하세요.",
-  "The saved launch options win; the rules are informational.": "저장된 실행 옵션이 우선합니다. 규칙은 참고용입니다."
+  "The saved launch options win; the rules are informational.": "저장된 실행 옵션이 우선합니다. 규칙은 참고용입니다.",
+  "Already set": "이미 설정됨",
+  "Another rule set this first": "다른 규칙이 먼저 설정했습니다",
+  "Blocks launch": "실행 차단",
+  "Extra arguments": "추가 인수",
+  "Known issues": "알려진 문제",
+  "Learned locally": "이 기기에서 학습됨",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "이 게임에 해당하는 호환성 규칙이 아직 없습니다. Ludex는 실행 옵션을 그대로 사용합니다.",
+  "Prerequisites: {list}": "필수 구성 요소: {list}",
+  "Rule {version}": "규칙 {version}",
+  "Source: {source}": "출처: {source}",
+  "The rules could not be read for this game.": "이 게임의 규칙을 읽을 수 없습니다.",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "규칙 파일을 읽을 수 없습니다. Ludex는 함께 제공되는 기본값을 사용합니다.",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Ludex가 이 게임에 대해 찾은 규칙입니다. 기본값만 채우며, 실행 옵션에서 설정한 값이 우선합니다.",
+  "Why these launch settings": "이 실행 설정을 쓰는 이유",
+  "Windows components": "Windows 구성 요소",
+  "Your choice kept": "선택 유지됨"
 }

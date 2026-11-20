@@ -4392,5 +4392,21 @@
   "The JSON file can be shared with support.": "该 JSON 文件可提供给支持团队。",
   "The last automatic launch failed": "上次自动启动失败",
   "The machine changed since this plan was stored; recalculate before playing.": "保存此方案后机器已发生变化；请在游玩前重新计算。",
-  "The saved launch options win; the rules are informational.": "已保存的启动选项优先；规则仅供参考。"
+  "The saved launch options win; the rules are informational.": "已保存的启动选项优先；规则仅供参考。",
+  "Already set": "已设置",
+  "Another rule set this first": "另一条规则已先行设置",
+  "Blocks launch": "阻止启动",
+  "Extra arguments": "额外参数",
+  "Known issues": "已知问题",
+  "Learned locally": "本机学习",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "目前没有针对此游戏的兼容性规则。Ludex 将按原样使用你的启动选项。",
+  "Prerequisites: {list}": "先决条件：{list}",
+  "Rule {version}": "规则 {version}",
+  "Source: {source}": "来源：{source}",
+  "The rules could not be read for this game.": "无法读取此游戏的规则。",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "无法读取规则文件。Ludex 使用内置默认值。",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Ludex 为此游戏匹配到的规则。它们只填充默认值：你在启动选项中设置的任何内容都优先。",
+  "Why these launch settings": "为什么使用这些启动设置",
+  "Windows components": "Windows 组件",
+  "Your choice kept": "保留你的选择"
 }

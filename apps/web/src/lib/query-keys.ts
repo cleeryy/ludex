@@ -171,6 +171,8 @@ export const qk = {
   shaderPrep: (gameId: number) => key("shader-prep", gameId),
   shaderPrepAll: ["shader-prep"] as const,
   makeItRun: (gameId: number) => key("make-it-run", gameId),
+  /** Matched compatibility rules for one game (#301). */
+  compatRules: (gameId: number) => key("compat-rules", gameId),
   virustotal: {
     forGame: (gameId: number) => key("game-virustotal", gameId),
   },

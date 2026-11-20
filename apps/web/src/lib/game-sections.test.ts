@@ -44,6 +44,7 @@ const REQUIRED_PANELS = [
   "setup-program",
   "startup-command",
   "settings-tiers",
+  "compat-rules",
   "make-it-run",
   "linux-launch",
   "audio",

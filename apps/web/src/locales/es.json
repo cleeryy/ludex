@@ -4392,5 +4392,21 @@
   "The JSON file can be shared with support.": "El archivo JSON se puede compartir con soporte.",
   "The last automatic launch failed": "El último lanzamiento automático falló",
   "The machine changed since this plan was stored; recalculate before playing.": "La máquina cambió desde que se guardó este plan; recalcula antes de jugar.",
-  "The saved launch options win; the rules are informational.": "Las opciones de lanzamiento guardadas prevalecen; las reglas son informativas."
+  "The saved launch options win; the rules are informational.": "Las opciones de lanzamiento guardadas prevalecen; las reglas son informativas.",
+  "Already set": "Ya definido",
+  "Another rule set this first": "Otra regla lo definió primero",
+  "Blocks launch": "Bloquea el inicio",
+  "Extra arguments": "Argumentos adicionales",
+  "Known issues": "Problemas conocidos",
+  "Learned locally": "Aprendido en este equipo",
+  "No compatibility rule targets this game yet. Ludex uses your launch options as they are.": "Ninguna regla de compatibilidad se aplica a este juego todavía. Ludex usa tus opciones de inicio tal como están.",
+  "Prerequisites: {list}": "Requisitos: {list}",
+  "Rule {version}": "Regla {version}",
+  "Source: {source}": "Origen: {source}",
+  "The rules could not be read for this game.": "No se pudieron leer las reglas de este juego.",
+  "The rules file could not be read. Ludex uses the shipped defaults.": "No se pudo leer el archivo de reglas. Ludex usa los valores predeterminados incluidos.",
+  "The rules Ludex matched for this game. They fill in defaults only: anything you set under Launch options wins.": "Reglas que Ludex encontró para este juego. Solo rellenan valores predeterminados: lo que definas en Opciones de inicio tiene prioridad.",
+  "Why these launch settings": "Por qué se usan estas opciones de inicio",
+  "Windows components": "Componentes de Windows",
+  "Your choice kept": "Se mantiene tu elección"
 }

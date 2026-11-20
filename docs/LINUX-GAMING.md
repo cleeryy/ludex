@@ -5,8 +5,10 @@ where the tool output goes and how to read it when a game dies immediately.
 
 Related: [LAUNCH-PLANS.md](LAUNCH-PLANS.md) (the rules engine that picks
 the mode for you and the auto-revert that follows it, #297/#298),
-[INTEGRATIONS.md](INTEGRATIONS.md) (compat detection, prefixes, winetricks,
-ProtonDB), [GAMESCOPE.md](GAMESCOPE.md) (per-game display profiles),
+[COMPAT-RULES.md](COMPAT-RULES.md) (the shipped, signed launch-rule
+database and its "why" panel, #301), [INTEGRATIONS.md](INTEGRATIONS.md)
+(compat detection, prefixes, winetricks, ProtonDB),
+[GAMESCOPE.md](GAMESCOPE.md) (per-game display profiles),
 [SHADERS.md](SHADERS.md) (shader warm start after install),
 [DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage install) and
 [ARCHITECTURE.md](ARCHITECTURE.md).
