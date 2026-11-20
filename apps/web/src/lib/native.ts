@@ -102,6 +102,8 @@ import type {
   RuntimeRemovalReport,
   ServerList,
   ServerTest,
+  ShaderPrepProgress,
+  ShaderPrepView,
   SteamImportReport,
   SteamPreview,
   StorageSuggestions,
@@ -971,6 +973,53 @@ export const native = {
     return invoke<LaunchOptions>("get_launch_options", { gameId });
   },
 
+  /* ------------------- Shader preparation (#293) ------------------- */
+
+  /** Prepared-cache state and size of one game. */
+  async shaderPrepStats(gameId: number): Promise<ShaderPrepView> {
+    return invoke<ShaderPrepView>("shader_prep_stats", { gameId });
+  },
+
+  /** Every game with a preparation record, for the Downloads section. */
+  async listShaderPrep(): Promise<ShaderPrepView[]> {
+    if (!isNative()) return [];
+    return invoke<ShaderPrepView[]>("list_shader_prep");
+  },
+
+  /** "Prepare after install" for one game. */
+  async setShaderPrepEnabled(gameId: number, enabled: boolean): Promise<ShaderPrepView> {
+    return invoke<ShaderPrepView>("set_shader_prep_enabled", { gameId, enabled });
+  },
+
+  /** Time budget of one warm start, in seconds; the backend clamps it. */
+  async setShaderPrepBudget(seconds: number): Promise<number> {
+    return invoke<number>("set_shader_prep_budget", { seconds });
+  },
+
+  /** Queue a warm start. Never blocks the first launch. */
+  async prepareGameShaders(gameId: number): Promise<ShaderPrepView> {
+    return invoke<ShaderPrepView>("prepare_game_shaders", { gameId });
+  },
+
+  async cancelShaderPrep(gameId: number): Promise<ShaderPrepView> {
+    return invoke<ShaderPrepView>("cancel_shader_prep", { gameId });
+  },
+
+  /** Delete the prepared caches of one game. Refused while it runs. */
+  async clearShaderCache(gameId: number): Promise<ShaderPrepView> {
+    return invoke<ShaderPrepView>("clear_shader_cache", { gameId });
+  },
+
+  /** Follow one warm start: state changes and cache-size samples. */
+  onShaderPrepProgress(handler: (progress: ShaderPrepProgress) => void): Promise<() => void> {
+    return listen<ShaderPrepProgress>("shader-prep://progress", handler);
+  },
+
+  /** Fired once when a run ends so the panel can refetch the stored view. */
+  onShaderPrepChanged(handler: () => void): Promise<() => void> {
+    return listen<null>("shader-prep://changed", () => handler());
+  },
+
   async setLaunchOptions(gameId: number, options: LaunchOptions): Promise<LaunchOptions> {
     return invoke<LaunchOptions>("set_launch_options", { gameId, options });
   },
@@ -1823,6 +1872,9 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   autoResumeDownloads: true,
   keepAwakeAfterMinutes: 5,
   downloadConcurrency: 1,
+  shaderPrepAfterInstall: false,
+  shaderPrepBudgetSecs: 180,
+  shaderPrep: {},
   closeToTray: true,
   nativeTitleBar: false,
   updateChannel: "stable",

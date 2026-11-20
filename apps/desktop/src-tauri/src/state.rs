@@ -345,6 +345,8 @@ pub struct AppState {
     pub diagnostics: crate::diagnostics::DiagnosticsStore,
     /// In-flight "Make it run" tasks, keyed by game id (#178).
     pub runtimes: Mutex<HashMap<i64, Arc<crate::runtime::RuntimeRun>>>,
+    /// Shader warm-start queue (#293): one preparation at a time, in memory.
+    pub shader_prep: Arc<crate::shader_prep::ShaderPrepQueue>,
 }
 
 impl AppState {
@@ -448,6 +450,7 @@ impl AppState {
             overlay: crate::overlay::OverlayRuntime::default(),
             diagnostics,
             runtimes: Mutex::new(HashMap::new()),
+            shader_prep: Arc::new(crate::shader_prep::ShaderPrepQueue::new()),
         })
     }
 

@@ -520,6 +520,27 @@ pub struct LocalSettings {
     #[serde(default)]
     pub game_controllers:
         std::collections::BTreeMap<String, crate::controllers::ControllerPreference>,
+    /// Prepare shaders after an install for every game (#293). Off by default:
+    /// a warm start runs the game once, which is a visible, resource-heavy
+    /// action. A per-game choice in `shaderPrep` wins.
+    #[serde(default)]
+    pub shader_prep_after_install: bool,
+    /// Time budget of one warm start, in seconds (#293). Clamped to
+    /// `MIN_BUDGET_SECS..=MAX_BUDGET_SECS`.
+    #[serde(default = "default_shader_prep_budget_secs")]
+    pub shader_prep_budget_secs: u64,
+    /// Per-game preparation state (#293), keyed by the game id as a string.
+    /// Device-local; never synced to the server. The state lives here instead
+    /// of a new desktop schema version so concurrent lanes do not fight over a
+    /// migration number.
+    #[serde(default)]
+    pub shader_prep: std::collections::BTreeMap<String, crate::shader_prep::PrepRecord>,
+}
+
+/// Three minutes: enough for a cold prefix and a first level, short enough to
+/// never hold the machine hostage.
+pub const fn default_shader_prep_budget_secs() -> u64 {
+    crate::shader_prep::DEFAULT_BUDGET_SECS
 }
 
 /// The overlay is on by default: it is the Steam-like behaviour players expect,
@@ -865,6 +886,9 @@ impl Default for LocalSettings {
             device_name: None,
             host_preflight: None,
             game_controllers: std::collections::BTreeMap::new(),
+            shader_prep_after_install: false,
+            shader_prep_budget_secs: default_shader_prep_budget_secs(),
+            shader_prep: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -948,6 +972,9 @@ impl LocalSettings {
         // longer window than an hour is a typo, not a choice.
         self.keep_awake_after_minutes =
             crate::inhibit::clamp_grace_minutes(self.keep_awake_after_minutes);
+        // #293: a warm start is bounded; a zero or absurd budget is repaired.
+        self.shader_prep_budget_secs =
+            crate::shader_prep::clamp_budget(self.shader_prep_budget_secs);
         if self.download_retry_window_secs != 0 {
             self.download_retry_window_secs =
                 self.download_retry_window_secs.clamp(60, 7 * 24 * 60 * 60);
@@ -3044,5 +3071,58 @@ mod tests {
             assert_eq!(restored, trigger);
         }
         assert!(serde_json::from_value::<OverlayTrigger>(serde_json::json!("nope")).is_err());
+    }
+
+    #[test]
+    fn shader_preparation_defaults_survive_a_roundtrip_and_clamp_the_budget() {
+        let mut settings = LocalSettings::default();
+        assert!(!settings.shader_prep_after_install);
+        assert_eq!(
+            settings.shader_prep_budget_secs,
+            crate::shader_prep::DEFAULT_BUDGET_SECS
+        );
+
+        settings.shader_prep_budget_secs = 5;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(
+            settings.shader_prep_budget_secs,
+            crate::shader_prep::MIN_BUDGET_SECS
+        );
+        settings.shader_prep_budget_secs = u64::MAX;
+        settings.normalize(Path::new("/data"));
+        assert_eq!(
+            settings.shader_prep_budget_secs,
+            crate::shader_prep::MAX_BUDGET_SECS
+        );
+
+        let restored: LocalSettings = serde_json::from_value(serde_json::json!({
+            "shaderPrepAfterInstall": true,
+            "shaderPrep": {
+                "7": {
+                    "state": "done",
+                    "enabled": true,
+                    "preparedAt": "2026-11-19T10:00:00Z",
+                    "cacheBytes": 4096,
+                    "durationMs": 90000,
+                    "message": "Stopped when the time budget ran out."
+                }
+            }
+        }))
+        .unwrap();
+        assert!(restored.shader_prep_after_install);
+        let entry = &restored.shader_prep["7"];
+        assert_eq!(entry.state, crate::shader_prep::PrepState::Done);
+        assert!(entry.enabled);
+        assert_eq!(entry.cache_bytes, 4096);
+        assert_eq!(entry.prepared_at.as_deref(), Some("2026-11-19T10:00:00Z"));
+
+        // An older settings file has neither key: the defaults must stand.
+        let legacy: LocalSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(!legacy.shader_prep_after_install);
+        assert!(legacy.shader_prep.is_empty());
+        assert_eq!(
+            legacy.shader_prep_budget_secs,
+            crate::shader_prep::DEFAULT_BUDGET_SECS
+        );
     }
 }

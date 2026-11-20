@@ -10,7 +10,9 @@
 //! - an install job is transferring, verifying or extracting;
 //! - an install is being checked from the game page;
 //! - a game (or a ROM emulator) is running;
-//! - a Moonlight stream was started by Ludex.
+//! - a Moonlight stream was started by Ludex;
+//! - a shader warm start is compiling caches for a freshly installed game
+//!   (#293).
 //!
 //! Reasons are a keyed set, not a counter: a job registers one key and releases
 //! it once, so a duplicated acquire or release can never leak the lock. The
@@ -89,6 +91,8 @@ pub enum ReasonKind {
     Game,
     /// A Moonlight stream started by Ludex is running.
     Stream,
+    /// The game is being run once to fill its shader caches (#293).
+    Prepare,
 }
 
 /// One holder of the inhibitor. The key is the identity: two installs are two
@@ -148,6 +152,16 @@ impl Reason {
             key: format!("stream:{session_id}"),
             kind: ReasonKind::Stream,
             label: clean_label(app, "a stream"),
+        }
+    }
+
+    /// One warm start per game; the key names the game because the queue runs
+    /// one preparation at a time (#293).
+    pub fn prepare(game_id: i64, title: &str) -> Self {
+        Self {
+            key: format!("prepare:{game_id}"),
+            kind: ReasonKind::Prepare,
+            label: clean_label(title, "a game"),
         }
     }
 }
@@ -283,7 +297,12 @@ impl InhibitMachine {
         let count = self
             .reasons
             .values()
-            .filter(|reason| matches!(reason.kind, ReasonKind::Install | ReasonKind::Verify))
+            .filter(|reason| {
+                matches!(
+                    reason.kind,
+                    ReasonKind::Install | ReasonKind::Verify | ReasonKind::Prepare
+                )
+            })
             .count();
         u32::try_from(count).unwrap_or(u32::MAX)
     }
@@ -338,6 +357,9 @@ impl InhibitMachine {
         }
         if let Some(stream) = first(ReasonKind::Stream).first() {
             parts.push(format!("streaming {}", stream.label));
+        }
+        if let Some(prepare) = first(ReasonKind::Prepare).first() {
+            parts.push(format!("preparing shaders for {}", prepare.label));
         }
 
         if parts.is_empty() {
@@ -1002,6 +1024,25 @@ mod tests {
         assert_eq!(reason.label, "a game");
         let reason = Reason::stream("s1", "");
         assert_eq!(reason.label, "a stream");
+        let reason = Reason::prepare(42, "");
+        assert_eq!(reason.label, "a game");
+    }
+
+    #[test]
+    fn a_shader_warm_start_counts_as_job_work_and_names_the_game() {
+        let now = Instant::now();
+        let mut machine = InhibitMachine::new(Duration::from_secs(5 * 60));
+        machine.add(Reason::prepare(42, "Hades II"), now);
+        assert_eq!(machine.count(), 1);
+        assert_eq!(machine.jobs(), 1);
+        assert_eq!(machine.why(), "Ludex is preparing shaders for Hades II");
+        assert_eq!(
+            machine.views(),
+            vec![ReasonView {
+                kind: ReasonKind::Prepare,
+                label: "Hades II".to_string(),
+            }]
+        );
     }
 
     #[test]

@@ -1343,6 +1343,15 @@ export interface LocalSettings {
    * serialised either way.
    */
   downloadConcurrency: number;
+  /**
+   * Prepare shaders after an install for every game (#293). Off by default;
+   * a warm start runs the game once. A per-game choice wins.
+   */
+  shaderPrepAfterInstall: boolean;
+  /** Time budget of one warm start, in seconds (#293); 30..=900. */
+  shaderPrepBudgetSecs: number;
+  /** Per-game preparation records (#293), keyed by game id as a string. */
+  shaderPrep: Record<string, ShaderPrepRecord>;
   /** Closing the window hides Ludex to the tray instead of quitting. */
   closeToTray: boolean;
   /** Use the OS title bar instead of Ludex's own (#111). Off by default. */
@@ -3094,9 +3103,10 @@ export interface LaunchOptions {
   /**
    * Audio output sink for this game (#289). Empty follows the profile default:
    * the Ludex global override, then the sound server's own default. A full
-   * PulseAudio/PipeWire sink name, local to this machine.
+   * PulseAudio/PipeWire sink name, local to this machine. Optional so older
+   * payloads (and profiles written before #289) keep parsing.
    */
-  audioSink: string;
+  audioSink?: string;
 }
 
 /** One output device discovered through `pactl` (#289). */
@@ -3195,6 +3205,56 @@ export interface GameControllers {
   inventory: ControllerInventory;
   preferred: ControllerPreference | null;
   launch: ControllerLaunch;
+}
+
+/* ----------------------- Shader preparation (#293) ----------------------- */
+
+/**
+ * Where a game's shader preparation stands. `never` means no cache folder yet;
+ * `queued`/`running` are owned by the background queue; `done`, `failed` and
+ * `cancelled` are terminal until the next run.
+ */
+export type ShaderPrepState = "never" | "queued" | "running" | "done" | "failed" | "cancelled";
+
+/** Prepared-cache state of one game, as the desktop reports it. */
+export interface ShaderPrepView {
+  gameId: number;
+  state: ShaderPrepState;
+  /** "Prepare after install" for this game. */
+  enabled: boolean;
+  /** RFC 3339 time of the last successful preparation. */
+  preparedAt: string | null;
+  /** Live size of the cache folder on disk. */
+  cacheBytes: number;
+  durationMs: number | null;
+  /** Why the last run failed, was cancelled, or how it was stopped. */
+  message: string | null;
+  /** Absolute folder Ludex owns for this game's caches. */
+  cachePath: string;
+  budgetSecs: number;
+  /** False on platforms without the DXVK/VKD3D/Mesa cache concept. */
+  supported: boolean;
+}
+
+/** Progress payload of `shader-prep://progress`. */
+export interface ShaderPrepProgress {
+  gameId: number;
+  title: string;
+  state: ShaderPrepState;
+  cacheBytes: number;
+  elapsedMs: number;
+  budgetSecs: number;
+  message: string | null;
+}
+
+/** Persisted per-game preparation record (`settings.json` → `shaderPrep`). */
+export interface ShaderPrepRecord {
+  state: ShaderPrepState;
+  enabled: boolean;
+  preparedAt: string | null;
+  cacheBytes: number;
+  durationMs: number | null;
+  message: string | null;
 }
 
 export interface CompatTool {
@@ -4722,7 +4782,7 @@ export interface ConsoleSessionEntryPlan {
 /* ------------------------ Suspend inhibitor (#288) ----------------------- */
 
 /** What keeps the machine awake. Mirrors `inhibit::ReasonKind` in Rust. */
-export type InhibitReasonKind = "install" | "verify" | "game" | "stream";
+export type InhibitReasonKind = "install" | "verify" | "game" | "stream" | "prepare";
 
 export interface InhibitReason {
   kind: InhibitReasonKind;

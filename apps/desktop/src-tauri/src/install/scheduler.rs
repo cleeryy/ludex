@@ -1404,6 +1404,10 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
             emit_jobs(&app);
             crate::tray::refresh_menu(&app);
             tracing::info!(job_id = %job_id, game_id = job.game_id, path = ?job.install_path, "install complete");
+            // #293: "Prepare after install" is a background job queued behind
+            // the install, never part of it: a failure marks the game's
+            // preparation record and the first launch is unaffected.
+            crate::shader_prep::on_install_complete(&app, job.game_id, &entry.params.title);
         }
         Err(Failure::Cancelled) => {
             finalize_cancelled(&app, &entry, &job_paths).await;

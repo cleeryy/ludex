@@ -345,6 +345,41 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
           </SettingsGroup>
 
           <SettingsGroup
+            title={t("Shader preparation")}
+            description={t("Runs a game once after it installs to fill its DXVK, VKD3D-Proton and Mesa caches, then stops it once the caches stop growing. No reliable headless mode exists, so a window may appear during the run. It never blocks the first launch and a failure leaves the game untouched.")}
+          >
+            <SettingsSwitchRow
+              title={t("Prepare after install")}
+              description={t("Applies to every game without its own choice on the game page.")}
+              checked={draft.shaderPrepAfterInstall}
+              onCheckedChange={(checked) => desktop.update({ shaderPrepAfterInstall: checked })}
+            />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="w-[150px]">
+                <Input
+                  id="shader-prep-budget"
+                  aria-label={t("Time budget in seconds")}
+                  type="number"
+                  min={30}
+                  max={900}
+                  step={15}
+                  inputMode="numeric"
+                  value={draft.shaderPrepBudgetSecs}
+                  onChange={(event) =>
+                    desktop.update({
+                      shaderPrepBudgetSecs: Math.min(900, Math.max(30, Math.round(Number(event.target.value) || 180))),
+                    })
+                  }
+                  className="font-mono text-[12px]"
+                />
+              </div>
+              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+                {t("seconds")}
+              </span>
+            </div>
+          </SettingsGroup>
+
+          <SettingsGroup
             title={t("Parallel downloads")}
             description={t("How many archives may download at once. One is usually enough: Ludex already downloads the next game while the current one extracts. Extraction is always one at a time, and every download is only started when its disk reservation fits.")}
           >

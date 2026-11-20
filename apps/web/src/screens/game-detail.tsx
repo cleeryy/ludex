@@ -62,6 +62,7 @@ import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
 import { SettingsTiersPanel } from "@/components/game/settings-tiers";
 import { AudioOutputPanel } from "@/components/game/audio-output";
+import { ShaderPrepPanel } from "@/components/game/shader-prep";
 import { ProtonDbBadge } from "@/components/game/protondb-badge";
 import { MoveInstallDialog } from "@/components/game/move-install";
 import { MediaGallery } from "@/components/game/media-gallery";
@@ -589,6 +590,9 @@ export function GameDetailScreen() {
             )}
             {isInstalled && desktop && game.kind !== "rom" && (
               <AudioOutputPanel gameId={game.id} title={game.title} />
+            )}
+            {isInstalled && desktop && game.kind !== "rom" && (
+              <ShaderPrepPanel gameId={game.id} title={game.title} />
             )}
             <ControllerPanel gameId={game.id} gameTitle={game.title} plain />
           </div>

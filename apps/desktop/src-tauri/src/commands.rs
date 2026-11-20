@@ -98,6 +98,10 @@ pub fn save_settings(
         // the moment it is picked. A full-settings draft from another tab must
         // not resurrect a stale map.
         object.remove("gameControllers");
+        // #293: shader preparation records are written by the background
+        // queue. A settings draft from another tab must not overwrite the
+        // state of a run it never saw.
+        object.remove("shaderPrep");
         // #235: the download policy replaces `installTransport`. Translate an
         // older payload once and drop the key so a stale draft cannot override
         // the stored choice on every save.

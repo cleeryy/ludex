@@ -5,7 +5,8 @@ where the tool output goes and how to read it when a game dies immediately.
 
 Related: [INTEGRATIONS.md](INTEGRATIONS.md) (compat detection, prefixes,
 winetricks, ProtonDB), [GAMESCOPE.md](GAMESCOPE.md) (per-game display
-profiles), [DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage install) and
+profiles), [SHADERS.md](SHADERS.md) (shader warm start after install),
+[DESKTOP-INSTALL.md](DESKTOP-INSTALL.md) (AppImage install) and
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Launch modes

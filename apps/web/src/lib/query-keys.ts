@@ -160,6 +160,9 @@ export const qk = {
   audioSinks: ["audio-sinks"] as const,
   /** Live volume/mute state of the console's selected sink (#289). */
   audioVolume: ["audio-volume"] as const,
+  /** Shader preparation (#293): one game's record, and every record. */
+  shaderPrep: (gameId: number) => key("shader-prep", gameId),
+  shaderPrepAll: ["shader-prep"] as const,
   makeItRun: (gameId: number) => key("make-it-run", gameId),
   virustotal: {
     forGame: (gameId: number) => key("game-virustotal", gameId),

@@ -25,6 +25,7 @@ import { HISTORY_WINDOW_MS, type JobMeter, type SpeedPoint } from "@/lib/eta";
 import type { InstallJob } from "@/lib/types";
 import { useToast } from "@/state/toasts";
 import { RemoteQueueStrip } from "@/components/game/remote-queue-strip";
+import { ShaderPrepJobs } from "@/components/game/shader-prep";
 import { VirusTotalArchiveWarning } from "@/components/game/virustotal";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
 import { GameCover } from "@/components/art/cover";
@@ -335,6 +336,8 @@ export function DownloadsScreen() {
           ) : null}
         </div>
       </section>
+
+      <ShaderPrepJobs />
 
       <section className="mt-10" aria-labelledby="downloads-history">
         <SectionHeader
