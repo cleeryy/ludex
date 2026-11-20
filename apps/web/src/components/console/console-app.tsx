@@ -4,6 +4,7 @@ import { isNative, native } from "@/lib/native";
 import { useAuth } from "@/state/auth";
 import { ConsoleNoticeProvider } from "@/components/console/surfaces/console-notice";
 import { ConsoleKeepAwakeNotice } from "@/components/console/surfaces/console-keep-awake";
+import { ConsoleRecoveryNotice } from "@/components/console/surfaces/console-recovery-notice";
 import { ConsoleRoutes } from "@/components/console/routes";
 import {
   ConsoleBoot,
@@ -77,6 +78,7 @@ export function ConsoleApp() {
   return (
     <ConsoleNoticeProvider>
       <ConsoleKeepAwakeNotice />
+      <ConsoleRecoveryNotice />
       <ConsoleRoutes />
     </ConsoleNoticeProvider>
   );

@@ -3261,6 +3261,7 @@ interface RemotePlayCleanup {
 | `audio_volume_step` | `{ direction, sink? }` | `AudioVolumeState`; `up`/`down` step 5 %, `toggleMute`; exact `pactl set-sink-volume` or `set-sink-mute` arguments, then a fresh read (#289) |
 | `set_audio_default_sink` | `{ sink }` | `null`; stores the global output override in `settings.json` (`audioDefaultSink`); an empty string clears it, a name that is not connected is refused (#289) |
 | `wine_prefix_info` | `{ gameId }` | `PrefixInfo`; path, custom flag, existence and size (#92) |
+| `launch_diagnostics_bundle` | `{ gameId }` | `LaunchBundleInfo { path, fileName, bytes, planHash, reportUrl }`; writes `{appDataDir}/diagnostics/launch-bundle-<gameId>-<stamp>.zip` with `manifest.json` (resolved plan, prefix health, distro/kernel/GPU driver, UMU/Proton/Wine/Gamescope versions, last failure), `report.md` and the retained `launch-*.log` files. Environment values whose key names a credential are masked, then `redact` strips bearer tokens, passwords, server URLs, e-mail/IP addresses, the account name, the hostname and the home directory (remaining paths become `<path:hash>`); the plan is identified by its SHA-256. No game file, save or account token is read. `reportUrl` is a prefilled GitHub new-issue URL with metadata only and no automatic upload (#298) |
 | `reset_wine_prefix` | `{ gameId }` | `null`; deletes the game prefix after UI confirmation, refuses while the game runs |
 | `run_winetricks` | `{ gameId, verbs? }` | `WinetricksReport`; runs `winetricks -q <verbs>` with the game prefix, 30 min timeout (#92) |
 | `protondb_rating` | `{ gameId, appId?, refresh? }` | `ProtonDbRating`; cached 7 days, never fails offline (#91) |
@@ -3426,6 +3427,7 @@ Events:
 - `game://exited` → `{ sessionId, gameId, minutesPlayed, secondsPlayed, source, exitCode, immediateExit }` (#129 adds `source`; #187 adds the root process `exitCode` as an unsigned 32-bit value — NTSTATUS bits are preserved — and `immediateExit`, true when the process tree ended within 5 s; the shell shows a danger toast with the code in hex; #191 invalidates the game page's `game_session` poll on it)
 - `game://focus` → `{ gameId, sessionId, focused, window, reason }` (#219: the launch focus attempt ended. `focused: false` means the game runs but its window was not brought forward, with `reason` `noWindow` or `focusRefused`; the shell warns the player and points at the game page's Resume/Force close actions. Never emitted when the game exited before its window appeared, and never on macOS, where focus on launch is a documented no-op)
 - `audio://notice` → `{ gameId, kind, requested, used }` (#289: the saved sink was gone and the launch fell back to the profile default. `kind` is `gameSinkMissing`, `defaultSinkMissing` or `noSink`; emitted at most once per reason per launch, never when `pactl` is missing)
+- `game://recovery` → `{ gameId, title, reverted, fromHash, toHash, message }` (#298: the second consecutive failure with the same launch profile reverted the game to the last plan that worked. The options are already written back, so the next Play uses them; `message` is the one-sentence notice. Emitted once per revert, never on the first failure, never after a deliberate stop, and never when no working plan is known yet)
 - `install://manifest-progress` → `{ gameId, filesDone, filesTotal, bytesDone, bytesTotal, message }` (#129)
 - `cloud-save://synced` → `gameId` (automatic upload completed or was unchanged)
 - `cloud-save://pending` → `gameId` (automatic upload failed and was queued for retry)
@@ -3597,6 +3599,12 @@ the manifest and never streams.
   other connected joysticks and `SDL_JOYSTICK_DEVICE` for the chosen node. A
   missing device leaves the environment untouched and logs a warning; the
   overlay and Console mode are untouched. See `docs/CONTROLLERS.md`.
+  Launch profiles are counted per SHA-256 of the options/executable/arguments
+  (#298): a launch that ends inside the 30 s first-frame budget, or with a fatal
+  exit (`53`/`0x35`, `0xC0000409`), is a failure; the second consecutive
+  failure with the same profile writes the last plan that worked back to the
+  game row, and the next launch uses it. Deliberate stops and sessions past the
+  budget are never failures. See [LAUNCH-PLANS.md](LAUNCH-PLANS.md).
 - **Guided runtime installer (#178).** "Make it run" turns a missing
   compatibility runtime into a numbered, consent-driven plan. The manifest is
   shipped with the app (`schemaVersion`, `manifestVersion`, `generatedAt`), not

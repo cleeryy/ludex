@@ -4366,5 +4366,14 @@
   "Restoring replaces the save files on this device. The current files are kept as a new restore point.": "Восстановление заменяет файлы сохранений на этом устройстве. Текущие файлы сохраняются как новая точка восстановления.",
   "Save restored": "Сохранение восстановлено",
   "Sessions kept": "Сохраняемых сессий",
-  "The save already matches the newest restore point.": "Сохранение уже совпадает с самой новой точкой восстановления."
+  "The save already matches the newest restore point.": "Сохранение уже совпадает с самой новой точкой восстановления.",
+  "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.": "{title} снова не запустилась, поэтому Ludex вернул последнюю рабочую конфигурацию запуска. Следующий запуск использует её.",
+  "Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.": "Собирает последние журналы запуска, разрешённый план, состояние префикса и версии GPU/UMU/Proton в один zip. Токены, пароли и домашняя папка удаляются перед записью.",
+  "Could not build the diagnostics bundle": "Не удалось создать пакет диагностики",
+  "Diagnostics bundle": "Пакет диагностики",
+  "Diagnostics bundle saved": "Пакет диагностики сохранён",
+  "Logs, versions and the resolved plan, with secrets removed.": "Журналы, версии и разрешённый план без секретов.",
+  "plan {hash}": "план {hash}",
+  "Previous launch setup restored": "Предыдущая конфигурация запуска восстановлена",
+  "Report this game": "Сообщить об этой игре"
 }

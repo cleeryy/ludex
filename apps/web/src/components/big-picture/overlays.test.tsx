@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { InstallJob } from "@/lib/types";
-import { DownloadsOverlay } from "./overlays";
+import { CommandMenu, COMMAND_ITEMS, DownloadsOverlay } from "./overlays";
 
 beforeAll(() => {
   // `motion` reads the reduced-motion media query during render; jsdom has no
@@ -93,5 +93,28 @@ describe("console downloads overlay (issue 237)", () => {
       />,
     );
     expect(screen.getByText("No downloads running.")).toBeTruthy();
+  });
+});
+
+describe("quick actions (issue 298)", () => {
+  it("keeps the diagnostics bundle reachable with the pad only", () => {
+    expect(COMMAND_ITEMS.some((item) => item.id === "diagnostics")).toBe(true);
+    render(
+      <CommandMenu
+        active={0}
+        onChoose={() => {}}
+        onHighlight={() => {}}
+        downloads={0}
+        reduceMotion
+        instant
+        context="menu"
+        layout="grid"
+        connected
+        family="xbox"
+        onClose={() => {}}
+      />,
+    );
+    // Every row is a focusable button driven by the same ring as the library.
+    expect(screen.getByRole("button", { name: /Diagnostics bundle/ })).toBeTruthy();
   });
 });

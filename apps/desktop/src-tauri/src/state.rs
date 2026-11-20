@@ -129,6 +129,12 @@ pub struct ProcessEntry {
     /// `<appDataDir>/logs/launch-*.log` capturing the wrapper's output (#280).
     /// `None` for native launchers and URI launches.
     pub launch_log: Option<PathBuf>,
+    /// Profile this session launched (#298); `None` for emulated ROMs, which
+    /// have no compatibility plan to revert.
+    pub plan: Option<crate::launch_recovery::PlanSnapshot>,
+    /// Set by `stop_game` and force close: an intentional stop is never a
+    /// failed launch (#298).
+    pub stopped: std::sync::atomic::AtomicBool,
 }
 
 /// OS network reachability reported by the web shell (#212).

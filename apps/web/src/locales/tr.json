@@ -4366,5 +4366,14 @@
   "Restoring replaces the save files on this device. The current files are kept as a new restore point.": "Geri yükleme, bu cihazdaki kayıt dosyalarının yerini alır. Mevcut dosyalar yeni bir geri yükleme noktası olarak korunur.",
   "Save restored": "Kayıt geri yüklendi",
   "Sessions kept": "Korunan oturumlar",
-  "The save already matches the newest restore point.": "Kayıt zaten en yeni geri yükleme noktasıyla eşleşiyor."
+  "The save already matches the newest restore point.": "Kayıt zaten en yeni geri yükleme noktasıyla eşleşiyor.",
+  "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.": "{title} art arda başlatılamadı, bu yüzden Ludex son çalışan başlatma yapılandırmasını geri yükledi. Bir sonraki başlatma bunu kullanır.",
+  "Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.": "Son başlatma günlüklerini, çözümlenen planı, önek sağlığını ve GPU/UMU/Proton sürümlerini tek bir zip dosyasında toplar. Jetonlar, parolalar ve ana klasör yazılmadan önce kaldırılır.",
+  "Could not build the diagnostics bundle": "Tanılama paketi oluşturulamadı",
+  "Diagnostics bundle": "Tanılama paketi",
+  "Diagnostics bundle saved": "Tanılama paketi kaydedildi",
+  "Logs, versions and the resolved plan, with secrets removed.": "Günlükler, sürümler ve çözümlenmiş plan, gizli bilgiler kaldırıldı.",
+  "plan {hash}": "plan {hash}",
+  "Previous launch setup restored": "Önceki başlatma yapılandırması geri yüklendi",
+  "Report this game": "Bu oyunu bildir"
 }

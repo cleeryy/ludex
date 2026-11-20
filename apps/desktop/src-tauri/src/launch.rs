@@ -64,6 +64,23 @@ struct GameFocus {
     reason: Option<String>,
 }
 
+/// #298: the second consecutive failure with the same profile reverted the
+/// game to the last plan that worked.
+///
+/// One event per revert, with the two profile hashes and the sentence the
+/// shell shows. The options themselves were written back to the game row, so
+/// the next Play uses them; the event only explains what changed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameRecovery {
+    game_id: i64,
+    title: String,
+    reverted: bool,
+    from_hash: String,
+    to_hash: String,
+    message: String,
+}
+
 impl GameFocus {
     /// The event for one focus attempt. `Focused` is the success case; both
     /// failures carry a reason and no window guarantee.
@@ -380,7 +397,7 @@ pub async fn launch(
     // #280: the session id names the compatibility log, so it exists before
     // the process is built.
     let session_id = uuid::Uuid::new_v4().to_string();
-    let (mut command, tool, launch_log) = prepare_launch(
+    let prepared = prepare_launch(
         app,
         game_id,
         &session_id,
@@ -392,6 +409,20 @@ pub async fn launch(
         args.as_deref(),
         &options,
     )?;
+    let tool = prepared.tool;
+    let launch_log = prepared.launch_log;
+    // #298: remember the profile this session runs, so the watcher can count a
+    // failure against it and revert on the second one.
+    let executable_text = executable_path
+        .as_deref()
+        .map(|path| path.to_string_lossy().to_string());
+    let plan = crate::launch_recovery::PlanSnapshot::new(
+        &options,
+        executable_text.as_deref(),
+        args.as_deref(),
+    )
+    .with_resolved(prepared.resolved);
+    let mut command = prepared.command;
     // #293: a game that prepared its shaders reads those caches back on every
     // launch. Applied after the compat plan so the pinned paths win, except
     // where the user set the same variable per game. A launcher URI has no
@@ -404,7 +435,6 @@ pub async fn launch(
     if launches_local_game {
         crate::shader_prep::apply_launch_env(app, game_id, &options, &mut command);
     }
-
     // #180: record the guessed save folders before the session starts. The
     // blocking scan is bounded (per-path caps) and a failure only means the
     // exit hook has no proof, never that the launch is refused.
@@ -466,6 +496,8 @@ pub async fn launch(
         started_at,
         started: std::time::Instant::now(),
         launch_log,
+        plan: Some(plan),
+        stopped: std::sync::atomic::AtomicBool::new(false),
     });
 
     {
@@ -490,6 +522,14 @@ pub async fn launch(
             let _ = child.kill();
         }
         return Err(error);
+    }
+    // #298: remember the resolved plan before the session ends, so a bundle
+    // collected while the game runs (or after a Ludex crash) still shows what
+    // was launched.
+    if let Some(plan) = entry.plan.as_ref() {
+        if let Err(error) = crate::launch_recovery::record_neutral(&state.app_data, game_id, plan) {
+            tracing::debug!(error = %error, game_id, "could not record the launched plan");
+        }
     }
 
     spawn_watcher(
@@ -554,11 +594,19 @@ fn apply_config_sync(app: &AppHandle, game_id: i64, install_path: &Path) {
     }
 }
 
+/// The launch command, plus what it resolved to for the recovery store (#298).
+struct PreparedLaunch {
+    command: Command,
+    tool: Option<String>,
+    launch_log: Option<PathBuf>,
+    resolved: Option<crate::launch_recovery::ResolvedPlan>,
+}
+
 /// Build the process for a launch: URI handler, native executable, or a Linux
 /// compatibility tool around a Windows executable (#89).
 ///
-/// The third value is the per-launch compatibility log (#280): `Some` only for
-/// a Linux compat spawn, which redirects the wrapper's stdout/stderr there.
+/// The per-launch compatibility log (#280) and the resolved plan (#298) come
+/// back with the command; only a Linux compat spawn writes a log today.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[allow(clippy::too_many_arguments)]
 fn prepare_launch(
@@ -572,14 +620,19 @@ fn prepare_launch(
     prefix: &Path,
     args: Option<&str>,
     options: &crate::linux_gaming::LaunchOptions,
-) -> Result<(Command, Option<String>, Option<PathBuf>), String> {
+) -> Result<PreparedLaunch, String> {
     if let Some(uri) = installed
         .launch_uri
         .as_deref()
         .map(str::trim)
         .filter(|uri| !uri.is_empty())
     {
-        return Ok((build_uri_command(uri)?, None, None));
+        return Ok(PreparedLaunch {
+            command: build_uri_command(uri)?,
+            tool: None,
+            launch_log: None,
+            resolved: None,
+        });
     }
 
     let executable =
@@ -614,20 +667,36 @@ fn prepare_launch(
     _prefix: &Path,
     args: Option<&str>,
     _options: &crate::linux_gaming::LaunchOptions,
-) -> Result<(Command, Option<String>, Option<PathBuf>), String> {
+) -> Result<PreparedLaunch, String> {
     if let Some(uri) = installed
         .launch_uri
         .as_deref()
         .map(str::trim)
         .filter(|uri| !uri.is_empty())
     {
-        return Ok((build_uri_command(uri)?, None, None));
+        return Ok(PreparedLaunch {
+            command: build_uri_command(uri)?,
+            tool: None,
+            launch_log: None,
+            resolved: None,
+        });
     }
 
     let executable =
         executable.ok_or_else(|| "No executable was found for this game.".to_string())?;
     let working_dir = working_dir.unwrap_or(install_path);
-    Ok((build_command(executable, working_dir, args)?, None, None))
+    let resolved = crate::launch_recovery::ResolvedPlan::native(
+        executable,
+        &args.map(paths::split_args).unwrap_or_default(),
+        None,
+        None,
+    );
+    Ok(PreparedLaunch {
+        command: build_command(executable, working_dir, args)?,
+        tool: None,
+        launch_log: None,
+        resolved: Some(resolved),
+    })
 }
 
 /// Linux: run a Windows executable through the selected compatibility tool.
@@ -650,7 +719,7 @@ fn linux_prepare_launch(
     settings: &crate::settings::LocalSettings,
     game_id: i64,
     log_path: &Path,
-) -> Result<(Command, Option<String>, Option<PathBuf>), String> {
+) -> Result<PreparedLaunch, String> {
     use crate::compat;
     use crate::linux_gaming::{self, DisplayMode, LaunchMode};
 
@@ -723,7 +792,14 @@ fn linux_prepare_launch(
         );
         if resolved.gamescope().is_none() {
             warn_display_fallback(game_id, &resolved);
-            return Ok((base, None, None));
+            return Ok(PreparedLaunch {
+                command: base,
+                tool: None,
+                launch_log: None,
+                resolved: Some(crate::launch_recovery::ResolvedPlan::native(
+                    &program, &base_args, None, None,
+                )),
+            });
         }
 
         // #278: Gamescope is a host program even when Ludex is an AppImage.
@@ -760,7 +836,17 @@ fn linux_prepare_launch(
             display = ?resolved.display,
             "launching a native game through gamescope"
         );
-        return Ok((command, None, launch_log));
+        return Ok(PreparedLaunch {
+            command,
+            tool: None,
+            launch_log,
+            resolved: Some(crate::launch_recovery::ResolvedPlan::native(
+                &resolved.program,
+                &resolved.args,
+                None,
+                Some(&resolved),
+            )),
+        });
     }
 
     if !is_windows_exe {
@@ -835,7 +921,14 @@ fn linux_prepare_launch(
         display = ?resolved.display,
         "launching a Windows game through a compatibility tool"
     );
-    Ok((command, Some(plan.tool_name), launch_log))
+    Ok(PreparedLaunch {
+        command,
+        tool: Some(plan.tool_name.clone()),
+        launch_log,
+        resolved: Some(crate::launch_recovery::ResolvedPlan::from_plan(
+            &plan, &resolved,
+        )),
+    })
 }
 
 /// Build the command of one shader warm start (#293).
@@ -879,7 +972,7 @@ pub(crate) fn prepare_warm_start(
     let working_dir = working_directory_override(&options.working_dir, &install_path)
         .unwrap_or_else(|| launch_working_directory(&install_path, &executable, &installed.source));
     let session_id = format!("prep-{}", uuid::Uuid::new_v4());
-    let (command, _tool, _log) = prepare_launch(
+    let prepared = prepare_launch(
         app,
         installed.game_id,
         &session_id,
@@ -891,7 +984,7 @@ pub(crate) fn prepare_warm_start(
         None,
         options,
     )?;
-    Ok(prep_command_from(command, &install_path))
+    Ok(prep_command_from(prepared.command, &install_path))
 }
 
 /// Copy the resolved `Command` into the plain-data shape the supervised
@@ -1782,6 +1875,87 @@ fn spawn_watcher(
         }
 
         let state = app.state::<AppState>();
+        // #298: a launch that never reached its first frame counts against the
+        // profile; the second consecutive failure puts back the last plan that
+        // worked, and the next Play uses it.
+        if let Some(plan) = entry.plan.as_ref() {
+            let stopped = entry.stopped.load(Ordering::SeqCst);
+            let code = exit_code.map(|code| code as u32);
+            let outcome = crate::launch_recovery::classify(entry.started.elapsed(), code, stopped);
+            let path = crate::launch_recovery::state_path(&state.app_data);
+            match outcome {
+                crate::launch_recovery::LaunchOutcome::Success => {
+                    if let Err(error) = crate::launch_recovery::record_success(&path, game_id, plan)
+                    {
+                        tracing::warn!(error = %error, game_id, "could not record the working launch plan");
+                    }
+                }
+                crate::launch_recovery::LaunchOutcome::NotCounted => {
+                    if let Err(error) = crate::launch_recovery::record_neutral(&path, game_id, plan)
+                    {
+                        tracing::warn!(error = %error, game_id, "could not record the stopped launch");
+                    }
+                }
+                crate::launch_recovery::LaunchOutcome::Failure => {
+                    let failure = crate::launch_recovery::FailureRecord {
+                        at: ended_at.clone(),
+                        exit_code: code,
+                        seconds: elapsed_seconds,
+                    };
+                    match crate::launch_recovery::record_failure(&path, game_id, plan, failure) {
+                        Ok(decision) => {
+                            if let Some(options) = decision.restore.as_ref() {
+                                let applied = match state.db.lock() {
+                                    Ok(connection) => db::save_launch_options(
+                                        &connection,
+                                        game_id,
+                                        options,
+                                        &ended_at,
+                                    )
+                                    .map_err(|error| {
+                                        tracing::warn!(error = %error, game_id, "could not write the last working launch plan back")
+                                    })
+                                    .is_ok(),
+                                    Err(_) => false,
+                                };
+                                if applied {
+                                    let message = decision.notice(&title);
+                                    tracing::warn!(
+                                        game_id,
+                                        from = decision.from_hash.as_deref().unwrap_or_default(),
+                                        to = decision.to_hash.as_deref().unwrap_or_default(),
+                                        "reverted the failing launch profile to the last plan that worked"
+                                    );
+                                    let _ = app.emit(
+                                        "game://recovery",
+                                        GameRecovery {
+                                            game_id,
+                                            title: title.clone(),
+                                            reverted: true,
+                                            from_hash: decision
+                                                .from_hash
+                                                .clone()
+                                                .unwrap_or_default(),
+                                            to_hash: decision.to_hash.clone().unwrap_or_default(),
+                                            message,
+                                        },
+                                    );
+                                }
+                            } else if decision.failures > 0 {
+                                tracing::warn!(
+                                    game_id,
+                                    failures = decision.failures,
+                                    "the launch failed; no working plan is known yet"
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(error = %error, game_id, "could not record the failed launch");
+                        }
+                    }
+                }
+            }
+        }
         if let Ok(connection) = state.db.lock() {
             if let Err(error) =
                 db::finish_session(&connection, &session_id, &ended_at, minutes, seconds)
@@ -1835,6 +2009,10 @@ pub fn stop(app: &AppHandle, session_id: &str) -> Result<(), String> {
         processes.get(session_id).cloned()
     };
     let entry = entry.ok_or_else(|| format!("No running game for session {session_id}."))?;
+
+    // #298: an intentional stop is never a failed launch, even when it happens
+    // inside the 30 s startup budget.
+    entry.stopped.store(true, Ordering::SeqCst);
 
     // Kill the whole tree: launchers spawn the real game as a child, and
     // killing only the root would leave it running in the background.

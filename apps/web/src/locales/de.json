@@ -4366,5 +4366,14 @@
   "Restoring replaces the save files on this device. The current files are kept as a new restore point.": "Die Wiederherstellung ersetzt die Spielstanddateien auf diesem Gerät. Die aktuellen Dateien werden als neuer Wiederherstellungspunkt behalten.",
   "Save restored": "Spielstand wiederhergestellt",
   "Sessions kept": "Behaltene Sitzungen",
-  "The save already matches the newest restore point.": "Der Spielstand entspricht bereits dem neuesten Wiederherstellungspunkt."
+  "The save already matches the newest restore point.": "Der Spielstand entspricht bereits dem neuesten Wiederherstellungspunkt.",
+  "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.": "{title} konnte wiederholt nicht starten, deshalb hat Ludex die zuletzt funktionierende Startkonfiguration wiederhergestellt. Der nächste Start verwendet sie.",
+  "Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.": "Sammelt die letzten Startprotokolle, den aufgelösten Plan, den Zustand des Präfixes und die GPU-/UMU-/Proton-Versionen in einer Zip-Datei. Tokens, Passwörter und das Home-Verzeichnis werden vor dem Schreiben entfernt.",
+  "Could not build the diagnostics bundle": "Das Diagnose-Paket konnte nicht erstellt werden",
+  "Diagnostics bundle": "Diagnose-Paket",
+  "Diagnostics bundle saved": "Diagnose-Paket gespeichert",
+  "Logs, versions and the resolved plan, with secrets removed.": "Protokolle, Versionen und der aufgelöste Plan, ohne Geheimnisse.",
+  "plan {hash}": "Plan {hash}",
+  "Previous launch setup restored": "Vorherige Startkonfiguration wiederhergestellt",
+  "Report this game": "Dieses Spiel melden"
 }

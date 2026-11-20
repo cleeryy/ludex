@@ -4366,5 +4366,14 @@
   "Restoring replaces the save files on this device. The current files are kept as a new restore point.": "복원하면 이 장치의 세이브 파일이 교체됩니다. 현재 파일은 새 복원 지점으로 유지됩니다.",
   "Save restored": "세이브 복원됨",
   "Sessions kept": "유지할 세션 수",
-  "The save already matches the newest restore point.": "세이브가 이미 최신 복원 지점과 일치합니다."
+  "The save already matches the newest restore point.": "세이브가 이미 최신 복원 지점과 일치합니다.",
+  "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.": "{title}이(가) 계속 시작에 실패하여 Ludex가 마지막으로 작동한 실행 설정을 되돌렸습니다. 다음 실행에서 이 설정을 사용합니다.",
+  "Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.": "최근 실행 로그, 확인된 계획, 접두사 상태, GPU/UMU/Proton 버전을 하나의 zip으로 모읍니다. 토큰, 비밀번호, 홈 폴더는 쓰기 전에 제거됩니다.",
+  "Could not build the diagnostics bundle": "진단 번들을 만들 수 없습니다",
+  "Diagnostics bundle": "진단 번들",
+  "Diagnostics bundle saved": "진단 번들 저장됨",
+  "Logs, versions and the resolved plan, with secrets removed.": "로그, 버전 및 확인된 계획, 비밀 정보 제거됨.",
+  "plan {hash}": "계획 {hash}",
+  "Previous launch setup restored": "이전 실행 설정 복원됨",
+  "Report this game": "이 게임 신고"
 }

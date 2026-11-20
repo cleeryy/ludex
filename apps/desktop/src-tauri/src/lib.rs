@@ -26,6 +26,8 @@ mod install;
 mod install_health;
 mod installer;
 mod launch;
+mod launch_bundle;
+mod launch_recovery;
 mod launchers;
 mod linux_gaming;
 mod locations;
@@ -382,6 +384,7 @@ pub fn run() {
             audio::audio_volume_state,
             audio::audio_volume_step,
             audio::set_audio_default_sink,
+            commands::launch_diagnostics_bundle,
             commands::wine_prefix_info,
             commands::reset_wine_prefix,
             commands::run_winetricks,

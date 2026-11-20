@@ -4366,5 +4366,14 @@
   "Restoring replaces the save files on this device. The current files are kept as a new restore point.": "復元すると、このデバイスのセーブファイルが置き換えられます。現在のファイルは新しい復元ポイントとして保持されます。",
   "Save restored": "セーブデータを復元しました",
   "Sessions kept": "保持するセッション数",
-  "The save already matches the newest restore point.": "セーブデータはすでに最新の復元ポイントと一致しています。"
+  "The save already matches the newest restore point.": "セーブデータはすでに最新の復元ポイントと一致しています。",
+  "{title} kept failing to start, so Ludex put back the last launch setup that worked. The next launch uses it.": "{title} は起動に繰り返し失敗したため、Ludex は最後に動作した起動設定に戻しました。次回の起動ではこれが使われます。",
+  "Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.": "最近の起動ログ、解決済みのプラン、プレフィックスの状態、GPU/UMU/Proton のバージョンを 1 つの zip にまとめます。書き込み前にトークン、パスワード、ホームフォルダーは削除されます。",
+  "Could not build the diagnostics bundle": "診断バンドルを作成できませんでした",
+  "Diagnostics bundle": "診断バンドル",
+  "Diagnostics bundle saved": "診断バンドルを保存しました",
+  "Logs, versions and the resolved plan, with secrets removed.": "ログ、バージョン、解決済みのプラン（機密情報は除去済み）。",
+  "plan {hash}": "プラン {hash}",
+  "Previous launch setup restored": "以前の起動設定を復元しました",
+  "Report this game": "このゲームを報告"
 }
