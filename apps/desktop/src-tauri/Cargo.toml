@@ -72,6 +72,12 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # SHA-256 before these crates see it; extraction has its own path guards.
 flate2 = "1"
 tar = "0.4"
+# Portable Linux self-update (#312): the release .deb is verified with the same
+# minisign key as the updater, then its data.tar.gz/zst payload is read for
+# usr/bin/ludex. All three crates are already in the dependency graph.
+minisign-verify = "0.3"
+base64 = "0.22"
+zstd = "0.14"
 
 # Known-folder resolution (#146): SHGetKnownFolderPath is the only correct way
 # to read Documents (OneDrive KFM/GPO), Saved Games and LocalLow on Windows.

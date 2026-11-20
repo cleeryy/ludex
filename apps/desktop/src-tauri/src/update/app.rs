@@ -33,6 +33,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
+use super::install_kind::{self, InstallKind};
+use super::{scrub_text, UpdateProgress};
 use crate::install_health;
 use crate::settings::UpdateChannel;
 use crate::state::AppState;
@@ -93,16 +95,6 @@ pub struct UpdateInfo {
     /// probed (#213). The update center and the notice show it; an unavailable
     /// value is `null`, never `0`.
     pub size_bytes: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateProgress {
-    downloaded: u64,
-    total: Option<u64>,
-    percent: Option<f64>,
-    /// Instantaneous download speed since the previous event, in bytes/s.
-    speed_bps: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,6 +221,17 @@ pub fn install_error_message(raw: &str) -> String {
         format!(
             "{base} Ludex is not allowed to write the update. Check the install folder permissions, or reinstall from the release page."
         )
+    } else if lower.contains("failed to install package") {
+        // The plugin's generic string (#312). The install kind and, for a
+        // package-managed install, the package itself are appended by the
+        // caller, so the sentence never stands alone.
+        format!(
+            "{base} The updater handed the package to the system installer, which refused it or is not installed on this machine."
+        )
+    } else if lower.contains("invalid updater binary format") {
+        format!(
+            "{base} The release artifact is not a format this build can install (for example a compressed AppImage). Use the release page."
+        )
     } else if raw.is_empty() {
         base.to_string()
     } else {
@@ -238,7 +241,7 @@ pub fn install_error_message(raw: &str) -> String {
 }
 
 /// Public signing key from `tauri.conf.json`, empty when unconfigured.
-fn configured_pubkey(app: &AppHandle) -> String {
+pub(super) fn configured_pubkey(app: &AppHandle) -> String {
     app.config()
         .plugins
         .0
@@ -436,6 +439,10 @@ pub fn spawn_periodic_check(app: AppHandle) {
 /// Download and install the available update. Progress is emitted as
 /// `update://progress`; on Linux the app must be restarted afterwards, on
 /// Windows the installer handles it.
+///
+/// The install kind is decided at update time (#312): an AppImage or a
+/// dpkg/rpm-owned binary keeps the plugin's install flow, everything else is a
+/// portable ELF that [`super::portable`] replaces atomically.
 pub async fn install(app: AppHandle) -> Result<UpdateStatus, String> {
     let status = base_status(&app);
     if !status.configured {
@@ -456,15 +463,27 @@ pub async fn install(app: AppHandle) -> Result<UpdateStatus, String> {
     };
 
     let version = update.version.clone();
+    let exe = std::env::current_exe().ok();
+    // #312: the bundle type baked into this binary is not the install kind.
+    let kind = install_kind::detect();
+    let kind_label = kind.as_str();
     tracing::info!(
         version = %version,
-        exe = std::env::current_exe()
+        exe = exe
+            .as_deref()
             .map(|path| path.display().to_string())
             .unwrap_or_default(),
         current_version = %status.current_version,
         commit = install_health::BUILD_COMMIT,
+        install_kind = kind_label,
         "downloading the application update"
     );
+
+    #[cfg(target_os = "linux")]
+    if let InstallKind::Portable { target } = &kind {
+        return install_portable(&app, &status, &version, target).await;
+    }
+
     // #186: persist the version before the installer runs. On Windows the
     // plugin exits the process as soon as NSIS is launched, so the next start
     // is the only place where the result can be checked.
@@ -511,7 +530,24 @@ pub async fn install(app: AppHandle) -> Result<UpdateStatus, String> {
         // Nothing replaced the binary: drop the expectation so the next start
         // does not report a mismatch that never happened (#186).
         install_health::clear_pending_update(&app);
-        return Err(install_error_message(&error.to_string()));
+        // #312: log the raw reason before mapping it. Without this line the
+        // log stops at "downloading" and no one can tell an unsupported
+        // install from a signature or disk failure.
+        let raw = error.to_string();
+        tracing::warn!(
+            error = %scrub_text(&raw),
+            exe = exe
+                .as_deref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            install_kind = kind_label,
+            "update install failed"
+        );
+        let mapped = install_error_message(&raw);
+        return Err(match &kind {
+            InstallKind::PackageManaged { owner, .. } => format!("{mapped} {}", owner.hint()),
+            _ => mapped,
+        });
     }
 
     let restarted = cfg!(windows);
@@ -541,6 +577,47 @@ pub async fn install(app: AppHandle) -> Result<UpdateStatus, String> {
             "The update was installed. Restart Ludex to use it.".to_string()
         }),
         ..status
+    })
+}
+
+/// Portable Linux install (#312): replace the executable in place.
+///
+/// The plugin cannot do this: its install path is fixed at bundle time, so a
+/// bare ELF ends in `dpkg`/`rpm` (missing) or in the AppImage rewrite. The
+/// returned status is the same shape as the plugin path, so the update center
+/// and the notifier stay unchanged.
+#[cfg(target_os = "linux")]
+async fn install_portable(
+    app: &AppHandle,
+    status: &UpdateStatus,
+    version: &str,
+    target: &std::path::Path,
+) -> Result<UpdateStatus, String> {
+    let installed = super::portable::run(app, status, version, target).await?;
+    let _ = app.emit(
+        "update://installed",
+        UpdateInstalled {
+            version: installed.version.clone(),
+            restarted: false,
+        },
+    );
+    Ok(UpdateStatus {
+        available: Some(UpdateInfo {
+            release_url: release_url_for(status.channel, &installed.version),
+            is_prerelease: is_prerelease_version(&installed.version),
+            build: edge_build_number(&installed.version),
+            version: installed.version.clone(),
+            current_version: status.current_version.clone(),
+            notes: None,
+            published_at: None,
+            size_bytes: None,
+        }),
+        notify: false,
+        message: Some(format!(
+            "The update was installed at {}. Restart Ludex to use it.",
+            installed.target.display()
+        )),
+        ..status.clone()
     })
 }
 
@@ -707,6 +784,13 @@ mod tests {
 
         let permission = install_error_message("Permission denied (os error 13)");
         assert!(permission.contains("permissions"));
+
+        // #312: the plugin's generic string is explained instead of repeated.
+        let generic = install_error_message("Failed to install package");
+        assert!(generic.contains("system installer"), "{generic}");
+        assert!(!generic.contains("Failed to install package"), "{generic}");
+        let format = install_error_message("invalid updater binary format");
+        assert!(format.contains("not a format"), "{format}");
 
         // Unknown errors keep their detail, bounded, with the common prefix.
         let other = install_error_message("some unexpected updater failure");

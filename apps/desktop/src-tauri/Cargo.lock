@@ -2901,6 +2901,7 @@ dependencies = [
 name = "ludex-desktop"
 version = "0.4.26"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "crc32fast",
  "discord-rich-presence",
@@ -2912,6 +2913,7 @@ dependencies = [
  "hex",
  "ludex-core",
  "ludex-server",
+ "minisign-verify",
  "rand 0.8.8",
  "reqwest 0.12.28",
  "rusqlite",
@@ -2938,6 +2940,7 @@ dependencies = [
  "uuid 1.29.2",
  "windows",
  "zip 2.6.1",
+ "zstd",
 ]
 
 [[package]]
