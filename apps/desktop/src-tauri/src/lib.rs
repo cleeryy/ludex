@@ -21,6 +21,7 @@ mod elevate;
 mod file_manifest;
 mod game_config;
 mod game_executables;
+mod game_profile;
 mod host_preflight;
 mod inhibit;
 mod install;
@@ -399,6 +400,9 @@ pub fn run() {
             audio::audio_volume_step,
             audio::set_audio_default_sink,
             commands::launch_diagnostics_bundle,
+            commands::export_game_profile,
+            commands::preview_game_profile_import,
+            commands::apply_game_profile_import,
             commands::wine_prefix_info,
             commands::reset_wine_prefix,
             commands::run_winetricks,

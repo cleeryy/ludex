@@ -4427,5 +4427,22 @@
   "This device now wins conflicts": "このデバイスが競合で優先されます",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "このデバイスの時計はサーバーと {minutes} 分ずれています。セーブの順序はサーバー時刻で決まります。",
   "This machine": "このマシン",
-  "When both devices changed": "両方のデバイスが変更された場合"
+  "When both devices changed": "両方のデバイスが変更された場合",
+  "Apply profile": "プロファイルを適用",
+  "Could not apply the profile": "プロファイルを適用できませんでした",
+  "Could not export the profile": "プロファイルを書き出せませんでした",
+  "Could not read this profile": "このプロファイルを読み取れませんでした",
+  "Export profile": "プロファイルを書き出す",
+  "Game profile": "ゲームプロファイル",
+  "One TOML document for this game: launch plan, display profile and prerequisites, without folders or user names. Export it to share a working setup, or paste one to compare it before anything changes.": "ゲームごとに 1 つの TOML ドキュメント：起動プラン、表示プロファイル、前提条件を、フォルダー名やユーザー名なしで記録します。動作する設定を共有するには書き出し、変更前に比較するには貼り付けてください。",
+  "Paste a TOML profile here, then preview it.": "ここに TOML プロファイルを貼り付けてからプレビューします。",
+  "Preview import": "インポートをプレビュー",
+  "Profile applied": "プロファイルを適用しました",
+  "Profile document": "プロファイルのドキュメント",
+  "Profile exported": "プロファイルを書き出しました",
+  "Review the TOML, then copy it.": "TOML を確認してからコピーしてください。",
+  "schema {schema} · app {version} · rules {rules}": "schema {schema} · アプリ {version} · ルール {rules}",
+  "The launch plan and the declared prerequisites were updated.": "起動プランと宣言された前提条件を更新しました。",
+  "This profile changes nothing.": "このプロファイルによる変更はありません。",
+  "Untitled profile": "無題のプロファイル"
 }

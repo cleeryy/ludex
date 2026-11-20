@@ -4427,5 +4427,22 @@
   "This device now wins conflicts": "此设备现在在冲突中胜出",
   "This device's clock is {minutes} minutes away from the server. The server time decides save order.": "此设备的时钟与服务器相差 {minutes} 分钟。以服务器时间为准决定存档顺序。",
   "This machine": "此计算机",
-  "When both devices changed": "双方设备都有改动时"
+  "When both devices changed": "双方设备都有改动时",
+  "Apply profile": "应用配置",
+  "Could not apply the profile": "无法应用配置",
+  "Could not export the profile": "无法导出配置",
+  "Could not read this profile": "无法读取此配置",
+  "Export profile": "导出配置",
+  "Game profile": "游戏配置",
+  "One TOML document for this game: launch plan, display profile and prerequisites, without folders or user names. Export it to share a working setup, or paste one to compare it before anything changes.": "每个游戏一个 TOML 文档：启动方案、显示配置和前置条件，不含文件夹或用户名。导出它可以分享可用的配置，或粘贴一个来在改动前进行对比。",
+  "Paste a TOML profile here, then preview it.": "在此粘贴 TOML 配置，然后预览。",
+  "Preview import": "预览导入",
+  "Profile applied": "配置已应用",
+  "Profile document": "配置文档",
+  "Profile exported": "配置已导出",
+  "Review the TOML, then copy it.": "检查 TOML，然后复制。",
+  "schema {schema} · app {version} · rules {rules}": "模式 {schema} · 应用 {version} · 规则 {rules}",
+  "The launch plan and the declared prerequisites were updated.": "启动方案和声明的前置条件已更新。",
+  "This profile changes nothing.": "此配置不更改任何内容。",
+  "Untitled profile": "未命名配置"
 }

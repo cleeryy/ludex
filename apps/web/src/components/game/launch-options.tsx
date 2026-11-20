@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileArchive, FolderOpen, RotateCcw, TerminalSquare } from "lucide-react";
+import {
+  Copy,
+  FileArchive,
+  FileUp,
+  FolderOpen,
+  RotateCcw,
+  TerminalSquare,
+} from "lucide-react";
 import { errorMessage } from "@/lib/http";
 import { isNative, native } from "@/lib/native";
 import { formatBytes , formatDuration} from "@/lib/format";
@@ -13,7 +20,16 @@ import {
   displayProfileSummary,
   withDisplayMode,
 } from "@/lib/display-profile";
-import type { CompatTool, LaunchBundleInfo, LaunchMode, LaunchOptions, WinetricksReport } from "@/lib/types";
+import type {
+  CompatTool,
+  LaunchBundleInfo,
+  LaunchMode,
+  LaunchOptions,
+  ProfileProposal,
+  ProfileWarning,
+  WinetricksReport,
+} from "@/lib/types";
+import { profileFieldLabel, profileValue, proposalHasChanges } from "@/lib/game-profile";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Input, Switch, Textarea } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
@@ -142,6 +158,10 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
   const [verbReport, setVerbReport] = useState<WinetricksReport | null>(null);
   const [bundling, setBundling] = useState(false);
   const [bundle, setBundle] = useState<LaunchBundleInfo | null>(null);
+  const [profileText, setProfileText] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileProposal, setProfileProposal] = useState<ProfileProposal | null>(null);
+  const [profileWarnings, setProfileWarnings] = useState<ProfileWarning[]>([]);
 
   useEffect(() => {
     if (!savedQuery.data) return;
@@ -208,6 +228,66 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       push({ title: t("Could not save the launch options"), description: errorMessage(cause), tone: "danger" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const exportProfile = async () => {
+    setProfileBusy(true);
+    try {
+      const exported = await native.exportGameProfile(gameId);
+      setProfileText(exported.toml);
+      setProfileWarnings(exported.warnings);
+      setProfileProposal(null);
+      push({ title: t("Profile exported"), description: t("Review the TOML, then copy it."), tone: "success" });
+    } catch (cause) {
+      push({ title: t("Could not export the profile"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const copyProfile = async () => {
+    if (!profileText) return;
+    try {
+      await navigator.clipboard.writeText(profileText);
+      push({ title: t("Copied"), tone: "success" });
+    } catch {
+      push({ title: t("Select the text and copy it manually."), tone: "danger" });
+    }
+  };
+
+  const previewProfile = async () => {
+    setProfileBusy(true);
+    setProfileWarnings([]);
+    try {
+      setProfileProposal(await native.previewGameProfileImport(gameId, profileText));
+    } catch (cause) {
+      setProfileProposal(null);
+      push({ title: t("Could not read this profile"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const applyProfile = async () => {
+    if (!profileProposal?.canApply) return;
+    setProfileBusy(true);
+    try {
+      const applied = await native.applyGameProfileImport(gameId, profileText);
+      setDraft(applied);
+      setEnvText(envToText(applied.env));
+      setProfileProposal(null);
+      await queryClient.invalidateQueries({ queryKey: qk.launchOptions(gameId) });
+      await queryClient.invalidateQueries({ queryKey: qk.prefixInfo(gameId) });
+      push({
+        title: t("Profile applied"),
+        description: t("The launch plan and the declared prerequisites were updated."),
+        tone: "success",
+      });
+    } catch (cause) {
+      push({ title: t("Could not apply the profile"), description: errorMessage(cause), tone: "danger" });
+    } finally {
+      setProfileBusy(false);
     }
   };
 
@@ -819,6 +899,148 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               {scan.data?.winetricks ? t("winetricks detected") : t("no winetricks")} ·{" "}
               {scan.data?.protonfixes ? t("protonfixes detected") : t("no protonfixes")}
             </span>
+          )}
+        </div>
+
+        <div className="mt-6 border-t border-line pt-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-ink">{t("Game profile")}</p>
+              <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+                {t(
+                  "One TOML document for this game: launch plan, display profile and prerequisites, without folders or user names. Export it to share a working setup, or paste one to compare it before anything changes.",
+                )}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="default" size="sm" loading={profileBusy} onClick={() => void exportProfile()}>
+                {t("Export profile")}
+              </Button>
+              {profileText.trim().length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<Copy className="size-3.5" />}
+                  onClick={() => void copyProfile()}
+                >
+                  {t("Copy")}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <Textarea
+            value={profileText}
+            onChange={(event) => {
+              setProfileText(event.target.value);
+              setProfileProposal(null);
+            }}
+            placeholder={t("Paste a TOML profile here, then preview it.")}
+            aria-label={t("Profile document")}
+            spellCheck={false}
+            className="mt-3 min-h-[140px] font-mono text-[11px]"
+          />
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<FileUp className="size-3.5" />}
+              loading={profileBusy}
+              disabled={!profileText.trim()}
+              onClick={() => void previewProfile()}
+            >
+              {t("Preview import")}
+            </Button>
+            {profileProposal && (
+              <>
+                <Button
+                  variant="default"
+                  size="sm"
+                  loading={profileBusy}
+                  disabled={!profileProposal.canApply}
+                  onClick={() => void applyProfile()}
+                >
+                  {t("Apply profile")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setProfileProposal(null)}>
+                  {t("Cancel")}
+                </Button>
+              </>
+            )}
+          </div>
+
+          {profileWarnings.length > 0 && (
+            <ul className="mt-3 flex flex-col gap-1 text-[11.5px] text-ink-3">
+              {profileWarnings.map((warning) => (
+                <li key={`${warning.code}:${warning.detail}`} className="border-l-2 border-line-2 pl-2">
+                  {warning.detail}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {profileProposal && (
+            <div className="mt-4 border border-line">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-3 py-2">
+                <p className="text-[12px] font-medium text-ink">
+                  {profileProposal.title || t("Untitled profile")}
+                </p>
+                <span className="font-mono text-[10.5px] text-ink-3">
+                  {t("schema {schema} · app {version} · rules {rules}", {
+                    schema: profileProposal.schemaVersion,
+                    version: profileProposal.appVersion,
+                    rules: profileProposal.rulesVersion,
+                  })}
+                </span>
+              </div>
+
+              {profileProposal.errors.length > 0 && (
+                <ul className="border-b border-line px-3 py-2 text-[11.5px] text-danger">
+                  {profileProposal.errors.map((error) => (
+                    <li key={error} className="border-l-2 border-danger/60 pl-2">
+                      {error}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {profileProposal.warnings.length > 0 && (
+                <ul className="border-b border-line px-3 py-2 text-[11.5px] text-ink-2">
+                  {profileProposal.warnings.map((warning) => (
+                    <li key={`${warning.code}:${warning.detail}`} className="border-l-2 border-signal/60 pl-2">
+                      {warning.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {proposalHasChanges(profileProposal.diff) ? (
+                <ul className="divide-y divide-line">
+                  {profileProposal.diff.map((change) => (
+                    <li
+                      key={change.field}
+                      className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-1.5"
+                    >
+                      <span className="w-[190px] shrink-0 font-mono text-[10.5px] text-ink-3">
+                        {profileFieldLabel(change.field)}
+                      </span>
+                      <span className="font-mono text-[11px] text-ink-3 line-through">
+                        {profileValue(change.before)}
+                      </span>
+                      <span className="text-[11px] text-ink-3">→</span>
+                      <span className="font-mono text-[11px] text-ink">
+                        {profileValue(change.after)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="px-3 py-2 text-[11.5px] text-ink-3">
+                  {t("This profile changes nothing.")}
+                </p>
+              )}
+            </div>
           )}
         </div>
 

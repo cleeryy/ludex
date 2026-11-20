@@ -20,6 +20,7 @@ use crate::controllers::{ControllerLaunch, ControllerPreference, GameControllers
 use crate::db::{self, GamePlaytime, InstalledGame};
 use crate::game_config::{self, ConfigDocument, ConfigEditInput};
 use crate::game_executables::{self, GameExecutables};
+use crate::game_profile::{self, ExportRequest};
 use crate::install::{self, InstallJob, InstallParams};
 use crate::installer::{self, AttemptReport};
 use crate::launch::{self, ForceCloseResult, LaunchResult};
@@ -2872,6 +2873,165 @@ pub async fn launch_diagnostics_bundle(
     })
     .await
     .map_err(|error| format!("The diagnostics bundle task failed: {error}"))?
+}
+
+/* ------------- Declarative per-game profiles (#300) ---------------------- */
+
+/// What a profile command reads before the (slower) compatibility scan.
+struct ProfileInputs {
+    installed: InstalledGame,
+    options: LaunchOptions,
+    prerequisites: Vec<String>,
+}
+
+fn profile_inputs(state: &AppState, game_id: i64) -> Result<ProfileInputs, String> {
+    let installed = installed_or_error(state, game_id)?;
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    let options = db::get_launch_options(&connection, game_id)?;
+    let prerequisites = db::get_runtime_prefs(&connection, game_id)?.prerequisites;
+    Ok(ProfileInputs {
+        installed,
+        options,
+        prerequisites,
+    })
+}
+
+/// The home directory an export must scrub, when the platform has one.
+fn profile_home() -> Option<String> {
+    ["HOME", "USERPROFILE"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok())
+        .map(|value| value.trim().trim_end_matches(['/', '\\']).to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn profile_tool_name(tools: &[crate::compat::CompatTool], tool_id: &str) -> Option<String> {
+    if tool_id.trim().is_empty() {
+        return None;
+    }
+    tools
+        .iter()
+        .find(|tool| tool.id == tool_id)
+        .map(|tool| tool.name.clone())
+}
+
+/// Run the host compatibility scan off the async runtime; a profile only needs
+/// display names, but the same scan feeds the launch options panel.
+async fn profile_scan(app: &AppHandle) -> Result<CompatScan, String> {
+    let settings = app.state::<AppState>().settings_snapshot();
+    tokio::task::spawn_blocking(move || compat::scan(&settings))
+        .await
+        .map_err(|error| format!("The compatibility scan failed: {error}"))
+}
+
+/// Parse the incoming document and diff it against the current profile. Shared
+/// by the preview and the confirmed apply, so both agree on warnings/errors.
+async fn profile_proposal(
+    app: &AppHandle,
+    game_id: i64,
+    text: &str,
+) -> Result<
+    (
+        game_profile::ImportProposal,
+        Vec<crate::compat::CompatTool>,
+        InstalledGame,
+    ),
+    String,
+> {
+    let inputs = profile_inputs(&app.state::<AppState>(), game_id)?;
+    let scan = profile_scan(app).await?;
+    let tool_name = profile_tool_name(&scan.tools, &inputs.options.tool_id);
+    let home = profile_home();
+    let request = ExportRequest {
+        title: &inputs.installed.title,
+        install_root: Path::new(&inputs.installed.install_path),
+        options: &inputs.options,
+        prerequisites: &inputs.prerequisites,
+        tool_name: tool_name.as_deref(),
+        home: home.as_deref(),
+        app_version: env!("CARGO_PKG_VERSION"),
+        rules_version: game_profile::PROFILE_RULES_VERSION,
+        exported_at: &now_rfc3339(),
+    };
+    let current = game_profile::current_profile(request)?;
+    let (incoming, parse_warnings) = game_profile::parse(text)?;
+    let names: Vec<String> = scan.tools.iter().map(|tool| tool.name.clone()).collect();
+    let mut proposal = game_profile::propose(
+        &current,
+        incoming,
+        &names,
+        Some(Path::new(&inputs.installed.install_path)),
+    );
+    proposal.warnings.splice(0..0, parse_warnings);
+    Ok((proposal, scan.tools, inputs.installed))
+}
+
+/// Export one game as a shareable TOML profile (#300). Paths, the Wine prefix
+/// and the home directory never leave this machine; the tool is a name.
+#[tauri::command]
+pub async fn export_game_profile(
+    app: AppHandle,
+    game_id: i64,
+) -> Result<game_profile::ProfileExport, String> {
+    let inputs = profile_inputs(&app.state::<AppState>(), game_id)?;
+    let scan = profile_scan(&app).await?;
+    let tool_name = profile_tool_name(&scan.tools, &inputs.options.tool_id);
+    let home = profile_home();
+    let request = ExportRequest {
+        title: &inputs.installed.title,
+        install_root: Path::new(&inputs.installed.install_path),
+        options: &inputs.options,
+        prerequisites: &inputs.prerequisites,
+        tool_name: tool_name.as_deref(),
+        home: home.as_deref(),
+        app_version: env!("CARGO_PKG_VERSION"),
+        rules_version: game_profile::PROFILE_RULES_VERSION,
+        exported_at: &now_rfc3339(),
+    };
+    game_profile::export(request)
+}
+
+/// Preview a profile import (#300). Pure read: the diff, warnings and blocking
+/// errors are returned, and nothing is written until the user confirms.
+#[tauri::command]
+pub async fn preview_game_profile_import(
+    app: AppHandle,
+    game_id: i64,
+    text: String,
+) -> Result<game_profile::ProfileProposal, String> {
+    let (proposal, _, _) = profile_proposal(&app, game_id, &text).await?;
+    Ok(proposal.view())
+}
+
+/// Apply a reviewed profile (#300). Re-parses and re-validates the same text,
+/// refuses blocking errors and only then writes the launch plan and the
+/// declared prerequisites. The Wine prefix is never touched.
+#[tauri::command]
+pub async fn apply_game_profile_import(
+    app: AppHandle,
+    game_id: i64,
+    text: String,
+) -> Result<LaunchOptions, String> {
+    let (proposal, tools, installed) = profile_proposal(&app, game_id, &text).await?;
+    if !proposal.errors.is_empty() {
+        return Err(proposal.errors.join(" "));
+    }
+    let state = app.state::<AppState>();
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "The local database is unavailable; restart Ludex.".to_string())?;
+    game_profile::apply(
+        &connection,
+        game_id,
+        Path::new(&installed.install_path),
+        &proposal.profile,
+        &tools,
+        &now_rfc3339(),
+    )
 }
 
 /// Size and location of a game's Wine prefix (#92).
