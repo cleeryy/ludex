@@ -876,8 +876,7 @@ mod tests {
             match SystemdInhibitor::start(binary, message) {
                 Ok(inhibitor) => return inhibitor,
                 Err(error) => {
-                    let busy =
-                        error.contains("Text file busy") || error.contains("os error 26");
+                    let busy = error.contains("Text file busy") || error.contains("os error 26");
                     last = error;
                     if !busy {
                         break;
