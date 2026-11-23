@@ -3131,6 +3131,51 @@ export interface RepairProgress extends VerifyProgress {
   phase: "downloading" | "extracting" | "restoring" | "verifying";
 }
 
+/* ------------------- Portable Linux bundle (#332) ------------------------ */
+
+/** What the target machine needs to start the bundle (#332). */
+export type PortableRuntimeRequirement = "linux-native" | "windows-compat";
+
+/** How the bundle starts the recorded executable. */
+export type PortableLaunchMode = "native" | "windows";
+
+/** Size and requirement of a portable bundle, before it is created (#332). */
+export interface PortableBundleEstimate {
+  /** False off Linux: the action is hidden, not offered and then refused. */
+  supported: boolean;
+  platform: string;
+  gameId: number;
+  /** Bytes the bundle would copy, excluding the machine-specific prefix. */
+  bytes: number;
+  runtimeRequirement: PortableRuntimeRequirement;
+  /** The recorded executable exists inside the install folder. */
+  executablePresent: boolean;
+  /** Why the action cannot run, when it cannot. */
+  reason: string | null;
+}
+
+/** Result of `create_portable_bundle` (#332). */
+export interface PortableBundleInfo {
+  path: string;
+  /** Bytes of the four generated files. */
+  bytes: number;
+  runtimeRequired: PortableRuntimeRequirement;
+  fileCount: number;
+  /** Files an archive shipped that the generation replaced. */
+  replaced: string[];
+  /** True when the install folder was copied to `path` first. */
+  copied: boolean;
+}
+
+/** Progress of an export to a destination, on `portable://progress` (#332). */
+export interface PortableProgress {
+  gameId: number;
+  phase: "copying" | "generating" | "done" | "failed";
+  bytesDone: number;
+  bytesTotal: number;
+  message: string;
+}
+
 /* --------------------- Linux compatibility (#89-#93) --------------------- */
 
 export type LaunchMode = "auto" | "native" | "proton" | "umu";

@@ -14,6 +14,8 @@ import type {
   LocalSettings,
   ManifestStatus,
   ManifestUpdate,
+  PortableBundleEstimate,
+  PortableBundleInfo,
   RepairReport,
   VerifyReport,
 } from "@/lib/types";
@@ -157,6 +159,25 @@ export const installBridge = {
 
   moveInstall(gameId: number, targetDir: string): Promise<InstalledGame> {
     return USING_MOCKS ? mockInstalls.moveInstall(gameId, targetDir) : native.moveInstall(gameId, targetDir);
+  },
+
+  /**
+   * #332: a portable Linux bundle is written from the install folder, or the
+   * folder is copied to `destination` first. Desktop only; the mock answers in
+   * the browser so the panel can be reviewed.
+   */
+  portableEstimate(gameId: number): Promise<PortableBundleEstimate> {
+    return USING_MOCKS ? mockInstalls.portableEstimate(gameId) : native.portableBundleEstimate(gameId);
+  },
+
+  createPortableBundle(
+    gameId: number,
+    destination?: string | null,
+    args?: string | null,
+  ): Promise<PortableBundleInfo> {
+    return USING_MOCKS
+      ? mockInstalls.createPortableBundle(gameId, destination)
+      : native.createPortableBundle(gameId, destination, args);
   },
 
   verifyInstall(gameId: number): Promise<VerifyReport> {

@@ -89,6 +89,9 @@ import type {
   OverlayOpenResult,
   OverlaySettingsPatch,
   OverlayStatus,
+  PortableBundleEstimate,
+  PortableBundleInfo,
+  PortableProgress,
   PrefixInfo,
   ProfileExport,
   ProfileProposal,
@@ -758,6 +761,29 @@ export const native = {
     return invoke<InstalledGame>("move_install", { gameId, targetDir });
   },
 
+  /* --------------------- portable Linux bundle (#332) ------------------- */
+
+  /**
+   * #332: size and runtime requirement of a portable bundle for this install.
+   * `supported` is false off Linux, where the action is hidden.
+   */
+  async portableBundleEstimate(gameId: number): Promise<PortableBundleEstimate> {
+    return invoke<PortableBundleEstimate>("portable_bundle_estimate", { gameId });
+  },
+
+  /**
+   * #332: write `run.sh`, `install.sh`, `ludex-game.json` and
+   * `support/README.txt` in the install folder, or copy the folder to
+   * `destination` first. Progress arrives on `portable://progress`.
+   */
+  async createPortableBundle(gameId: number, destination?: string | null, args?: string | null): Promise<PortableBundleInfo> {
+    return invoke<PortableBundleInfo>("create_portable_bundle", {
+      gameId,
+      destination: destination ?? null,
+      args: args ?? null,
+    });
+  },
+
   async verifyInstall(gameId: number): Promise<VerifyReport> {
     return invoke<VerifyReport>("verify_install", { gameId });
   },
@@ -1263,6 +1289,11 @@ export const native = {
 
   async onMoveProgress(handler: (progress: MoveProgress) => void): Promise<() => void> {
     return listen<MoveProgress>("install://move-progress", handler);
+  },
+
+  /** #332: bytes copied while a portable bundle is exported to a folder. */
+  async onPortableProgress(handler: (progress: PortableProgress) => void): Promise<() => void> {
+    return listen<PortableProgress>("portable://progress", handler);
   },
 
   async onVerifyProgress(handler: (progress: VerifyProgress) => void): Promise<() => void> {

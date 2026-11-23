@@ -60,6 +60,7 @@ import { VersionManager } from "@/components/game/version-manager";
 import { AdoptInstallDialog } from "@/components/game/adopt-install";
 import { DeleteAdoptedDialog } from "@/components/game/delete-adopted";
 import { InstallerPanel } from "@/components/game/installer-panel";
+import { PortableBundlePanel } from "@/components/game/portable-bundle";
 import { SettingsTiersPanel } from "@/components/game/settings-tiers";
 import { AudioOutputPanel } from "@/components/game/audio-output";
 import { ShaderPrepPanel } from "@/components/game/shader-prep";
@@ -574,6 +575,12 @@ export function GameDetailScreen() {
             {isInstalled && desktop && <InstallFiles gameId={game.id} title={game.title} />}
             {isInstalled && desktop && (
               <InstallerPanel gameId={game.id} title={game.title} executable={isInstalled.executable} />
+            )}
+            {isInstalled && desktop && game.kind !== "rom" && (
+              // #332: the portable launcher lives with the other install-folder
+              // actions. The panel hides itself off Linux (or when the desktop
+              // has no portable support).
+              <PortableBundlePanel gameId={game.id} title={game.title} installed={isInstalled} />
             )}
           </div>
         );

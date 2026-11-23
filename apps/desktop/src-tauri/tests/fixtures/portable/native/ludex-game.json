@@ -1,0 +1,21 @@
+{
+  "args": [
+    "--windowed"
+  ],
+  "env": {
+    "DXVK_HUD": "fps"
+  },
+  "executable": "Hades.sh",
+  "generatedAt": "2026-11-23T10:00:00Z",
+  "generator": "Ludex 0.4.28",
+  "kind": "ludex-portable-bundle",
+  "launchMode": "native",
+  "prefix": "support/prefix",
+  "runtimeRequirement": "linux-native",
+  "schema": 1,
+  "scriptVersion": 1,
+  "slug": "hades",
+  "title": "Hades",
+  "version": "1.0.38180",
+  "workingDir": "."
+}

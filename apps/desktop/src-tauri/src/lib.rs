@@ -43,6 +43,7 @@ mod oidc_login;
 mod overlay;
 mod paths;
 mod pipeline;
+mod portable;
 mod power;
 mod prefix;
 mod presence;
@@ -404,6 +405,8 @@ pub fn run() {
             audio::audio_volume_step,
             audio::set_audio_default_sink,
             commands::launch_diagnostics_bundle,
+            portable::portable_bundle_estimate,
+            portable::create_portable_bundle,
             commands::export_game_profile,
             commands::preview_game_profile_import,
             commands::apply_game_profile_import,
