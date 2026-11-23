@@ -19,7 +19,7 @@ export function PageHeader({
   return (
     <header className={cn("flex flex-col gap-4 border-b border-line pb-6", className)}>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="text-[clamp(2rem,3.4vw,3.25rem)] font-semibold leading-[0.98] tracking-[-0.03em]">{title}</h1>
+        <h1 className="text-display font-semibold leading-[0.98] tracking-[-0.03em] sm:text-hero">{title}</h1>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {meta && <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-label text-ink-3">{meta}</div>}
@@ -46,8 +46,14 @@ export function EmptyState({
 }) {
   const Heading = level === 3 ? "h3" : "h2";
   return (
-    <div className={cn("flex items-stretch gap-8 border border-line bg-surface/50", compact ? "p-6" : "p-8 sm:p-10", className)}>
-      <div className="hatch hidden w-24 shrink-0 border border-line sm:block" aria-hidden="true">
+    <div
+      className={cn(
+        "flex items-stretch gap-8 rounded-[var(--r-md)] border border-line bg-surface",
+        compact ? "p-6" : "p-8 sm:p-10",
+        className,
+      )}
+    >
+      <div className="hatch hidden w-24 shrink-0 rounded-[var(--r-sm)] border border-line sm:block" aria-hidden="true">
         <div className="h-full w-full bg-[linear-gradient(180deg,transparent,var(--surface))]" />
       </div>
       <div className="flex flex-col justify-center gap-3">
@@ -71,13 +77,13 @@ export function ErrorState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-start gap-3 border border-line bg-surface/50 p-8" role="alert">
-      <span className="h-px w-10 bg-danger" aria-hidden="true" />
+    <div className="flex flex-col items-start gap-3 rounded-[var(--r-md)] border border-line bg-surface p-8" role="alert">
+      <span className="h-[3px] w-10 rounded-[1px] bg-danger" aria-hidden="true" />
       <h2 className="text-title font-semibold tracking-[-0.02em]">{title}</h2>
       <p className="measure text-body leading-relaxed text-ink-2">{message}</p>
       <div className="mt-1 flex gap-2">
         {onRetry && (
-          <Button variant="default" onClick={onRetry}>
+          <Button variant="outline" onClick={onRetry}>
             {t("Try again")}
           </Button>
         )}

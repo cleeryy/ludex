@@ -85,7 +85,7 @@ function SortMenu() {
       <button
         {...menu.triggerProps}
         aria-label={t("Sort: {sort}", { sort: current.label })}
-        className="hidden h-9 items-center gap-2 rounded-[2px] px-2.5 text-body text-ink-2 transition-colors hover:bg-surface hover:text-ink md:inline-flex"
+        className="hidden h-9 items-center gap-2 rounded-[var(--r-sm)] px-2.5 text-body text-ink-2 transition-colors hover:bg-surface hover:text-ink md:inline-flex"
       >
         <ArrowUpDown className="size-3.5 text-ink-3" aria-hidden="true" />
         <span>{current.label}</span>
@@ -132,9 +132,9 @@ function UserMenu() {
       <button
         {...menu.triggerProps}
         aria-label={t("Account menu for {name}", { name: user.username })}
-        className="flex h-9 items-center gap-2 rounded-[2px] pl-1 pr-1.5 transition-colors hover:bg-surface"
+        className="flex h-9 items-center gap-2 rounded-[var(--r-sm)] pl-1 pr-1.5 transition-colors hover:bg-surface"
       >
-        <span className="grid size-7 place-items-center overflow-hidden rounded-[2px]">
+        <span className="grid size-7 place-items-center overflow-hidden rounded-[var(--r-xs)]">
           <UserAvatar name={user.username} src={user.avatarUrl} size={28} />
         </span>
         <span className="hidden text-body text-ink-2 sm:block">{user.username}</span>
@@ -182,7 +182,7 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
       data-tauri-drag-region={chrome.custom ? "deep" : undefined}
       className="flex h-[calc(var(--bar-h)+env(safe-area-inset-top))] shrink-0 items-stretch border-b border-line pt-[env(safe-area-inset-top)]"
     >
-      <div className="hidden w-[var(--rail-w)] shrink-0 items-center border-r border-line px-5 lg:flex">
+      <div className="hidden w-[var(--rail-w)] shrink-0 items-center border-r border-line bg-bg-deep px-5 lg:flex">
         <Link to="/" aria-label={t("Ludex home")} className="py-2">
           <Wordmark height={17} />
         </Link>
@@ -196,7 +196,7 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
         <button
           type="button"
           onClick={onOpenPalette}
-          className="hidden h-9 w-[300px] items-center gap-2.5 rounded-[2px] border border-line bg-surface px-3 text-left text-body text-ink-3 transition-colors hover:border-line-2 hover:text-ink-2 sm:flex"
+          className="hidden h-9 w-[300px] items-center gap-2.5 rounded-[var(--r-sm)] border border-line-2 bg-bg-deep px-3 text-left text-body text-ink-3 transition-colors hover:border-ink-3 hover:text-ink-2 sm:flex"
         >
           <Search className="size-4 shrink-0" aria-hidden="true" />
           <span className="flex-1 truncate">{t("Search games")}</span>
@@ -401,6 +401,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-dvh flex-col bg-bg text-ink">
+      <div className="arc-stripe" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
       <a
         href="#main-content"
@@ -410,7 +411,7 @@ export function AppShell() {
           event.preventDefault();
           scrollRef.current?.focus();
         }}
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[100] focus:rounded-[2px] focus:border focus:border-line-2 focus:bg-surface focus:px-3 focus:py-2 focus:text-body focus:text-ink"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[100] focus:rounded-[var(--r-sm)] focus:border focus:border-line-2 focus:bg-elevated focus:px-3 focus:py-2 focus:text-body focus:text-ink"
       >
         {t("Skip to content")}
       </a>
@@ -418,7 +419,7 @@ export function AppShell() {
           aside so Big Picture and full-screen sessions stay chrome-free. */}
       {!chrome.fullscreen && <Topbar onOpenPalette={() => setPaletteOpen(true)} chrome={chrome} />}
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-[var(--rail-w)] shrink-0 border-r border-line lg:block" aria-label={t("Sidebar")}>
+        <aside className="hidden w-[var(--rail-w)] shrink-0 border-r border-line bg-bg-deep lg:block" aria-label={t("Sidebar")}>
           <NavRail context={context} onOpenHelp={() => setHelpOpen(true)} />
         </aside>
         <main

@@ -168,7 +168,7 @@ export function Popover({
       tabIndex={-1}
       data-placed={placed}
       className={cn(
-        "overflow-y-auto rounded-[2px] border border-line-2 bg-surface text-ink outline-none",
+        "overflow-y-auto rounded-[var(--r-lg)] border border-line-2 bg-elevated text-ink outline-none",
         "shadow-pop",
         "data-[placed=true]:animate-[pop-in_140ms_cubic-bezier(0.2,0.6,0.2,1)_both]",
         className,
@@ -206,15 +206,15 @@ export function MenuItem({
       aria-checked={selected}
       onClick={onSelect}
       className={cn(
-        "flex h-9 w-full items-center gap-2.5 px-3 text-left text-[13.5px] transition-colors duration-[100ms]",
+        "flex h-9 w-full items-center gap-2.5 px-3 text-left text-body transition-colors duration-[100ms]",
         "disabled:pointer-events-none disabled:opacity-40",
         danger ? "text-danger hover:bg-danger/10" : "text-ink-2 hover:bg-surface-2 hover:text-ink",
-        selected && "text-ink",
+        selected && "text-ink font-medium",
       )}
     >
       {icon && <span className="grid size-4 place-items-center text-ink-3">{icon}</span>}
       <span className="flex-1 truncate">{children}</span>
-      {selected && <span className="size-1.5 rounded-full bg-signal" aria-hidden="true" />}
+      {selected && <span className="size-[7px] rounded-[1px] bg-signal" aria-hidden="true" />}
       {kbd && <span className="kbd">{kbd}</span>}
     </button>
   );
@@ -225,5 +225,5 @@ export function MenuSeparator() {
 }
 
 export function MenuLabel({ children }: { children: ReactNode }) {
-  return <div className="px-3 pb-1 pt-2 text-[11px] font-medium text-ink-3">{children}</div>;
+  return <div className="px-3 pb-1 pt-2 text-meta font-medium text-ink-3">{children}</div>;
 }

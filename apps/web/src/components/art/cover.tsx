@@ -503,9 +503,11 @@ export function StillPlate({
         <Motif spec={variant} seed={seed + index * 977} />
       </svg>
       <div className="absolute inset-0 still-shade" />
-      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-sheen/75">
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-3 text-micro uppercase tracking-[0.12em] text-sheen/75">
         <span>{variant.motif}</span>
-        <span>{t("Still")} {String(index + 1).padStart(2, "0")}</span>
+        <span>
+          {t("Still")} <span className="num">{String(index + 1).padStart(2, "0")}</span>
+        </span>
       </div>
     </div>
   );

@@ -37,7 +37,7 @@ export function UploadIndicator() {
       <Link
         to="/admin/upload"
         aria-label={label}
-        className="relative grid size-9 place-items-center rounded-[2px] transition-colors hover:bg-surface"
+        className="relative grid size-9 place-items-center rounded-[var(--r-sm)] transition-colors hover:bg-surface"
       >
         <svg
           viewBox={`0 0 ${SIZE} ${SIZE}`}

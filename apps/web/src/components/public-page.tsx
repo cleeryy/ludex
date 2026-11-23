@@ -20,5 +20,10 @@ export const PUBLIC_PAGE_BASE_CLASSES = `${PUBLIC_PAGE_CLASS} min-h-dvh bg-bg`;
  * `min-h-dvh` div would be clipped at the fold.
  */
 export function PublicPage({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn(PUBLIC_PAGE_BASE_CLASSES, className)}>{children}</div>;
+  return (
+    <div className={cn(PUBLIC_PAGE_BASE_CLASSES, "flex flex-col")}>
+      <div className="arc-stripe" aria-hidden="true" />
+      <div className={cn("flex-1", className)}>{children}</div>
+    </div>
+  );
 }

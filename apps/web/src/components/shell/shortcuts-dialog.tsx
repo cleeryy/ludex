@@ -61,11 +61,11 @@ export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenC
       <div className="grid gap-7 sm:grid-cols-2">
         {shortcutGroups().map((group) => (
           <section key={group.title} aria-label={group.title}>
-            <h3 className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{group.title}</h3>
+            <h3 className="mb-2 text-meta font-semibold uppercase tracking-[0.08em] text-ink-3">{group.title}</h3>
             <dl className="border-t border-line">
               {group.rows.map((row) => (
                 <div key={`${group.title}-${row.label}`} className="flex items-center justify-between gap-4 border-b border-line py-2">
-                  <dt className="text-[13px] text-ink-2">{row.label}</dt>
+                  <dt className="text-body text-ink-2">{row.label}</dt>
                   <dd className="flex shrink-0 items-center gap-1">
                     {row.keys.map((key) => (
                       <Kbd key={key}>{key}</Kbd>

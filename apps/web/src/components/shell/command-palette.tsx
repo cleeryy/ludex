@@ -353,7 +353,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
             transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 w-full max-w-[640px] overflow-hidden rounded-[3px] border border-line-2 bg-surface shadow-palette"
+            className="relative z-10 w-full max-w-[640px] overflow-hidden rounded-[var(--r-lg)] border border-line-2 bg-elevated shadow-palette"
             onKeyDown={onKeyDown}
           >
             <div className="flex items-center gap-3 border-b border-line px-4">
@@ -371,14 +371,14 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 aria-autocomplete="list"
                 autoComplete="off"
                 spellCheck={false}
-                className="h-[54px] w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-3"
+                className="h-[52px] w-full bg-transparent text-lead text-ink outline-none placeholder:text-ink-3"
               />
               <Kbd>esc</Kbd>
             </div>
 
             <div ref={listRef} id={listId} role="listbox" aria-label={t("Results")} className="max-h-[min(56vh,440px)] overflow-y-auto py-1">
               {items.length === 0 && (
-                <div className="px-4 py-8 text-center text-[13px] text-ink-3">
+                <div className="px-4 py-8 text-center text-body text-ink-3">
                   {t("Nothing matches “{query}”. Try a title, a genre or a screen name.", { query })}
                 </div>
               )}
@@ -386,7 +386,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 const groupId = `${groupIdPrefix}-${section.id}`;
                 return (
                   <div key={section.id} role="group" aria-labelledby={groupId}>
-                    <div id={groupId} className="px-4 pb-1 pt-3 text-[11px] font-medium text-ink-3">
+                    <div id={groupId} className="px-4 pb-1 pt-3 text-meta font-medium text-ink-3">
                       {section.label}
                     </div>
                     {section.items.map((item) => {
@@ -408,8 +408,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                           )}
                         >
                           <span className="flex w-8 shrink-0 items-center justify-center text-ink-3">{item.icon}</span>
-                          <span className="min-w-0 flex-1 truncate text-[13.5px]">{item.label}</span>
-                          {item.hint && <span className="hidden shrink-0 text-[11.5px] text-ink-3 sm:block">{item.hint}</span>}
+                          <span className="min-w-0 flex-1 truncate text-body">{item.label}</span>
+                          {item.hint && <span className="hidden shrink-0 text-meta text-ink-3 sm:block">{item.hint}</span>}
                           {item.kbd && <span className="kbd hidden sm:inline-flex">{item.kbd}</span>}
                           <ArrowRight
                             className={cn("size-3.5 shrink-0", position === active ? "text-signal-text" : "text-transparent")}
@@ -423,7 +423,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               })}
             </div>
 
-            <div className="flex items-center justify-between gap-4 border-t border-line px-4 py-2.5 text-[11.5px] text-ink-3">
+            <div className="flex items-center justify-between gap-4 border-t border-line px-4 py-2.5 text-meta text-ink-3">
               <span className="flex items-center gap-3">
                 <span className="flex items-center gap-1.5">
                   <Kbd>↑</Kbd>

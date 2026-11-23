@@ -93,4 +93,34 @@ describe("console type scale", () => {
     // 11.5 px is the dominant metadata size in the desktop audit; the token keeps it.
     expect(css).toMatch(/--text-meta:\s*11\.5px;/);
   });
+
+  it("keeps core UI primitives and shell components free of arbitrary text-[Npx] sizes", () => {
+    const dirs = [
+      path.join(srcRoot, "components", "ui"),
+      path.join(srcRoot, "components", "shell"),
+    ];
+    const extraFiles = [
+      path.join(srcRoot, "components", "page.tsx"),
+      path.join(srcRoot, "components", "public-page.tsx"),
+      path.join(srcRoot, "components", "auth-layout.tsx"),
+      path.join(srcRoot, "components", "game", "game-card.tsx"),
+    ];
+    const files = [
+      ...dirs.flatMap((dir) =>
+        fs
+          .readdirSync(dir)
+          .filter((file) => file.endsWith(".tsx") && !file.endsWith(".test.tsx"))
+          .map((file) => path.join(dir, file)),
+      ),
+      ...extraFiles,
+    ];
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = fs.readFileSync(file, "utf8");
+      if (/text-\[\d+(?:\.\d+)?px\]/.test(source)) {
+        offenders.push(path.relative(srcRoot, file));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

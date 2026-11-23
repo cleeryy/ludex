@@ -23,7 +23,7 @@ export function MobileBar({ context, onMore }: { context: NavContext; onMore: ()
   return (
     <nav
       aria-label={t("Primary")}
-      className="flex h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 items-stretch border-t border-line bg-bg pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="flex h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 items-stretch border-t border-line bg-bg-deep pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       {items.map((destination) => {
         const active = isNavActive(destination, pathname);
@@ -33,8 +33,8 @@ export function MobileBar({ context, onMore }: { context: NavContext; onMore: ()
             to={destination.to}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-[10px] transition-colors",
-              active ? "text-ink" : "text-ink-3",
+              "relative flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro transition-colors",
+              active ? "text-ink font-medium" : "text-ink-3",
             )}
           >
             {active && <span className="absolute inset-x-5 top-0 h-[2px] bg-signal" aria-hidden="true" />}
@@ -46,7 +46,7 @@ export function MobileBar({ context, onMore }: { context: NavContext; onMore: ()
       <button
         type="button"
         onClick={onMore}
-        className="flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-ink-3 transition-colors hover:text-ink-2"
+        className="flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro text-ink-3 transition-colors hover:text-ink-2"
       >
         <MoreHorizontal className="size-4" aria-hidden="true" />
         {t("More")}
@@ -60,7 +60,7 @@ function SheetLink({ destination, onNavigate }: { destination: NavDestination; o
     <Link
       to={destination.to}
       onClick={onNavigate}
-      className="flex h-11 w-full items-center gap-3 border-b border-line text-[14px] text-ink-2 last:border-0 hover:text-ink"
+      className="flex h-11 w-full items-center gap-3 border-b border-line text-body text-ink-2 last:border-0 hover:text-ink"
     >
       <span className="grid size-4 place-items-center text-ink-3">
         <NavIcon name={destination.icon} className="size-3.5" />
@@ -74,7 +74,7 @@ function SheetLink({ destination, onNavigate }: { destination: NavDestination; o
 function SheetGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="pt-4 first:pt-0">
-      <p className="pb-1 text-[11.5px] text-ink-3">{label}</p>
+      <p className="pb-1 text-meta font-medium text-ink-3">{label}</p>
       {children}
     </div>
   );
@@ -131,7 +131,7 @@ export function MoreSheet({
                   key={genre}
                   to={`/library?genre=${encodeURIComponent(genre)}`}
                   onClick={close}
-                  className="flex h-11 items-center rounded-[2px] border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+                  className="flex h-11 items-center rounded-[var(--r-sm)] border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
                 >
                   {genre}
                 </Link>
@@ -147,7 +147,7 @@ export function MoreSheet({
               close();
               openShortcutsHelp();
             }}
-            className="flex h-11 w-full items-center gap-3 border-b border-line text-left text-[14px] text-ink-2 hover:text-ink"
+            className="flex h-11 w-full items-center gap-3 border-b border-line text-left text-body text-ink-2 hover:text-ink"
           >
             <span className="grid size-4 place-items-center text-ink-3">
               <Keyboard className="size-3.5" aria-hidden="true" />
@@ -160,7 +160,7 @@ export function MoreSheet({
               close();
               setTheme(otherModeTheme(resolved));
             }}
-            className="flex h-11 w-full items-center gap-3 border-b border-line text-left text-[14px] text-ink-2 hover:text-ink"
+            className="flex h-11 w-full items-center gap-3 border-b border-line text-left text-body text-ink-2 hover:text-ink"
           >
             <span className="grid size-4 place-items-center text-ink-3">
               {resolved === "dark" ? <Sun className="size-3.5" aria-hidden="true" /> : <Moon className="size-3.5" aria-hidden="true" />}
@@ -173,7 +173,7 @@ export function MoreSheet({
               close();
               void signOut();
             }}
-            className="flex h-11 w-full items-center gap-3 text-left text-[14px] text-danger hover:opacity-80"
+            className="flex h-11 w-full items-center gap-3 text-left text-body text-danger hover:opacity-80"
           >
             <span className="grid size-4 place-items-center">
               <LogOut className="size-3.5" aria-hidden="true" />

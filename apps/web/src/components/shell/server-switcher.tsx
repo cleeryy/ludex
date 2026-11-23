@@ -8,7 +8,7 @@ import { parseServerUrl, serverLabelFor, type ServerUrlProblem } from "@/lib/ser
 import type { ServerProfile, ServerTest } from "@/lib/types";
 import { isNative } from "@/lib/native";
 import { cn } from "@/lib/cn";
-import { Badge, Button, Field, Input } from "@/components/ui/controls";
+import { Badge, Button, Field, Input, Led } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, useDropdown, type MenuEntry } from "@/components/ui/select";
 import { t } from "@/lib/i18n";
@@ -113,9 +113,9 @@ export function ServerSwitcher() {
       <button
         {...menu.triggerProps}
         aria-label={t("Server: {name}", { name: active?.label ?? t("none") })}
-        className="flex h-9 max-w-[180px] items-center gap-1.5 rounded-[2px] px-2 text-[12.5px] text-ink-2 transition-colors hover:bg-surface hover:text-ink"
+        className="flex h-9 max-w-[180px] items-center gap-2 rounded-[var(--r-sm)] px-2 text-label text-ink-2 transition-colors hover:bg-surface hover:text-ink"
       >
-        <span className={cn("size-1.5 shrink-0 rounded-full", active ? "bg-ok" : "bg-ink-3")} aria-hidden="true" />
+        <Led tone={active ? "ok" : "muted"} />
         <span className="truncate">{active?.label ?? t("No server")}</span>
         <ChevronDown className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
       </button>
@@ -194,10 +194,10 @@ export function ServersPanel() {
     <section className="mt-12 max-w-[980px]" aria-labelledby="servers-heading">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 id="servers-heading" className="text-[17px] font-semibold tracking-[-0.02em] text-ink">
+          <h2 id="servers-heading" className="text-title font-semibold tracking-[-0.02em] text-ink">
             {t("Servers")}
           </h2>
-          <p className="mt-1 max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[70ch] text-label leading-relaxed text-ink-3">
             {t("Keep more than one Ludex server or account. Each server has its own session, installed-game index and download queue.")}
           </p>
         </div>
@@ -214,28 +214,28 @@ export function ServersPanel() {
       </div>
 
       <div className="mt-4 border-t border-line">
-        {isPending && <p className="py-4 text-[13px] text-ink-3">{t("Loading servers…")}</p>}
+        {isPending && <p className="py-4 text-body text-ink-3">{t("Loading servers…")}</p>}
         {isError && (
-          <p role="alert" className="py-4 text-[13px] text-danger">
+          <p role="alert" className="py-4 text-body text-danger">
             {error instanceof Error ? error.message : t("The saved servers could not be read.")}
           </p>
         )}
         {(data?.servers ?? []).map((server) => (
           <div key={server.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line py-3">
-            <span className={cn("size-1.5 shrink-0 rounded-full", server.active ? "bg-ok" : "bg-ink-3")} aria-hidden="true" />
+            <Led tone={server.active ? "ok" : "muted"} />
             <div className="min-w-0 flex-1">
-              <p className="flex flex-wrap items-center gap-2 text-[13.5px] text-ink">
+              <p className="flex flex-wrap items-center gap-2 text-body text-ink">
                 <span className="truncate">{server.label}</span>
                 {server.active && <Badge tone="signal">{t("In use")}</Badge>}
                 {server.local && <Badge tone="outline">{t("This device")}</Badge>}
-                {server.username && <span className="text-[11.5px] text-ink-3">@{server.username}</span>}
+                {server.username && <span className="text-meta text-ink-3">@{server.username}</span>}
               </p>
-              <p className="truncate font-mono text-[10.5px] text-ink-3" title={server.url}>
+              <p className="truncate font-mono text-meta text-ink-3" title={server.url}>
                 {server.url}
               </p>
             </div>
             <span
-              className={cn("inline-flex items-center gap-1 text-[11px] text-ink-3", server.hasToken && "text-ok")}
+              className={cn("inline-flex items-center gap-1 text-meta text-ink-3", server.hasToken && "text-ok")}
               title={server.hasToken ? t("A token is saved for this server.") : t("No saved token; sign in when you switch.")}
             >
               <KeyRound className="size-3" aria-hidden="true" />
@@ -271,25 +271,25 @@ export function ServersPanel() {
           </div>
         ))}
         {data && data.servers.length === 0 && (
-          <p className="py-4 text-[13px] text-ink-3">
+          <p className="py-4 text-body text-ink-3">
             {t("No server is saved yet. Add the address of a Ludex server to get started.")}
           </p>
         )}
       </div>
 
       {data?.warning && (
-        <p className="mt-3 flex items-start gap-2 border-l-2 border-warn/60 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-3 flex items-start gap-2 border-l-2 border-warn/60 pl-3 text-meta leading-relaxed text-ink-3">
           <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warn" aria-hidden="true" />
           <span>{data.warning}</span>
         </p>
       )}
       {data && !data.warning && data.tokenStorage === "keychain" && (
-        <p className="mt-3 text-[11.5px] text-ink-3">
+        <p className="mt-3 text-meta text-ink-3">
           {t("Saved tokens live in the OS keychain ({kind}).", { kind: data.keychain ?? "keychain" })}
         </p>
       )}
       {!isNative() && (
-        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-3 text-meta leading-relaxed text-ink-3">
           {t("In the browser, each server's session token is kept in this browser's local storage and never shared with the other servers.")}
         </p>
       )}
@@ -460,7 +460,7 @@ function ServerFormDialog({
             placeholder="https://ludex.example.com"
             spellCheck={false}
             autoComplete="url"
-            className="font-mono text-[12.5px]"
+            className="font-mono text-label"
           />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -490,7 +490,7 @@ function ServerFormDialog({
           <p
             role="status"
             className={cn(
-              "border-l-2 pl-3 text-[12px] leading-relaxed",
+              "border-l-2 pl-3 text-label leading-relaxed",
               result.ok ? "border-ok/60 text-ok" : "border-danger/60 text-danger",
             )}
           >
@@ -498,12 +498,12 @@ function ServerFormDialog({
           </p>
         )}
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}
         {isNative() && (
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {t("This token is saved for the profile, not in the settings file: the desktop uses the OS keychain when available and a local SQLite file otherwise.")}
           </p>
         )}
@@ -589,17 +589,17 @@ function ServerManagerDialog({
         <div className="border-t border-line">
           {(servers?.servers ?? []).map((server) => (
             <div key={server.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line py-3">
-              <span className={cn("size-1.5 shrink-0 rounded-full", server.active ? "bg-ok" : "bg-ink-3")} aria-hidden="true" />
+              <Led tone={server.active ? "ok" : "muted"} />
               <div className="min-w-0 flex-1">
-                <p className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+                <p className="flex flex-wrap items-center gap-2 text-body text-ink">
                   <span className="truncate">{server.label}</span>
                   {server.active && <Badge tone="signal">{t("In use")}</Badge>}
                 </p>
-                <p className="truncate font-mono text-[10.5px] text-ink-3">{server.url}</p>
+                <p className="truncate font-mono text-meta text-ink-3">{server.url}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {!server.active && (
-                  <Button size="sm" variant="default" loading={busyId === server.id} onClick={() => void onUse(server.id)}>
+                  <Button size="sm" variant="outline" loading={busyId === server.id} onClick={() => void onUse(server.id)}>
                     {t("Use")}
                   </Button>
                 )}
@@ -627,11 +627,11 @@ function ServerManagerDialog({
             </div>
           ))}
           {(servers?.servers ?? []).length === 0 && (
-            <p className="py-4 text-[13px] text-ink-3">{t("No server is saved yet.")}</p>
+            <p className="py-4 text-body text-ink-3">{t("No server is saved yet.")}</p>
           )}
         </div>
         {servers?.warning && (
-          <p className="mt-3 flex items-start gap-2 border-l-2 border-warn/60 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-3 flex items-start gap-2 border-l-2 border-warn/60 pl-3 text-meta leading-relaxed text-ink-3">
             <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warn" aria-hidden="true" />
             <span>{servers.warning}</span>
           </p>

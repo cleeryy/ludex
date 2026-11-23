@@ -22,10 +22,10 @@ export function VirusTotalQueueIndicator() {
       <Link
         to="/admin/games"
         aria-label={label}
-        className="inline-flex h-9 items-center gap-1.5 rounded-[2px] px-2 text-signal-text transition-colors hover:bg-surface"
+        className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-sm)] px-2 text-signal-text transition-colors hover:bg-surface"
       >
         <RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-        <span className="num text-[11px]">{queue.remaining}</span>
+        <span className="num text-meta">{queue.remaining}</span>
       </Link>
     </Tooltip>
   );

@@ -121,7 +121,7 @@ export function Dialog({
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.995 }}
             transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
-              "relative z-10 w-full rounded-[3px] border border-line-2 bg-surface outline-none",
+              "relative z-10 w-full rounded-[var(--r-lg)] border border-line-2 bg-elevated outline-none",
               "shadow-dialog",
               SIZES[size],
             )}

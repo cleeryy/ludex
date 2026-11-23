@@ -137,8 +137,8 @@ export function Select<T extends string | number>({
           }
         }}
         className={cn(
-          "flex h-11 w-full items-center justify-between gap-2 rounded-[2px] border border-line bg-surface px-3 text-left text-[14px] text-ink",
-          "transition-colors duration-[120ms] hover:border-line-2 disabled:opacity-40",
+          "flex h-9 w-full items-center justify-between gap-2 rounded-[var(--r-sm)] border border-line-2 bg-bg-deep px-3 text-left text-body text-ink",
+          "transition-colors duration-[120ms] hover:border-ink-3 disabled:opacity-40",
           !selected && "text-ink-3",
           className,
         )}
@@ -170,13 +170,13 @@ export function Select<T extends string | number>({
               ref.current?.focus();
             }}
             className={cn(
-              "flex h-9 w-full items-center gap-2 px-3 text-left text-[13.5px] transition-colors duration-[100ms]",
+              "flex h-9 w-full items-center gap-2 px-3 text-left text-body transition-colors duration-[100ms]",
               "text-ink-2 hover:bg-surface-2 hover:text-ink",
-              option.value === value && "text-ink",
+              option.value === value && "text-ink font-medium",
             )}
           >
             <span className="flex-1 truncate">{option.label}</span>
-            {option.hint && <span className="num text-[11px] text-ink-3">{option.hint}</span>}
+            {option.hint && <span className="num text-meta text-ink-3">{option.hint}</span>}
             {option.value === value && <Check className="size-3.5 text-signal-text" aria-hidden="true" />}
           </button>
         ))}

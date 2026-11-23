@@ -31,8 +31,8 @@ export function KeepAwakeBanner() {
     >
       <Plug className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-[12.5px] leading-snug text-ink">{sentence}</p>
-        <p className="mt-0.5 text-[11.5px] leading-snug text-ink-3">
+        <p className="text-label leading-snug text-ink">{sentence}</p>
+        <p className="mt-0.5 text-meta leading-snug text-ink-3">
           {t("Ludex blocks suspend and display blanking until the last job ends, then releases the inhibitor.")}
         </p>
       </div>

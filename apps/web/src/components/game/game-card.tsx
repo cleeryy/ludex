@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatMinutes, formatRating, formatYear, formatPercent } from "@/lib/format";
 import { GameCover } from "@/components/art/cover";
 import { STATE_TONE } from "@/components/game/state";
+import { Led } from "@/components/ui/controls";
 import { Tooltip } from "@/components/ui/tooltip";
 import { t } from "@/lib/i18n";
 import { useInstallAction } from "@/lib/use-install-action";
@@ -39,10 +40,12 @@ function GameCardBase({
   });
   const installing = action.percent;
   const played = formatMinutes(game.minutesPlayed);
+  const rating = formatRating(game.rating);
 
   return (
     <article className="cover-host group relative flex flex-col">
-      <div className="relative transition-transform duration-[200ms] ease-out group-hover:-translate-y-[3px]">
+      {/* 3:4 matte poster cover (#333): border line->ink and -2px lift on hover, zero stacked badges over artwork. */}
+      <div className="relative transition-transform duration-[180ms] ease-out group-hover:-translate-y-[2px]">
         <GameCover
           title={game.title}
           coverUrl={game.coverUrl}
@@ -53,67 +56,72 @@ function GameCardBase({
         <Link
           to={`/game/${game.id}`}
           data-gamepad-target="true"
-          className="absolute inset-0 z-[4] rounded-[2px]"
+          className="absolute inset-0 z-[4] rounded-[var(--r-md)]"
           aria-label={t("Open {title}", { title: game.title })}
         />
-        {game.versionCount === 0 && (
-          <span
-            className="absolute bottom-2 left-2 z-[5] inline-flex h-5 items-center rounded-[2px] border border-danger/60 bg-bg/85 px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-danger"
-            title={t("No archive available: the file was deleted or its root is offline.")}
-          >
-            {t("Missing")}
-          </span>
-        )}
-        {installing !== null ? (
-          <span className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-signal px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-on-signal">
-            {t("Installing {percent}", { percent: installing > 0 ? formatPercent(installing) : "" })}
-          </span>
-        ) : update ? (
-          <span
-            className="absolute left-2 top-2 z-[5] inline-flex h-5 items-center rounded-[2px] bg-signal px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-on-signal"
-            title={update.latestVersionLabel ? t("Version {version} is available", { version: update.latestVersionLabel }) : t("An update is available")}
-          >
-            {t("Update")}
-          </span>
-        ) : installed ? (
-          <span className="absolute left-2 top-2 z-[5] inline-flex items-center gap-1">
-            <span className="inline-flex h-5 items-center rounded-[2px] bg-ink px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-bg">
-              {t("Installed")}
-            </span>
-            {source && (
-              <span className="inline-flex h-5 items-center rounded-[2px] border border-signal/50 bg-signal/12 px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-signal-text">
-                {source}
-              </span>
-            )}
-          </span>
-        ) : null}
         {installing !== null && (
-          <span className="absolute inset-x-0 bottom-0 z-[5] h-[3px] bg-line/60" aria-hidden="true">
+          <span className="absolute inset-x-0 bottom-0 z-[5] h-[3px] overflow-hidden rounded-b-[var(--r-md)] bg-line/70" aria-hidden="true">
             <span className="block h-full bg-signal transition-[width] duration-500" style={{ width: `${installing}%` }} />
           </span>
         )}
-        <div
-          className="shadow-cover pointer-events-none absolute inset-0 z-[3] rounded-[2px] opacity-0 transition-opacity duration-[200ms] group-hover:opacity-100"
-          aria-hidden="true"
-        />
       </div>
 
       <div className="mt-3 flex items-start gap-2">
         <span className={cn("mt-[5px] h-3.5 w-[2px] shrink-0", STATE_TONE[game.state].bar)} aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[13.5px] font-medium leading-snug text-ink">
+          <h3 className="truncate text-body font-medium leading-snug text-ink">
             <Link to={`/game/${game.id}`} className="hover:text-ink">
               {game.title}
             </Link>
           </h3>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[10.5px] leading-none text-ink-3">
-            <span>{formatYear(game.releaseDate)}</span>
-            {game.kind === "rom" && game.platform && <span className="text-signal-text">{game.platform.toUpperCase()}</span>}
-            <span>{formatBytes(game.totalSize)}</span>
-            {played && <span className="text-ink-2">{played}</span>}
-            {formatRating(game.rating) && (
-              <span className="ml-auto text-ink-2" aria-label={t("Rating {rating} out of 100", { rating: formatRating(game.rating) ?? "" })}>
-                {formatRating(game.rating)}
+
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-meta leading-none text-ink-3">
+            {installing !== null ? (
+              <span className="inline-flex items-center gap-1.5 text-signal-text">
+                <Led tone="info" pulse />
+                <span>
+                  {t("Installing {percent}", { percent: installing > 0 ? formatPercent(installing) : "" })}
+                </span>
+              </span>
+            ) : game.versionCount === 0 ? (
+              <span
+                className="inline-flex items-center gap-1.5 text-danger"
+                title={t("No archive available: the file was deleted or its root is offline.")}
+              >
+                <Led tone="danger" />
+                <span>{t("Missing")}</span>
+              </span>
+            ) : update ? (
+              <span
+                className="inline-flex items-center gap-1.5 text-signal-text"
+                title={
+                  update.latestVersionLabel
+                    ? t("Version {version} is available", { version: update.latestVersionLabel })
+                    : t("An update is available")
+                }
+              >
+                <Led tone="signal" />
+                <span>{t("Update")}</span>
+              </span>
+            ) : installed ? (
+              <span className="inline-flex items-center gap-1.5 text-ok">
+                <Led tone="ok" />
+                <span>{source ? `${t("Installed")} · ${source}` : t("Installed")}</span>
+              </span>
+            ) : null}
+
+            <span className="num">{formatYear(game.releaseDate)}</span>
+            {game.kind === "rom" && game.platform && (
+              <span className="font-medium uppercase text-signal-text">{game.platform}</span>
+            )}
+            <span className="num">{formatBytes(game.totalSize)}</span>
+            {played && <span className="num text-ink-2">{played}</span>}
+            {rating && (
+              <span
+                className="num ml-auto text-ink-2"
+                aria-label={t("Rating {rating} out of 100", { rating })}
+              >
+                {rating}
               </span>
             )}
           </div>
@@ -125,7 +133,7 @@ function GameCardBase({
                 type="button"
                 onClick={onUpdate}
                 aria-label={t("Update {title}", { title: game.title })}
-                className="grid size-10 place-items-center rounded-[2px] text-signal-text transition-colors hover:bg-surface hover:text-signal-text max-sm:size-11"
+                className="grid size-9 place-items-center rounded-[var(--r-sm)] text-signal-text transition-colors hover:bg-surface hover:text-signal-text max-sm:size-11"
               >
                 <RefreshCw className="size-[15px]" />
               </button>
@@ -137,7 +145,7 @@ function GameCardBase({
                 type="button"
                 onClick={onPlay}
                 aria-label={t("Play {title}", { title: game.title })}
-                className="grid size-10 place-items-center rounded-[2px] text-ink-3 transition-colors hover:bg-surface hover:text-ink max-sm:size-11"
+                className="grid size-9 place-items-center rounded-[var(--r-sm)] text-ink-3 transition-colors hover:bg-surface hover:text-ink max-sm:size-11"
               >
                 <Play className="size-[15px]" />
               </button>
@@ -148,9 +156,13 @@ function GameCardBase({
               type="button"
               onClick={() => onBookmark(!game.bookmarked)}
               aria-pressed={game.bookmarked}
-              aria-label={game.bookmarked ? t("Remove bookmark for {title}", { title: game.title }) : t("Bookmark {title}", { title: game.title })}
+              aria-label={
+                game.bookmarked
+                  ? t("Remove bookmark for {title}", { title: game.title })
+                  : t("Bookmark {title}", { title: game.title })
+              }
               className={cn(
-                "grid size-10 place-items-center rounded-[2px] transition-colors max-sm:size-11",
+                "grid size-9 place-items-center rounded-[var(--r-sm)] transition-colors max-sm:size-11",
                 game.bookmarked ? "text-signal-text" : "text-ink-3 hover:bg-surface hover:text-ink",
               )}
             >

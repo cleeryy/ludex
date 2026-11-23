@@ -15,8 +15,8 @@ import { t } from "@/lib/i18n";
 function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-0.5 border-b border-line py-2">
-      <dt className="text-[11px] uppercase tracking-[0.06em] text-ink-3">{label}</dt>
-      <dd className={mono ? "break-all font-mono text-[11px] text-ink-2" : "text-[12px] text-ink-2"}>
+      <dt className="text-meta font-medium text-ink-3">{label}</dt>
+      <dd className={mono ? "break-all font-mono text-meta text-ink-2" : "text-label text-ink-2"}>
         {value}
       </dd>
     </div>
@@ -73,11 +73,11 @@ export function ElevationConfirm({
             <Row label={t("Target")} value={prompt.target} mono />
             <Row label={t("Why")} value={prompt.reason} />
           </dl>
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {t("If you cancel, nothing is changed and the manual instructions stay available.")}
           </p>
           {error && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[12px] leading-relaxed text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-label leading-relaxed text-danger">
               {error}
             </p>
           )}

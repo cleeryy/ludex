@@ -32,7 +32,7 @@ export function AuthLayout({
           className="flex items-center justify-between px-10 pt-8"
         >
           <Wordmark height={20} />
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Self-hosted")}</span>
+          <span className="text-micro font-medium uppercase tracking-[0.12em] text-ink-3">{t("Self-hosted")}</span>
         </div>
 
         <div className="flex flex-1 items-center justify-center px-10">
@@ -55,8 +55,8 @@ export function AuthLayout({
         </div>
 
         <div className="px-10 pb-10">
-          <p className="max-w-[30ch] font-display text-[27px] font-semibold leading-[1.08] tracking-[-0.025em]">{statement}</p>
-          <p className="mt-3 max-w-[46ch] text-[13px] leading-relaxed text-ink-3">{note}</p>
+          <p className="max-w-[30ch] font-display text-title font-semibold leading-[1.12] tracking-[-0.025em]">{statement}</p>
+          <p className="mt-3 max-w-[46ch] text-body leading-relaxed text-ink-3">{note}</p>
         </div>
       </aside>
 
@@ -71,7 +71,7 @@ export function AuthLayout({
         <div className="flex flex-1 items-center">
           <div className="w-full max-w-[392px] py-10 lg:mx-auto">{children}</div>
         </div>
-        <footer className="flex items-center justify-between gap-4 text-[11px] text-ink-3">
+        <footer className="flex items-center justify-between gap-4 text-meta text-ink-3">
           <span className="num">{`v${__APP_VERSION__}`}</span>
           {footer ?? (
             <a

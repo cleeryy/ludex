@@ -24,31 +24,31 @@ export function ToastViewport() {
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
             transition={{ duration: reduce ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
-              "pointer-events-auto relative overflow-hidden rounded-[2px] border border-line-2 bg-surface-2 pl-4 pr-2 py-3",
+              "pointer-events-auto relative overflow-hidden rounded-[var(--r-lg)] border border-line-2 bg-elevated pl-4 pr-2 py-3",
               "shadow-toast",
             )}
             role="status"
           >
             <span
               className={cn(
-                "absolute inset-y-0 start-0 w-[2px]",
+                "absolute inset-y-0 start-0 w-[3px]",
                 toast.tone === "danger" ? "bg-danger" : toast.tone === "success" ? "bg-ok" : "bg-signal",
               )}
               aria-hidden="true"
             />
             <div className="flex items-start gap-2.5">
               <span className="mt-0.5 text-ink-3" aria-hidden="true">
-                {toast.tone === "danger" ? <AlertTriangle className="size-3.5" /> : toast.tone === "success" ? <Check className="size-3.5" /> : null}
+                {toast.tone === "danger" ? <AlertTriangle className="size-3.5 text-danger" /> : toast.tone === "success" ? <Check className="size-3.5 text-ok" /> : null}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium leading-snug text-ink">{toast.title}</p>
-                {toast.description && <p className="mt-0.5 text-[12.5px] leading-snug text-ink-2">{toast.description}</p>}
+                <p className="text-body font-medium leading-snug text-ink">{toast.title}</p>
+                {toast.description && <p className="mt-0.5 text-label leading-snug text-ink-2">{toast.description}</p>}
               </div>
               <button
                 type="button"
                 onClick={() => dismiss(toast.id)}
                 aria-label={t("Dismiss notification")}
-                className="-mr-1 grid size-7 shrink-0 place-items-center rounded-[2px] text-ink-3 hover:bg-surface hover:text-ink"
+                className="-mr-1 grid size-7 shrink-0 place-items-center rounded-[var(--r-xs)] text-ink-3 hover:bg-surface-2 hover:text-ink"
               >
                 <X className="size-3.5" />
               </button>
