@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.28] - 2026-11-23
+
 ### Changed
 
 - Dependencies refreshed as one batch with the required code adaptations:

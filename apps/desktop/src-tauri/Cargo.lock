@@ -572,9 +572,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.12.1"
+version = "1.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 dependencies = [
  "serde",
 ]
@@ -690,7 +690,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a347dcabdae9c31b0825fd6a8bed285ec9c2acb89c47827126d52fa4f59cece3"
 dependencies = [
  "fnv",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "web-time",
 ]
 
@@ -1393,7 +1393,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1838,7 +1838,7 @@ dependencies = [
  "fnv",
  "gilrs-core",
  "log",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "vec_map",
 ]
 
@@ -1856,7 +1856,7 @@ dependencies = [
  "nix 0.31.3",
  "objc2-core-foundation",
  "objc2-io-kit",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "vec_map",
  "wasm-bindgen",
  "web-sys",
@@ -2883,7 +2883,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "ludex-core"
-version = "0.4.27"
+version = "0.4.28"
 dependencies = [
  "chrono",
  "crc32fast",
@@ -2896,14 +2896,14 @@ dependencies = [
  "thiserror 2.0.21",
  "unrar",
  "utoipa",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "walkdir",
- "zip 9.6.0",
+ "zip 9.8.1",
 ]
 
 [[package]]
 name = "ludex-desktop"
-version = "0.4.27"
+version = "0.4.28"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2943,7 +2943,7 @@ dependencies = [
  "toml 0.8.2",
  "tracing",
  "tracing-subscriber",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "windows",
  "zip 2.6.1",
  "zstd",
@@ -2951,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "ludex-server"
-version = "0.4.27"
+version = "0.4.28"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2990,7 +2990,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "utoipa",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "walkdir",
 ]
 
@@ -3023,7 +3023,7 @@ dependencies = [
  "objc2",
  "objc2-foundation",
  "time",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -4089,7 +4089,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4443,7 +4443,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4501,7 +4501,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4564,7 +4564,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -5117,7 +5117,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -5184,7 +5184,7 @@ dependencies = [
  "sqlx-core",
  "thiserror 2.0.21",
  "tracing",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -5220,7 +5220,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.21",
  "tracing",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "whoami",
 ]
 
@@ -5247,7 +5247,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -5585,7 +5585,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "walkdir",
 ]
 
@@ -5750,7 +5750,7 @@ dependencies = [
  "tokio",
  "url",
  "windows-sys 0.61.2",
- "zip 9.6.0",
+ "zip 9.8.1",
 ]
 
 [[package]]
@@ -5852,7 +5852,7 @@ dependencies = [
  "toml 1.2.1+spec-1.1.0",
  "url",
  "urlpattern",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "walkdir",
 ]
 
@@ -5885,10 +5885,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6510,9 +6510,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.29.2"
+version = "1.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bed99139f7dac9b5cfe5f17be4d66dc7079a34dee1d74bcc77217119240e267c"
+checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -6847,7 +6847,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7314,7 +7314,7 @@ dependencies = [
  "serde_repr",
  "tracing",
  "uds_windows",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "windows-sys 0.61.2",
  "winnow 1.0.5",
  "zbus_macros 5.19.0",
@@ -7340,7 +7340,7 @@ dependencies = [
  "serde_repr",
  "socket2",
  "uds_windows",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "windows-sys 0.61.2",
  "winnow 1.0.5",
  "zbus_macros 6.2.1",
@@ -7520,9 +7520,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.6.0"
+version = "9.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80cc68510ea7553c30a69c732de5278e94183f68765af6c642dbccefd6ec777e"
+checksum = "a9534624d547e3f516ecde0ed9a70d37788f01d340efcfdd03bf3ea8e163c1d0"
 dependencies = [
  "aes 0.9.4",
  "bzip2",
