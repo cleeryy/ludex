@@ -11,36 +11,53 @@ import { deriveTheme } from "./derive";
 import { normalizeHex } from "./contrast";
 import { validateThemeFile } from "./validate";
 import {
+  DEFAULT_THEME_RADIUS,
+  DEFAULT_THEME_STRIPE,
+  THEME_RADII,
+  THEME_STRIPES,
+  THEME_TOKEN_KEYS,
   type BuiltinTheme,
+  type BuiltinThemeId,
   type ThemeConfig,
   type ThemeFile,
   type ThemeMode,
+  type ThemeRadius,
   type ThemeSelection,
+  type ThemeStripe,
   type ThemeTokens,
 } from "./types";
 
 /**
- * Persistence for the appearance settings (#140).
+ * Persistence for the appearance settings (#140, #333).
  *
  * The boot script in `index.html` is deliberately dumb: it reads one record and
- * replays its ready-made variable maps. Resolving a selection, deriving an
- * accent and validating contrast all happen here, once, at save time, so the
- * first paint is a single `style.setProperty` loop with no branching.
+ * replays its ready-made variable maps plus `data-radius` and `data-stripe`.
+ * Resolving a selection, deriving C1/C2 accents and validating contrast all
+ * happen here, once, at save time, so the first paint is a single
+ * `style.setProperty` loop with no branching.
  */
 
 export const THEME_STORAGE_KEY = "ludex.theme";
 export const CUSTOM_THEMES_KEY = "ludex.theme.custom.v1";
 export const APPEARANCE_VERSION = 2;
 
+export const DEFAULT_DARK_THEME_ID: BuiltinThemeId = "speranza";
+export const DEFAULT_LIGHT_THEME_ID: BuiltinThemeId = "bauhaus";
+
 const LEGACY_THEMES: Record<string, ThemeSelection> = {
-  dark: "midnight",
-  light: "light",
+  dark: DEFAULT_DARK_THEME_ID,
+  midnight: DEFAULT_DARK_THEME_ID,
+  light: DEFAULT_LIGHT_THEME_ID,
+  soft: DEFAULT_LIGHT_THEME_ID,
+  nord: "telemetry",
+  gruvbox: "braun",
+  amber: "braun",
   system: "system",
 };
 
 export interface StoredAppearance {
   v: typeof APPEARANCE_VERSION;
-  config: ThemeConfig;
+  config: Required<ThemeConfig>;
   /** Resolved mode for fixed themes; `system` ignores it and follows the OS. */
   mode: ThemeMode;
   bases: Record<ThemeMode, string>;
@@ -69,11 +86,30 @@ export function sanitizeSelection(value: unknown): ThemeSelection {
   return LEGACY_THEMES[value] ?? "system";
 }
 
-export function defaultConfig(): ThemeConfig {
-  return { selection: "system", accent: null, tint: null };
+export function sanitizeRadius(value: unknown): ThemeRadius {
+  return typeof value === "string" && (THEME_RADII as readonly string[]).includes(value)
+    ? (value as ThemeRadius)
+    : DEFAULT_THEME_RADIUS;
 }
 
-export function readConfig(storage: StorageLike | null = browserStorage()): ThemeConfig {
+export function sanitizeStripe(value: unknown): ThemeStripe {
+  return typeof value === "string" && (THEME_STRIPES as readonly string[]).includes(value)
+    ? (value as ThemeStripe)
+    : DEFAULT_THEME_STRIPE;
+}
+
+export function defaultConfig(): Required<ThemeConfig> {
+  return {
+    selection: "system",
+    accent: null,
+    tint: null,
+    info: null,
+    radius: DEFAULT_THEME_RADIUS,
+    stripe: DEFAULT_THEME_STRIPE,
+  };
+}
+
+export function readConfig(storage: StorageLike | null = browserStorage()): Required<ThemeConfig> {
   if (!storage) return defaultConfig();
   let raw: string | null;
   try {
@@ -92,13 +128,19 @@ export function readConfig(storage: StorageLike | null = browserStorage()): Them
         selection: sanitizeSelection(config.selection),
         accent: normalizeHex(stringOrNull(config.accent) ?? ""),
         tint: normalizeHex(stringOrNull(config.tint) ?? ""),
+        info: normalizeHex(stringOrNull(config.info) ?? ""),
+        radius: sanitizeRadius(config.radius),
+        stripe: sanitizeStripe(config.stripe),
       };
     }
   } catch {
     // Legacy plain string: "dark" | "light" | "system".
   }
 
-  return { selection: LEGACY_THEMES[raw] ?? "system", accent: null, tint: null };
+  return {
+    ...defaultConfig(),
+    selection: LEGACY_THEMES[raw] ?? "system",
+  };
 }
 
 export function readCustomThemes(storage: StorageLike | null = browserStorage()): ThemeFile[] {
@@ -162,16 +204,18 @@ export function baseThemeFor(
   customs: readonly ThemeFile[],
   mode: ThemeMode,
 ): BuiltinTheme {
-  if (selection === "system") return builtinTheme(mode === "light" ? "light" : "midnight");
+  if (selection === "system") {
+    return builtinTheme(mode === "light" ? DEFAULT_LIGHT_THEME_ID : DEFAULT_DARK_THEME_ID);
+  }
   if (isCustomThemeId(selection)) {
     const custom = customThemeById(selection, customs);
     if (custom) {
       return { id: custom.base, label: custom.name, mode: custom.mode, tokens: custom.tokens };
     }
-    return builtinTheme(mode === "light" ? "light" : DEFAULT_THEME_ID);
+    return builtinTheme(mode === "light" ? DEFAULT_LIGHT_THEME_ID : DEFAULT_THEME_ID);
   }
   if (isBuiltinThemeId(selection)) return builtinTheme(selection);
-  return builtinTheme(mode === "light" ? "light" : DEFAULT_THEME_ID);
+  return builtinTheme(mode === "light" ? DEFAULT_LIGHT_THEME_ID : DEFAULT_THEME_ID);
 }
 
 function selectionMode(selection: ThemeSelection, customs: readonly ThemeFile[]): ThemeMode {
@@ -189,16 +233,19 @@ export function modeForSelection(
   return selection === "system" ? systemMode : selectionMode(selection, customs);
 }
 
-function varsFor(config: ThemeConfig, customs: readonly ThemeFile[], mode: ThemeMode): ThemeTokens {
+function varsFor(config: Required<ThemeConfig>, customs: readonly ThemeFile[], mode: ThemeMode): ThemeTokens {
   const base = baseThemeFor(config.selection, customs, mode);
-  return deriveTheme(base, config.accent, config.tint).tokens;
+  return deriveTheme(base, config.accent, config.tint, config.info).tokens;
 }
 
 export function buildAppearance(config: ThemeConfig, customs: readonly ThemeFile[] = []): StoredAppearance {
-  const sanitized: ThemeConfig = {
+  const sanitized: Required<ThemeConfig> = {
     selection: sanitizeSelection(config.selection),
     accent: normalizeHex(config.accent ?? ""),
     tint: normalizeHex(config.tint ?? ""),
+    info: normalizeHex(config.info ?? ""),
+    radius: sanitizeRadius(config.radius),
+    stripe: sanitizeStripe(config.stripe),
   };
   const dark = varsFor(sanitized, customs, "dark");
   const light = varsFor(sanitized, customs, "light");
@@ -245,6 +292,8 @@ export function applyAppearance(
   root.dataset.theme = appearance.bases[mode] ?? DEFAULT_THEME_ID;
   root.dataset.themeMode = mode;
   root.dataset.themeSelection = appearance.config.selection;
+  root.dataset.radius = appearance.config.radius;
+  root.dataset.stripe = appearance.config.stripe;
   root.dataset.tv = tv ? "true" : "false";
 
   const meta = typeof document === "undefined" ? null : document.querySelector('meta[name="theme-color"]');
@@ -253,16 +302,13 @@ export function applyAppearance(
 
 /** Used by tests and by the settings panel after a rejected import. */
 export function clearAppearance(root: ThemeRoot): void {
-  for (const key of [
-    "bg", "bg-deep", "surface", "surface-2", "elevated", "line", "line-2", "ink", "ink-2", "ink-3",
-    "signal", "on-signal", "signal-text", "signal-line", "danger", "ok", "warn", "focus", "stage",
-    "stage-ink", "stage-ink-2", "stage-ok", "scrim", "shadow", "sheen", "grain-opacity",
-    "focus-width", "focus-offset",
-  ]) {
+  for (const key of [...THEME_TOKEN_KEYS, "focus-width", "focus-offset"]) {
     root.style.removeProperty(`--${key}`);
   }
   delete root.dataset.theme;
   delete root.dataset.themeMode;
   delete root.dataset.themeSelection;
+  delete root.dataset.radius;
+  delete root.dataset.stripe;
   delete root.dataset.tv;
 }

@@ -34,7 +34,7 @@ function surfaceOver(stage: string, art: string): string {
 }
 
 function lightTokens(): ThemeTokens {
-  return builtinTheme("light").tokens;
+  return builtinTheme("bauhaus").tokens;
 }
 
 function forRoom(room: ConsoleRoom, themeId: string): ThemeTokens {
@@ -44,7 +44,7 @@ function forRoom(room: ConsoleRoom, themeId: string): ThemeTokens {
     settings: { ...DEFAULT_CONSOLE_ROOM, room },
     tokens: theme.tokens,
     lightTokens: lightTokens(),
-    darkTokens: builtinTheme("midnight").tokens,
+    darkTokens: builtinTheme("speranza").tokens,
     mode: theme.mode,
   });
 }
@@ -124,7 +124,7 @@ describe("console contrast", () => {
   });
 
   it("lifts an artwork accent to 7:1 or keeps the theme signal", () => {
-    const tokens = forRoom("night", "midnight");
+    const tokens = forRoom("night", "speranza");
     // A saturated mid-tone is lifted until it clears every Cabinet surface.
     const lifted = consoleAccent("#c2410c", tokens);
     expect(lifted.fellBack).toBe(false);

@@ -56,7 +56,7 @@ describe("preference document", () => {
       updates: { prompt: "sometimes", notifications: "os-only" },
       installRoot: "D:/Games",
     });
-    expect(document.theme.selection).toBe("light");
+    expect(document.theme.selection).toBe("bauhaus");
     expect(document.theme.accent).toBe("#aabbcc");
     expect(document.theme.tint).toBeNull();
     expect(document.bigPicture.layout).toBe("shelf");
@@ -181,7 +181,7 @@ describe("local snapshot", () => {
       [UPDATE_NOTIFICATIONS_STORAGE_KEY]: "app",
     });
     const local = readLocalPreferences(storage);
-    expect(local.theme.selection).toBe("light");
+    expect(local.theme.selection).toBe("bauhaus");
     expect(local.theme.accent).toBe("#223344");
     expect(local.bigPicture.layout).toBe("compact");
     expect(local.bigPicture.sound).toBe(false);

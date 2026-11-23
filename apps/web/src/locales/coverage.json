@@ -1,77 +1,77 @@
 {
   "en": {
-    "translated": 4483,
-    "total": 4483,
+    "translated": 4499,
+    "total": 4499,
     "percent": 100
   },
   "fr": {
-    "translated": 4483,
-    "total": 4483,
+    "translated": 4499,
+    "total": 4499,
     "percent": 100
   },
   "zh-CN": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "ru": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "es": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "pt-BR": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "de": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "ja": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "ko": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "pl": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "tr": {
-    "translated": 4483,
-    "total": 4483,
-    "percent": 100
+    "translated": 4476,
+    "total": 4499,
+    "percent": 99.5
   },
   "it": {
-    "translated": 4120,
-    "total": 4483,
-    "percent": 91.9
+    "translated": 4113,
+    "total": 4499,
+    "percent": 91.4
   },
   "nl": {
     "translated": 0,
-    "total": 4483,
+    "total": 4499,
     "percent": 0
   },
   "uk": {
     "translated": 0,
-    "total": 4483,
+    "total": 4499,
     "percent": 0
   },
   "ar": {
     "translated": 260,
-    "total": 4483,
+    "total": 4499,
     "percent": 5.8
   }
 }

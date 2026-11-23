@@ -73,7 +73,18 @@ export interface ContrastPair {
   background: ThemeTokenKey;
   min: number;
   /** Short label used by the Appearance panel. */
-  id: "body" | "secondary" | "muted" | "accent" | "danger" | "ok" | "warn" | "focus" | "stage" | "on-signal";
+  id:
+    | "body"
+    | "secondary"
+    | "muted"
+    | "accent"
+    | "info"
+    | "danger"
+    | "ok"
+    | "warn"
+    | "focus"
+    | "stage"
+    | "on-signal";
 }
 
 /**
@@ -94,6 +105,8 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   { id: "muted", foreground: "ink-3", background: "elevated", min: AA_TEXT },
   { id: "accent", foreground: "signal-text", background: "bg", min: AA_TEXT },
   { id: "accent", foreground: "signal-text", background: "surface", min: AA_TEXT },
+  { id: "info", foreground: "info", background: "bg", min: AA_TEXT },
+  { id: "info", foreground: "info", background: "surface", min: AA_TEXT },
   { id: "danger", foreground: "danger", background: "bg", min: AA_TEXT },
   { id: "danger", foreground: "danger", background: "surface", min: AA_TEXT },
   { id: "ok", foreground: "ok", background: "bg", min: AA_TEXT },
@@ -130,6 +143,7 @@ export interface ContrastReport {
   secondary: number;
   muted: number;
   accent: number;
+  info: number;
   focus: number;
   checks: ContrastResult[];
   ok: boolean;
@@ -143,6 +157,7 @@ export function contrastReport(tokens: ThemeTokens): ContrastReport {
     secondary: ratioFor("secondary"),
     muted: ratioFor("muted"),
     accent: ratioFor("accent"),
+    info: ratioFor("info"),
     focus: ratioFor("focus"),
     checks,
     ok: checks.every((check) => check.ok),

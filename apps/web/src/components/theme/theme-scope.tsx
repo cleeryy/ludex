@@ -12,7 +12,7 @@ import type { BuiltinThemeId } from "@/theme/types";
  * palette, with the user's accent layered on so stage controls still match.
  */
 export function ThemeScope({
-  theme = "midnight",
+  theme = "speranza",
   as: Tag = "div",
   className,
   children,
@@ -22,9 +22,9 @@ export function ThemeScope({
   className?: string;
   children: ReactNode;
 }) {
-  const { accent } = useSettings();
+  const { accent, info } = useSettings();
   const base = builtinTheme(theme);
-  const tokens = deriveTheme(base, accent, null).tokens;
+  const tokens = deriveTheme(base, accent, null, info).tokens;
   return (
     <Tag
       data-theme={theme}

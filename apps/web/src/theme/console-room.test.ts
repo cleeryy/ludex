@@ -239,13 +239,13 @@ describe("Cabinet persistence", () => {
 });
 
 describe("Cabinet tokens", () => {
-  const midnight = builtinTheme("midnight").tokens;
-  const light = builtinTheme("light").tokens;
+  const darkBase = builtinTheme("speranza").tokens;
+  const lightBase = builtinTheme("bauhaus").tokens;
 
   it("casts the app's surfaces warm instead of shipping a palette", () => {
-    const warm = warmTokens(midnight, 0.035);
+    const warm = warmTokens(darkBase, 0.035);
     const channel = (hex: string) => [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
-    const [r0, , b0] = channel(midnight.surface);
+    const [r0, , b0] = channel(darkBase.surface);
     const [r1, , b1] = channel(warm.surface);
     // Warmer means more red than blue than the original step.
     expect(r1 - b1).toBeGreaterThan(r0 - b0);
@@ -254,22 +254,22 @@ describe("Cabinet tokens", () => {
   it("keeps the dark rooms dark when the desktop is light", () => {
     const tokens = cabinetTokens({
       settings: { ...DEFAULT_CONSOLE_ROOM, room: "night" },
-      tokens: light,
-      lightTokens: light,
-      darkTokens: midnight,
+      tokens: lightBase,
+      lightTokens: lightBase,
+      darkTokens: darkBase,
       mode: "light",
     });
-    // The Night room renders the app's dark map, not the cream one.
-    expect(tokens["bg-deep"]).not.toBe(light["bg-deep"]);
+    // The Night room renders the app's dark map, not the light one.
+    expect(tokens["bg-deep"]).not.toBe(lightBase["bg-deep"]);
     expect(Number.parseInt(tokens["bg-deep"].slice(1, 3), 16)).toBeLessThan(40);
   });
 
   it("renders the app's light map in the Daylight room", () => {
     const tokens = cabinetTokens({
       settings: { ...DEFAULT_CONSOLE_ROOM, room: "daylight" },
-      tokens: midnight,
-      lightTokens: light,
-      darkTokens: midnight,
+      tokens: darkBase,
+      lightTokens: lightBase,
+      darkTokens: darkBase,
       mode: "dark",
     });
     expect(Number.parseInt(tokens.bg.slice(1, 3), 16)).toBeGreaterThan(180);
@@ -278,22 +278,22 @@ describe("Cabinet tokens", () => {
   it("validates a from-artwork accent or keeps the signal", () => {
     const accepted = cabinetTokens({
       settings: { ...DEFAULT_CONSOLE_ROOM, accent: "artwork" },
-      tokens: midnight,
-      lightTokens: light,
-      darkTokens: midnight,
+      tokens: darkBase,
+      lightTokens: lightBase,
+      darkTokens: darkBase,
       artworkAccent: "#3f7fbf",
       mode: "dark",
     });
-    expect(accepted["signal-text"]).not.toBe(midnight["signal-text"]);
+    expect(accepted["signal-text"]).not.toBe(darkBase["signal-text"]);
 
     const rejected = cabinetTokens({
       settings: { ...DEFAULT_CONSOLE_ROOM, accent: "artwork" },
-      tokens: midnight,
-      lightTokens: light,
-      darkTokens: midnight,
+      tokens: darkBase,
+      lightTokens: lightBase,
+      darkTokens: darkBase,
       artworkAccent: null,
       mode: "dark",
     });
-    expect(rejected.signal).toBe(midnight.signal);
+    expect(rejected.signal).toBe(darkBase.signal);
   });
 });

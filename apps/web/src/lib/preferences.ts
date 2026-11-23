@@ -114,8 +114,13 @@ export interface CachedPreferences {
 }
 
 export function defaultPreferences(): AccountPreferences {
+  const theme = defaultConfig();
   return {
-    theme: defaultConfig(),
+    theme: {
+      selection: theme.selection,
+      accent: theme.accent,
+      tint: theme.tint,
+    },
     bigPicture: {
       layout: DEFAULT_BIG_PICTURE_LAYOUT,
       sound: true,

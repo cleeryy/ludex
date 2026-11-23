@@ -548,11 +548,11 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   // through the TV-safe pass, so every pair the console paints clears 7:1.
   // Daylight renders the app's own light map; no second palette is shipped.
   const lightTokens = useMemo(
-    () => BUILTIN_THEMES.find((candidate) => candidate.id === "light")?.tokens ?? themeTokens,
+    () => BUILTIN_THEMES.find((candidate) => candidate.id === "bauhaus")?.tokens ?? themeTokens,
     [themeTokens],
   );
   const darkTokens = useMemo(
-    () => BUILTIN_THEMES.find((candidate) => candidate.id === "midnight")?.tokens ?? themeTokens,
+    () => BUILTIN_THEMES.find((candidate) => candidate.id === "speranza")?.tokens ?? themeTokens,
     [themeTokens],
   );
   const cabinet = useMemo(

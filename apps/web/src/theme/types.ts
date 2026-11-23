@@ -1,13 +1,13 @@
 import registryData from "./themes.json";
 
 /**
- * Theme data model (#140).
+ * Theme data model (#140, #333).
  *
  * Every colour the interface paints comes from this registry. Components use
- * semantic utility classes (`bg-surface`, `text-ink-2`, `border-line`) and the
- * values below arrive as CSS custom properties at runtime, so a theme is data,
- * never a per-component colour. `scripts/theme.mjs` turns the same JSON into
- * the static fallback stylesheet, and the inline boot script in `index.html`
+ * semantic utility classes (`bg-surface`, `text-ink-2`, `border-line`, `text-info`)
+ * and the values below arrive as CSS custom properties at runtime, so a theme is
+ * data, never a per-component colour. `scripts/theme.mjs` turns the same JSON
+ * into the static fallback stylesheet, and the inline boot script in `index.html`
  * replays the last applied variable map before the first paint.
  */
 
@@ -26,6 +26,11 @@ export const THEME_TOKEN_KEYS = [
   "on-signal",
   "signal-text",
   "signal-line",
+  "info",
+  "stripe-1",
+  "stripe-2",
+  "stripe-3",
+  "stripe-4",
   "danger",
   "ok",
   "warn",
@@ -50,9 +55,25 @@ export const COLOR_TOKEN_KEYS: readonly ThemeTokenKey[] = THEME_TOKEN_KEYS.filte
 );
 
 export type ThemeMode = "dark" | "light";
-export type BuiltinThemeId = "midnight" | "light" | "soft" | "nord" | "gruvbox" | "amber";
+export type BuiltinThemeId =
+  | "speranza"
+  | "bauhaus"
+  | "braun"
+  | "telemetry"
+  | "blueprint"
+  | "olive"
+  | "kyoto"
+  | "studio";
 export type CustomThemeId = `custom:${string}`;
 export type ThemeSelection = "system" | BuiltinThemeId | CustomThemeId;
+
+export type ThemeRadius = "shadcn" | "swiss" | "brutalist";
+export type ThemeStripe = "on" | "off";
+
+export const THEME_RADII: readonly ThemeRadius[] = ["shadcn", "swiss", "brutalist"];
+export const THEME_STRIPES: readonly ThemeStripe[] = ["on", "off"];
+export const DEFAULT_THEME_RADIUS: ThemeRadius = "shadcn";
+export const DEFAULT_THEME_STRIPE: ThemeStripe = "on";
 
 export interface BuiltinTheme {
   id: BuiltinThemeId;
@@ -76,12 +97,19 @@ export interface ThemeFile {
   mode: ThemeMode;
   tokens: ThemeTokens;
   accent: string | null;
+  info?: string | null;
 }
 
 export interface ThemeConfig {
   selection: ThemeSelection;
   accent: string | null;
   tint: string | null;
+  /** Custom C2 (`--info`) override, device-local (#333). */
+  info?: string | null;
+  /** Geometry preset applied to `data-radius` (#333). */
+  radius?: ThemeRadius;
+  /** 3px 4-band hardware stripe toggle applied to `data-stripe` (#333). */
+  stripe?: ThemeStripe;
 }
 
 export type ThemeIssueCode =
@@ -102,7 +130,7 @@ export interface ThemeIssue {
   field?: string;
   token?: string;
   base?: string;
-  /** Token names for import issues; "accent"/"tint" for picker issues. */
+  /** Token names for import issues; "accent"/"info"/"tint" for picker issues. */
   foreground?: string;
   background?: string;
   ratio?: number;

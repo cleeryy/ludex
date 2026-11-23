@@ -4,38 +4,42 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
-import { Badge, Button, Textarea } from "@/components/ui/controls";
+import { Badge, Button, Segmented, Switch, Textarea } from "@/components/ui/controls";
 import { BigPictureSoundPanel } from "@/components/big-picture/sound-panel";
 import { ConsoleAppearancePanel } from "@/components/settings/console-appearance-panel";
 import { AA_FOCUS, AA_TEXT, ensureContrast, normalizeHex } from "@/theme/contrast";
-import { applyAccent, applyTint } from "@/theme/derive";
+import { applyAccent, applyInfo, applyTint } from "@/theme/derive";
 import { BUILTIN_THEMES, builtinTheme, cssVarsFor, isBuiltinThemeId } from "@/theme/registry";
-import { customThemeId } from "@/theme/storage";
-import type { BuiltinThemeId, ThemeIssue, ThemeTokens } from "@/theme/types";
+import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID, customThemeId } from "@/theme/storage";
+import type { BuiltinThemeId, ThemeIssue, ThemeRadius, ThemeTokens } from "@/theme/types";
 
 /**
- * Settings → Appearance (#140).
+ * Settings → Appearance (#140, #333).
  *
  * Theme cards render a miniature of the real interface with the theme's own
- * custom properties, so the preview cannot drift from the result. Every action
- * applies immediately; imports only replace the active theme once every token,
- * hex value and contrast pair has passed.
+ * custom properties (including the 4-band ARC hardware stripe), so the preview
+ * cannot drift from the result. Every action applies immediately; imports only
+ * replace the active theme once every token, hex value and contrast pair passes.
  */
 
 function themeLabel(id: BuiltinThemeId): string {
   switch (id) {
-    case "midnight":
-      return t("Midnight");
-    case "light":
-      return t("Paper");
-    case "soft":
-      return t("Soft");
-    case "nord":
-      return t("Nord");
-    case "gruvbox":
-      return t("Gruvbox");
-    case "amber":
-      return t("Amber");
+    case "speranza":
+      return t("Speranza");
+    case "bauhaus":
+      return t("Bauhaus");
+    case "braun":
+      return t("Braun");
+    case "telemetry":
+      return t("Telemetry");
+    case "blueprint":
+      return t("Blueprint");
+    case "olive":
+      return t("Olive");
+    case "kyoto":
+      return t("Kyoto");
+    case "studio":
+      return t("Studio");
   }
 }
 
@@ -56,15 +60,19 @@ function issueMessage(issue: ThemeIssue): string {
     case "bad-name":
       return t("The theme name must be between 1 and 48 characters.");
     case "bad-base":
-      return t("“{base}” is not a base theme. Use midnight, light, soft, nord, gruvbox or amber.", {
+      return t("“{base}” is not a base theme. Use speranza, bauhaus, braun, telemetry, blueprint, olive, kyoto or studio.", {
         base: issue.base ?? "",
       });
     case "bad-mode":
       return t("The theme mode does not match its base theme.");
     case "bad-color":
-      return issue.foreground === "accent"
-        ? t("The accent is not a hex colour with three or six digits.")
-        : t("“{token}” is not a hex colour with three or six digits.", { token: issue.token ?? "" });
+      if (issue.foreground === "accent") {
+        return t("The accent is not a hex colour with three or six digits.");
+      }
+      if (issue.foreground === "info") {
+        return t("The secondary accent is not a hex colour with three or six digits.");
+      }
+      return t("“{token}” is not a hex colour with three or six digits.", { token: issue.token ?? "" });
     case "bad-grain":
       return t("“grain-opacity” must be a number between 0 and 0.2.");
     case "missing-token":
@@ -75,7 +83,7 @@ function issueMessage(issue: ThemeIssue): string {
       if (issue.foreground === "accent" && issue.background === "signal") {
         return t("Text on this accent is only {ratio}:1. Pick a darker or lighter accent.", { ratio });
       }
-      if (issue.foreground === "accent") {
+      if (issue.foreground === "accent" || issue.foreground === "info") {
         return t("This accent is only {ratio}:1 against the background. Pick a colour with at least {min}:1.", {
           ratio,
           min,
@@ -101,9 +109,10 @@ function issueMessage(issue: ThemeIssue): string {
 function MiniScreen({ tokens }: { tokens: ThemeTokens }) {
   return (
     <div className="flex h-[86px] flex-col bg-bg" style={cssVarsFor(tokens)} aria-hidden="true">
+      <div className="arc-stripe" />
       <div className="flex h-3.5 items-center gap-1 border-b border-line bg-surface px-1.5">
         <span className="h-1 w-4 bg-ink" />
-        <span className="ms-auto h-1 w-3 bg-ink-3" />
+        <span className="ms-auto h-1 w-3 bg-info" />
       </div>
       <div className="flex min-h-0 flex-1">
         <div className="flex w-[24%] flex-col gap-1 border-e border-line bg-bg-deep p-1.5">
@@ -121,10 +130,7 @@ function MiniScreen({ tokens }: { tokens: ThemeTokens }) {
             <span className="flex h-3.5 w-11 items-center justify-center bg-signal">
               <span className="h-1 w-5 bg-on-signal" />
             </span>
-            <span
-              className="h-8 w-6 rounded-[1px] border border-line-2"
-              style={{ background: "linear-gradient(150deg, var(--signal), var(--surface-2) 72%)" }}
-            />
+            <span className="h-8 w-6 border border-line-2 bg-surface-2" />
           </div>
         </div>
       </div>
@@ -135,8 +141,8 @@ function MiniScreen({ tokens }: { tokens: ThemeTokens }) {
 function SystemPreview() {
   return (
     <div className="grid grid-cols-2 gap-px bg-line-2" aria-hidden="true">
-      <MiniScreen tokens={builtinTheme("midnight").tokens} />
-      <MiniScreen tokens={builtinTheme("light").tokens} />
+      <MiniScreen tokens={builtinTheme(DEFAULT_DARK_THEME_ID).tokens} />
+      <MiniScreen tokens={builtinTheme(DEFAULT_LIGHT_THEME_ID).tokens} />
     </div>
   );
 }
@@ -166,27 +172,27 @@ function ThemeCard({
         aria-pressed={selected}
         aria-label={`${label} — ${modeLabel(mode)}`}
         className={cn(
-          "flex w-full flex-col gap-1.5 border p-1.5 text-start transition-colors",
+          "flex w-full flex-col gap-1.5 rounded-[var(--r-md)] border p-1.5 text-start transition-colors",
           selected
             ? "border-signal bg-surface-2"
             : "border-line hover:border-line-2 hover:bg-surface",
         )}
       >
-        <div className="overflow-hidden rounded-[1px] border border-line-2">
+        <div className="overflow-hidden rounded-[var(--r-xs)] border border-line-2">
           {system || !tokens ? <SystemPreview /> : <MiniScreen tokens={tokens} />}
         </div>
         <span className="flex items-start justify-between gap-2 px-0.5 pb-0.5">
           <span className="min-w-0">
-            <span className="block truncate text-[12.5px] font-medium leading-tight text-ink">
+            <span className="block truncate text-label font-medium leading-tight text-ink">
               {label}
             </span>
-            <span className="mt-0.5 block truncate font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
+            <span className="mt-0.5 block truncate text-micro text-ink-3">
               {modeLabel(mode)}
             </span>
           </span>
           <span
             className={cn(
-              "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
+              "mt-0.5 grid size-4 shrink-0 place-items-center rounded-[var(--r-xs)] border",
               selected ? "border-signal bg-signal text-on-signal" : "border-line-2 text-transparent",
             )}
           >
@@ -200,7 +206,7 @@ function ThemeCard({
           onClick={onRemove}
           aria-label={t("Remove {name}", { name: label })}
           title={t("Remove {name}", { name: label })}
-          className="absolute end-2 top-2 grid size-5 place-items-center rounded-[2px] border border-line-2 bg-bg-deep/85 text-ink-2 transition-colors hover:border-danger hover:text-danger"
+          className="absolute end-2 top-2 grid size-5 place-items-center rounded-[var(--r-xs)] border border-line-2 bg-bg-deep/85 text-ink-2 transition-colors hover:border-danger hover:text-danger"
         >
           <X className="size-3" aria-hidden="true" />
         </button>
@@ -216,12 +222,18 @@ export function AppearancePanel() {
     theme,
     resolved,
     accent,
+    info,
     tint,
+    radius,
+    stripe,
     customThemes,
     contrast,
     setTheme,
     setAccent,
+    setInfo,
     setTint,
+    setRadius,
+    setStripe,
     resetAppearance,
     importTheme,
     removeCustomTheme,
@@ -232,6 +244,9 @@ export function AppearancePanel() {
   const [accentDraft, setAccentDraft] = useState(accent ?? "");
   const [accentIssue, setAccentIssue] = useState<ThemeIssue | null>(null);
   const [accentRatio, setAccentRatio] = useState(contrast.accent);
+  const [infoDraft, setInfoDraft] = useState(info ?? "");
+  const [infoIssue, setInfoIssue] = useState<ThemeIssue | null>(null);
+  const [infoRatio, setInfoRatio] = useState(contrast.info);
   const [tintIssue, setTintIssue] = useState<ThemeIssue | null>(null);
   const [tintRatio, setTintRatio] = useState(0);
   const [importIssues, setImportIssues] = useState<ThemeIssue[]>([]);
@@ -243,21 +258,26 @@ export function AppearancePanel() {
     ? custom.base
     : theme === "system"
       ? resolved === "light"
-        ? "light"
-        : "midnight"
+        ? DEFAULT_LIGHT_THEME_ID
+        : DEFAULT_DARK_THEME_ID
       : isBuiltinThemeId(theme)
         ? theme
-        : "midnight";
+        : DEFAULT_DARK_THEME_ID;
   const base = builtinTheme(baseId);
 
   const accented = applyAccent(base.tokens, accent).tokens;
+  const informed = applyInfo(accented, info).tokens;
   const activeAccentIssue = accent && !accentIssue ? applyAccent(base.tokens, accent).issue : null;
-  const activeTintIssue = tint && !tintIssue ? applyTint(accented, tint).issue : null;
+  const activeInfoIssue = info && !infoIssue ? applyInfo(base.tokens, info).issue : null;
+  const activeTintIssue = tint && !tintIssue ? applyTint(informed, tint).issue : null;
   const shownAccentIssue = accentIssue ?? activeAccentIssue;
+  const shownInfoIssue = infoIssue ?? activeInfoIssue;
   const shownTintIssue = tintIssue ?? activeTintIssue;
   const currentAccentRatio = accent ? applyAccent(base.tokens, accent).ratio : contrast.accent;
-  const currentTintRatio = tint ? applyTint(accented, tint).ratio : 0;
+  const currentInfoRatio = info ? applyInfo(base.tokens, info).ratio : contrast.info;
+  const currentTintRatio = tint ? applyTint(informed, tint).ratio : 0;
   const shownAccentRatio = accentIssue ? accentRatio : currentAccentRatio;
+  const shownInfoRatio = infoIssue ? infoRatio : currentInfoRatio;
   const shownTintRatio = tintIssue ? tintRatio : currentTintRatio;
 
   useEffect(() => {
@@ -265,6 +285,12 @@ export function AppearancePanel() {
     setAccentIssue(null);
     setAccentRatio(contrast.accent);
   }, [accent, contrast.accent]);
+
+  useEffect(() => {
+    setInfoDraft(info ?? "");
+    setInfoIssue(null);
+    setInfoRatio(contrast.info);
+  }, [info, contrast.info]);
 
   const tryAccent = (value: string) => {
     setAccentDraft(value);
@@ -278,6 +304,20 @@ export function AppearancePanel() {
     const result = setAccent(normalized);
     setAccentIssue(result.ok ? null : result.issue);
     if (result.ratio) setAccentRatio(result.ratio);
+  };
+
+  const tryInfo = (value: string) => {
+    setInfoDraft(value);
+    if (value.trim() === "") {
+      setInfo(null);
+      setInfoIssue(null);
+      setInfoRatio(contrast.info);
+      return;
+    }
+    const normalized = normalizeHex(value) ?? value;
+    const result = setInfo(normalized);
+    setInfoIssue(result.ok ? null : result.issue);
+    if (result.ratio) setInfoRatio(result.ratio);
   };
 
   const tryTint = (value: string) => {
@@ -295,14 +335,28 @@ export function AppearancePanel() {
   const accentPresets = Array.from(
     new Set(
       BUILTIN_THEMES.map((entry) =>
-        ensureContrast(
-          entry.tokens.signal,
-          [base.tokens.bg, base.tokens.surface, base.tokens["surface-2"], base.tokens.elevated],
-          AA_TEXT,
-        ),
+        ensureContrast(entry.tokens.signal, [base.tokens.bg, base.tokens.surface], AA_TEXT),
       ),
     ),
-  ).filter((color) => !applyAccent(base.tokens, color).issue);
+  )
+    .filter((color) => !applyAccent(base.tokens, color).issue)
+    .slice(0, 6);
+
+  const infoPresets = Array.from(
+    new Set(
+      BUILTIN_THEMES.map((entry) =>
+        ensureContrast(entry.tokens.info, [base.tokens.bg, base.tokens.surface], AA_TEXT),
+      ),
+    ),
+  )
+    .filter((color) => !applyInfo(base.tokens, color).issue)
+    .slice(0, 6);
+
+  const radiusOptions: { value: ThemeRadius; label: string }[] = [
+    { value: "shadcn", label: t("Shadcn") },
+    { value: "swiss", label: t("Swiss") },
+    { value: "brutalist", label: t("Brutalist") },
+  ];
 
   const runImport = (source: string) => {
     const result = importTheme(source);
@@ -346,19 +400,19 @@ export function AppearancePanel() {
       <div>
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <p className="text-[13px] font-medium text-ink">{t("Theme")}</p>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-body font-medium text-ink">{t("Theme")}</p>
+            <p className="mt-1 text-meta leading-relaxed text-ink-3">
               {t("Pick a theme. Changes apply immediately, in the library and in Console mode.")}
             </p>
           </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+          <span className="text-meta text-ink-3">
             {t("Now: {theme}", {
               theme: theme === "system" ? t("Follow the system") : (custom?.name ?? themeLabel(base.id)),
             })}
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
           <ThemeCard
             label={t("Follow the system")}
             mode={resolved}
@@ -391,17 +445,17 @@ export function AppearancePanel() {
             );
           })}
         </div>
-        <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-2 text-meta leading-relaxed text-ink-3">
           {t("The system option follows your OS light and dark setting and reacts when it changes.")}
         </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="border border-line p-4">
+        <section className="rounded-[var(--r-md)] border border-line bg-surface p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[13px] font-medium text-ink">{t("Custom accent")}</p>
-              <p className="mt-1 max-w-[42ch] text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-body font-medium text-ink">{t("Primary accent (C1)")}</p>
+              <p className="mt-1 max-w-[42ch] text-meta leading-relaxed text-ink-3">
                 {t("Used for buttons, selection markers and the focus ring.")}
               </p>
             </div>
@@ -411,16 +465,17 @@ export function AppearancePanel() {
                   key={`${color}-${index}`}
                   type="button"
                   onClick={() => tryAccent(color)}
+                  aria-pressed={accent === color}
                   aria-label={t("Use accent {index}", { index: index + 1 })}
                   className={cn(
-                    "size-6 rounded-full border transition-transform hover:scale-110",
+                    "size-6 rounded-[var(--r-xs)] border transition-transform hover:scale-110",
                     accent === color ? "border-2" : "border-line-2",
                   )}
                   style={{ backgroundColor: color, borderColor: accent === color ? "var(--focus)" : undefined }}
                 />
               ))}
               <label
-                className="relative grid size-6 cursor-pointer place-items-center rounded-full border border-dashed border-line-2 text-ink-3 hover:text-ink"
+                className="relative grid size-6 cursor-pointer place-items-center rounded-[var(--r-xs)] border border-dashed border-line-2 text-ink-3 hover:text-ink"
                 title={t("Pick an accent colour")}
               >
                 <input
@@ -430,7 +485,7 @@ export function AppearancePanel() {
                   aria-label={t("Pick an accent colour")}
                   className="absolute inset-0 size-full cursor-pointer opacity-0"
                 />
-                <span aria-hidden="true" className="font-mono text-[11px]">
+                <span aria-hidden="true" className="num text-meta">
                   +
                 </span>
               </label>
@@ -438,7 +493,7 @@ export function AppearancePanel() {
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2.5">
-            <label className="flex h-8 items-center gap-2 border border-line-2 bg-surface px-2 font-mono text-[11px] text-ink-2">
+            <label className="flex h-8 items-center gap-2 rounded-[var(--r-sm)] border border-line-2 bg-bg-deep px-2 font-mono text-meta text-ink-2">
               <span aria-hidden="true" className="text-ink-3">
                 #
               </span>
@@ -466,28 +521,137 @@ export function AppearancePanel() {
             </Button>
           </div>
           {shownAccentIssue && (
-            <p role="alert" className="mt-2 border-l-2 border-danger pl-2.5 text-[12px] leading-relaxed text-danger">
+            <p role="alert" className="mt-2 border-s-2 border-danger ps-2.5 text-label leading-relaxed text-danger">
               {issueMessage(shownAccentIssue)}
             </p>
           )}
-          <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-2 text-meta leading-relaxed text-ink-3">
             {t("Accents below {min}:1 against the background are refused; the measured ratio is shown above.", {
               min: AA_TEXT.toFixed(1),
             })}
           </p>
         </section>
 
-        <section className="border border-line p-4">
+        <section className="rounded-[var(--r-md)] border border-line bg-surface p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[13px] font-medium text-ink">{t("Background tint")}</p>
-              <p className="mt-1 max-w-[42ch] text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-body font-medium text-ink">{t("Secondary accent (C2)")}</p>
+              <p className="mt-1 max-w-[42ch] text-meta leading-relaxed text-ink-3">
+                {t("Used for network activity, active downloads, stream extraction and sync.")}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {infoPresets.map((color, index) => (
+                <button
+                  key={`${color}-${index}`}
+                  type="button"
+                  onClick={() => tryInfo(color)}
+                  aria-pressed={info === color}
+                  aria-label={t("Use secondary accent {index}", { index: index + 1 })}
+                  className={cn(
+                    "size-6 rounded-[var(--r-xs)] border transition-transform hover:scale-110",
+                    info === color ? "border-2" : "border-line-2",
+                  )}
+                  style={{ backgroundColor: color, borderColor: info === color ? "var(--focus)" : undefined }}
+                />
+              ))}
+              <label
+                className="relative grid size-6 cursor-pointer place-items-center rounded-[var(--r-xs)] border border-dashed border-line-2 text-ink-3 hover:text-ink"
+                title={t("Pick a secondary accent colour")}
+              >
+                <input
+                  type="color"
+                  value={info ?? base.tokens.info}
+                  onChange={(event) => tryInfo(event.target.value)}
+                  aria-label={t("Pick a secondary accent colour")}
+                  className="absolute inset-0 size-full cursor-pointer opacity-0"
+                />
+                <span aria-hidden="true" className="num text-meta">
+                  +
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            <label className="flex h-8 items-center gap-2 rounded-[var(--r-sm)] border border-line-2 bg-bg-deep px-2 font-mono text-meta text-ink-2">
+              <span aria-hidden="true" className="text-ink-3">
+                #
+              </span>
+              <input
+                value={infoDraft.replace(/^#/, "")}
+                onChange={(event) => {
+                  const digits = event.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6);
+                  const next = `#${digits}`;
+                  setInfoDraft(next);
+                  if (digits.length === 3 || digits.length === 6) tryInfo(next);
+                }}
+                aria-label={t("Secondary accent hex")}
+                placeholder="rrggbb"
+                spellCheck={false}
+                className="w-[70px] bg-transparent text-ink outline-none"
+              />
+            </label>
+            <Badge tone={shownInfoIssue ? "danger" : "ok"}>
+              {shownInfoIssue
+                ? t("Needs {min}:1", { min: (shownInfoIssue.min ?? AA_TEXT).toFixed(1) })
+                : t("{ratio}:1 AA", { ratio: shownInfoRatio.toFixed(2) })}
+            </Badge>
+            <Button size="sm" variant="ghost" onClick={() => tryInfo("")} disabled={!info}>
+              {t("Clear")}
+            </Button>
+          </div>
+          {shownInfoIssue && (
+            <p role="alert" className="mt-2 border-s-2 border-danger ps-2.5 text-label leading-relaxed text-danger">
+              {issueMessage(shownInfoIssue)}
+            </p>
+          )}
+        </section>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="rounded-[var(--r-md)] border border-line bg-surface p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-body font-medium text-ink">{t("Corner geometry")}</p>
+              <p className="mt-1 text-meta leading-relaxed text-ink-3">
+                {t("Switch between restrained shadcn, Swiss hairline or zero-radius brutalist geometry.")}
+              </p>
+            </div>
+            <Segmented
+              value={radius}
+              onChange={setRadius}
+              options={radiusOptions}
+              label={t("Corner geometry")}
+            />
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-4">
+            <div>
+              <p className="text-body font-medium text-ink">{t("ARC hardware stripe")}</p>
+              <p className="mt-1 text-meta leading-relaxed text-ink-3">
+                {t("Display the 3px 4-band hardware stripe across the top of the shell.")}
+              </p>
+            </div>
+            <Switch
+              checked={stripe === "on"}
+              onCheckedChange={(checked) => setStripe(checked ? "on" : "off")}
+              label={t("ARC hardware stripe")}
+            />
+          </div>
+        </section>
+
+        <section className="rounded-[var(--r-md)] border border-line bg-surface p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-body font-medium text-ink">{t("Background tint")}</p>
+              <p className="mt-1 max-w-[42ch] text-meta leading-relaxed text-ink-3">
                 {t("A subtle wash over the base theme's surfaces. Text contrast is re-checked.")}
               </p>
             </div>
             <div className="flex items-center gap-1.5">
               <label
-                className="relative size-6 cursor-pointer overflow-hidden rounded-full border border-line-2"
+                className="relative size-6 cursor-pointer overflow-hidden rounded-[var(--r-xs)] border border-line-2"
                 title={t("Pick a tint colour")}
                 style={{ backgroundColor: tint ?? "var(--surface-2)" }}
               >
@@ -512,21 +676,21 @@ export function AppearancePanel() {
                   : t("{ratio}:1 on surfaces", { ratio: shownTintRatio.toFixed(2) })
                 : t("No tint")}
             </Badge>
-            <span className="font-mono text-[10.5px] text-ink-3">{tint ?? t("Base surfaces")}</span>
+            <span className={cn("text-meta text-ink-3", tint && "num")}>{tint ?? t("Base surfaces")}</span>
           </div>
           {shownTintIssue && (
-            <p role="alert" className="mt-2 border-l-2 border-danger pl-2.5 text-[12px] leading-relaxed text-danger">
+            <p role="alert" className="mt-2 border-s-2 border-danger ps-2.5 text-label leading-relaxed text-danger">
               {issueMessage(shownTintIssue)}
             </p>
           )}
         </section>
       </div>
 
-      <section className="border border-line p-4">
+      <section className="rounded-[var(--r-md)] border border-line bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-[13px] font-medium text-ink">{t("Theme file")}</p>
-            <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-body font-medium text-ink">{t("Theme file")}</p>
+            <p className="mt-1 max-w-[64ch] text-meta leading-relaxed text-ink-3">
               {t("Export the current theme as JSON, or import one. Unknown tokens, invalid colours and low-contrast pairs are rejected with the measured value.")}
             </p>
           </div>
@@ -553,14 +717,16 @@ export function AppearancePanel() {
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10.5px] text-ink-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-meta text-ink-3">
           <span>{t("Base: {base}", { base: themeLabel(base.id) })}</span>
           <span aria-hidden="true">·</span>
-          <span>{t("Accent: {accent}", { accent: accent ?? t("theme default") })}</span>
+          <span>
+            {t("Accent: {accent}", { accent: accent ?? t("theme default") })}
+          </span>
         </div>
 
         <details className="mt-3">
-          <summary className="cursor-pointer text-[12px] text-ink-2 hover:text-ink">
+          <summary className="cursor-pointer text-label text-ink-2 hover:text-ink">
             {t("Or paste a theme file")}
           </summary>
           <div className="mt-2 flex flex-col gap-2">
@@ -570,8 +736,8 @@ export function AppearancePanel() {
               aria-label={t("Theme JSON")}
               spellCheck={false}
               rows={5}
-              className="min-h-[120px] font-mono text-[11.5px]"
-              placeholder={'{\n  "name": "…",\n  "base": "midnight"\n}'}
+              className="min-h-[120px] font-mono text-meta"
+              placeholder={'{\n  "name": "…",\n  "base": "speranza"\n}'}
             />
             <div>
               <Button size="sm" variant="default" onClick={() => runImport(paste)} disabled={!paste.trim()}>
@@ -582,19 +748,19 @@ export function AppearancePanel() {
         </details>
 
         {importIssues.length > 0 && (
-          <div role="alert" className="mt-3 border-l-2 border-danger bg-danger/5 py-2 pl-3">
-            <p className="text-[12.5px] font-medium text-danger">{t("The theme was not imported")}</p>
-            <ul className="mt-1.5 flex list-inside list-disc flex-col gap-1 text-[11.5px] leading-relaxed text-ink-2">
+          <div role="alert" className="mt-3 border-s-2 border-danger bg-danger/5 py-2 ps-3">
+            <p className="text-label font-medium text-danger">{t("The theme was not imported")}</p>
+            <ul className="mt-1.5 flex list-inside list-disc flex-col gap-1 text-meta leading-relaxed text-ink-2">
               {importIssues.slice(0, 6).map((issue, index) => (
                 <li key={`${issue.code}-${issue.token ?? issue.field ?? index}`}>{issueMessage(issue)}</li>
               ))}
             </ul>
             {importIssues.length > 6 && (
-              <p className="mt-1 text-[11px] text-ink-3">
+              <p className="mt-1 text-meta text-ink-3">
                 {t("and {count} more problems", { count: importIssues.length - 6 })}
               </p>
             )}
-            <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
+            <p className="mt-1.5 text-meta leading-relaxed text-ink-3">
               {t("The previous theme stays active until the file passes every check.")}
             </p>
           </div>
@@ -607,12 +773,13 @@ export function AppearancePanel() {
 
       <section className="border-t border-line pt-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {t("Console mode uses the same theme with TV contrast. Focus rings stay visible and decorative text is lifted to 7:1.")}
           </p>
           <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => {
             resetAppearance();
             setAccentIssue(null);
+            setInfoIssue(null);
             setTintIssue(null);
             setImportIssues([]);
             push({ title: t("Appearance reset") });
@@ -629,9 +796,9 @@ export function AppearancePanel() {
             { label: t("Focus ring"), value: contrast.focus, min: AA_FOCUS },
           ].map((check) => (
             <div key={check.label} className="flex items-baseline justify-between gap-2 border-b border-line pb-1.5">
-              <span className="text-[11.5px] text-ink-3">{check.label}</span>
+              <span className="text-meta text-ink-3">{check.label}</span>
               <span className="flex items-baseline gap-1.5">
-                <span className="num text-[11.5px] text-ink">{check.value.toFixed(2)}:1</span>
+                <span className="num text-meta text-ink">{check.value.toFixed(2)}:1</span>
                 <Badge tone={check.value >= check.min ? "ok" : "danger"}>
                   {check.value >= check.min ? "AA" : "!"}
                 </Badge>

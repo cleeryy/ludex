@@ -136,7 +136,7 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
   const themeChoice = theme === "system" ? "system" : resolved === "dark" ? "dark" : "light";
   const cycleTheme = (delta: -1 | 1) => {
     const next = themeChoices[wrapIndex(themeChoices.indexOf(themeChoice), delta, themeChoices.length)];
-    setTheme(next === "system" ? "system" : next === "dark" ? "midnight" : "light");
+    setTheme(next === "system" ? "system" : next === "dark" ? "speranza" : "bauhaus");
   };
 
   const cycleLayout = (delta: -1 | 1) => {

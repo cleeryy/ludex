@@ -14,9 +14,10 @@ import { contrastResults } from "./registry";
 import type { BuiltinTheme, ThemeIssue, ThemeTokens } from "./types";
 
 /**
- * Derived variants. A user accent, a background tint and the TV-safe variant
- * are all computed from a complete base theme, so the result is always a full
- * token map and components never need to know which layer produced a value.
+ * Derived variants. Custom C1 (`--signal`), custom C2 (`--info`), a background
+ * tint and the TV-safe variant are all computed from a complete base theme, so
+ * the result is always a full token map and components never need to know which
+ * layer produced a value.
  */
 
 export interface DerivedResult {
@@ -29,7 +30,7 @@ function minContrast(foreground: string, backgrounds: readonly string[]): number
   return roundRatio(Math.min(...backgrounds.map((background) => contrastRatio(foreground, background))));
 }
 
-const ACCENT_BACKGROUNDS = ["bg", "surface", "surface-2", "elevated"] as const;
+const ACCENT_BACKGROUNDS = ["bg", "surface"] as const;
 
 export function applyAccent(base: ThemeTokens, accentInput: string | null | undefined): DerivedResult {
   if (!accentInput) return { tokens: base, issue: null, ratio: 0 };
@@ -89,6 +90,44 @@ export function applyAccent(base: ThemeTokens, accentInput: string | null | unde
   };
 }
 
+/** Custom C2 (`--info`) override, validated against the active surfaces (#333). */
+export function applyInfo(base: ThemeTokens, infoInput: string | null | undefined): DerivedResult {
+  if (!infoInput) return { tokens: base, issue: null, ratio: 0 };
+  const info = normalizeHex(infoInput);
+  if (!info) {
+    return {
+      tokens: base,
+      issue: { code: "bad-color", token: "info", foreground: "info" },
+      ratio: 0,
+    };
+  }
+
+  const backgrounds = ACCENT_BACKGROUNDS.map((key) => base[key]);
+  const ratio = minContrast(info, backgrounds);
+  if (ratio < AA_TEXT) {
+    return {
+      tokens: base,
+      issue: {
+        code: "low-contrast",
+        foreground: "info",
+        background: "background",
+        ratio,
+        min: AA_TEXT,
+      },
+      ratio,
+    };
+  }
+
+  return {
+    tokens: {
+      ...base,
+      info,
+    },
+    issue: null,
+    ratio,
+  };
+}
+
 const TINT_STRENGTH = {
   bg: 0.1,
   "bg-deep": 0.12,
@@ -142,6 +181,7 @@ const TV_TEXT_PAIRS: readonly [keyof ThemeTokens, readonly (keyof ThemeTokens)[]
   ["ink-2", ["bg", "surface", "elevated"]],
   ["ink-3", ["bg", "surface", "surface-2", "elevated"]],
   ["signal-text", ["bg", "surface"]],
+  ["info", ["bg", "surface"]],
   ["danger", ["bg", "surface"]],
   ["ok", ["bg", "surface"]],
   ["warn", ["bg", "surface"]],
@@ -152,8 +192,8 @@ const TV_TEXT_PAIRS: readonly [keyof ThemeTokens, readonly (keyof ThemeTokens)[]
 
 /**
  * TV-safe variant: 7:1 for every piece of text (AAA), a stronger focus ring and
- * no decorative grain. The stage text tokens are lifted too: Big Picture draws
- * its hero over artwork, so those pairs must stay readable at ten feet.
+ * no decorative grain. The stage text tokens are lifted too: Console draws its
+ * hero over artwork, so those pairs must stay readable at ten feet.
  */
 export function tvTokens(base: ThemeTokens): ThemeTokens {
   const tokens: ThemeTokens = { ...base };
@@ -176,21 +216,25 @@ export interface ResolvedTheme {
   /** Base theme the tokens were derived from. */
   theme: BuiltinTheme;
   accentIssue: ThemeIssue | null;
+  infoIssue: ThemeIssue | null;
   tintIssue: ThemeIssue | null;
 }
 
-/** Base theme + optional accent + optional tint, with safe fallbacks. */
+/** Base theme + optional C1 accent + optional C2 info + optional tint, with safe fallbacks. */
 export function deriveTheme(
   theme: BuiltinTheme,
   accent: string | null,
   tint: string | null,
+  info: string | null = null,
 ): ResolvedTheme {
   const accented = applyAccent(theme.tokens, accent);
-  const tinted = applyTint(accented.tokens, tint);
+  const informed = applyInfo(accented.tokens, info);
+  const tinted = applyTint(informed.tokens, tint);
   return {
     tokens: tinted.tokens,
     theme,
     accentIssue: accented.issue,
+    infoIssue: informed.issue,
     tintIssue: tinted.issue,
   };
 }

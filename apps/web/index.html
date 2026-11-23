@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en" data-theme="midnight">
+<html lang="en" data-theme="speranza" data-radius="shadcn" data-stripe="on">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <meta name="theme-color" content="#0a0a09" />
+    <meta name="theme-color" content="#111317" />
     <meta name="color-scheme" content="dark light" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -18,11 +18,10 @@
       content="Ludex is a private, self-hosted library for the DRM-free games you already own."
     />
     <script>
-      // Applies the stored theme and locale before the first paint so there is
-      // no flash of the wrong surface or direction. The payload is resolved by
-      // the app at save time (`src/theme/storage.ts`): this script only replays
-      // ready-made CSS variables, so it stays tiny and runs synchronously
-      // during parsing, before the body is painted.
+      // Applies the stored theme, geometry, stripe and locale before the first
+      // paint so there is no flash of the wrong surface or direction. The
+      // payload is resolved by the app at save time (`src/theme/storage.ts`):
+      // this script only replays ready-made CSS variables synchronously.
       (function () {
         try {
           var root = document.documentElement;
@@ -37,10 +36,22 @@
           var light = window.matchMedia("(prefers-color-scheme: light)").matches;
           var selection = "system";
           var mode = light ? "light" : "dark";
+          var radius = "shadcn";
+          var stripe = "on";
 
           if (payload && payload.v === 2 && payload.config) {
             selection = payload.config.selection || "system";
             mode = selection === "system" ? (light ? "light" : "dark") : payload.mode || mode;
+            if (
+              payload.config.radius === "shadcn" ||
+              payload.config.radius === "swiss" ||
+              payload.config.radius === "brutalist"
+            ) {
+              radius = payload.config.radius;
+            }
+            if (payload.config.stripe === "on" || payload.config.stripe === "off") {
+              stripe = payload.config.stripe;
+            }
             var vars = payload.vars && (payload.vars[mode] || payload.vars.dark);
             if (vars) {
               for (var key in vars) {
@@ -55,32 +66,29 @@
             root.dataset.themeSelection = selection;
             root.dataset.tv = "false";
           } else {
-            // Legacy "dark" | "light" | "system" string from before #140.
-            var legacy = stored === "dark" ? "midnight" : stored === "light" ? "light" : null;
+            // Legacy "dark" | "light" | "system" string from before #140/#333.
+            var legacy = stored === "dark" || stored === "midnight" ? "speranza" : stored === "light" ? "bauhaus" : null;
             if (legacy) {
               selection = legacy;
-              mode = legacy === "light" ? "light" : "dark";
+              mode = legacy === "bauhaus" ? "light" : "dark";
               root.dataset.theme = legacy;
               var meta = document.querySelector('meta[name="theme-color"]');
-              if (meta) meta.setAttribute("content", mode === "light" ? "#e7e2d4" : "#0a0a09");
+              if (meta) meta.setAttribute("content", mode === "light" ? "#f3efe6" : "#111317");
             } else {
-              root.dataset.theme = mode === "light" ? "light" : "midnight";
+              root.dataset.theme = mode === "light" ? "bauhaus" : "speranza";
             }
             root.dataset.themeSelection = selection;
           }
 
           root.style.colorScheme = mode;
           root.dataset.themeMode = mode;
+          root.dataset.radius = radius;
+          root.dataset.stripe = stripe;
 
           // Right-to-left base languages. Kept as a literal so this script stays
           // synchronous and dependency-free; `scripts/i18n.mjs` fails the build
           // when this list and src/locales/manifest.json disagree.
           var LUDEX_RTL_LOCALES = ["ar", "he", "fa", "ur"];
-          // Same order as `bootstrapI18n` (#188): ?lang= → explicit device
-          // override → cached account preference → cached server default →
-          // English. The module bootstrap also probes navigator.languages and
-          // runs before the first React render; this script only avoids a
-          // wrong lang/dir on the very first paint.
           var search = typeof location === "undefined" ? "" : location.search + location.hash;
           var override = /[?&]lang=([A-Za-z-]{2,16})/.exec(search);
           var read = function (key) {

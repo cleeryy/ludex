@@ -4,10 +4,10 @@ import { buildAppearance } from "@/theme/storage";
 import { builtinTheme } from "@/theme/registry";
 
 /**
- * No-flash boot guard (#140). The inline script in index.html runs while the
- * document is parsing, before the body paints. These tests execute the real
+ * No-flash boot guard (#140, #333). The inline script in index.html runs while
+ * the document is parsing, before the body paints. These tests execute the real
  * shipped script against a fake document and assert it replays the stored
- * variable map synchronously.
+ * variable map, `data-radius` and `data-stripe` synchronously.
  */
 
 interface InlineScript {
@@ -15,7 +15,6 @@ interface InlineScript {
   body: string;
 }
 
-/** Index of the `>` that closes a tag, ignoring `>` inside quoted values. */
 function tagEnd(html: string, from: number): number {
   let quote: string | null = null;
   for (let index = from; index < html.length; index += 1) {
@@ -31,14 +30,6 @@ function tagEnd(html: string, from: number): number {
   return -1;
 }
 
-/**
- * Every inline `<script>` in a document, attributes included.
- *
- * A scanner instead of a tag regexp: `js/bad-tag-filter` is right that
- * `/<script[^>]*>(.*?)<\/script\s*>/` disagrees with a browser on end tags such
- * as `</script foo>`, and this file is read by the test, not by an HTML parser.
- * Case-insensitive, quote-aware and it rejects `<scripted>`-style names.
- */
 function inlineScripts(html: string): InlineScript[] {
   const lower = html.toLowerCase();
   const scripts: InlineScript[] = [];
@@ -63,8 +54,6 @@ function inlineScripts(html: string): InlineScript[] {
 }
 
 const html = fs.readFileSync(new URL("../../index.html", import.meta.url), "utf8");
-// The boot guard is the script without attributes that carries the appearance
-// replay (`ludex-appearance`).
 const boot = inlineScripts(html).find(({ attributes, body }) => attributes.trim() === "" && body.trim() !== "");
 if (!boot) throw new Error("index.html is missing the inline boot script");
 const script = boot.body;
@@ -76,9 +65,7 @@ describe("inline script extraction", () => {
       { attributes: ' type="module"', body: "external()" },
       { attributes: "", body: "boot()" },
     ]);
-    // `<scripted>` is not a script element.
     expect(inlineScripts('<scripted src="x"></scripted>')).toEqual([]);
-    // `>` inside an attribute value does not close the opening tag.
     expect(inlineScripts('<script data-value="a>b">run()</script>')).toEqual([
       { attributes: ' data-value="a>b"', body: "run()" },
     ]);
@@ -130,45 +117,59 @@ function runBoot(stored: string | null, light: boolean, locale = "en"): BootResu
 }
 
 describe("theme boot script", () => {
-  const nord = buildAppearance({ selection: "nord", accent: "#88c0d0", tint: null });
+  const telemetry = buildAppearance({
+    selection: "telemetry",
+    accent: "#ff6b4a",
+    tint: null,
+    info: "#38bdf8",
+    radius: "swiss",
+    stripe: "off",
+  });
 
-  it("applies a fixed theme, its accent and the browser chrome colour", () => {
-    const boot = runBoot(JSON.stringify(nord), false);
-    expect(boot.dataset.theme).toBe("nord");
+  it("applies a fixed theme, its C1/C2 accents, radius, stripe and browser chrome colour", () => {
+    const boot = runBoot(JSON.stringify(telemetry), false);
+    expect(boot.dataset.theme).toBe("telemetry");
     expect(boot.dataset.themeMode).toBe("dark");
-    expect(boot.dataset.themeSelection).toBe("nord");
+    expect(boot.dataset.themeSelection).toBe("telemetry");
+    expect(boot.dataset.radius).toBe("swiss");
+    expect(boot.dataset.stripe).toBe("off");
     expect(boot.dataset.tv).toBe("false");
-    expect(boot.vars.get("--bg")).toBe(builtinTheme("nord").tokens.bg);
-    expect(boot.vars.get("--signal")).toBe("#88c0d0");
+    expect(boot.vars.get("--bg")).toBe(builtinTheme("telemetry").tokens.bg);
+    expect(boot.vars.get("--signal")).toBe("#ff6b4a");
+    expect(boot.vars.get("--info")).toBe("#38bdf8");
     expect(boot.colorScheme).toBe("dark");
-    expect(boot.meta).toBe(nord.themeColor.dark);
+    expect(boot.meta).toBe(telemetry.themeColor.dark);
   });
 
   it("follows the OS for the system option", () => {
     const system = buildAppearance({ selection: "system", accent: null, tint: null });
     const dark = runBoot(JSON.stringify(system), false);
-    expect(dark.dataset.theme).toBe("midnight");
+    expect(dark.dataset.theme).toBe("speranza");
     expect(dark.dataset.themeMode).toBe("dark");
-    expect(dark.vars.get("--bg")).toBe(builtinTheme("midnight").tokens.bg);
+    expect(dark.dataset.radius).toBe("shadcn");
+    expect(dark.dataset.stripe).toBe("on");
+    expect(dark.vars.get("--bg")).toBe(builtinTheme("speranza").tokens.bg);
 
     const light = runBoot(JSON.stringify(system), true);
-    expect(light.dataset.theme).toBe("light");
+    expect(light.dataset.theme).toBe("bauhaus");
     expect(light.dataset.themeMode).toBe("light");
-    expect(light.vars.get("--bg")).toBe(builtinTheme("light").tokens.bg);
+    expect(light.vars.get("--bg")).toBe(builtinTheme("bauhaus").tokens.bg);
     expect(light.meta).toBe(system.themeColor.light);
   });
 
-  it("migrates the legacy dark/light string without a stored map", () => {
+  it("migrates legacy dark/light strings without a stored map", () => {
     const legacy = runBoot("light", false);
-    expect(legacy.dataset.theme).toBe("light");
+    expect(legacy.dataset.theme).toBe("bauhaus");
     expect(legacy.dataset.themeMode).toBe("light");
+    expect(legacy.dataset.radius).toBe("shadcn");
+    expect(legacy.dataset.stripe).toBe("on");
     expect(legacy.vars.size).toBe(0);
-    expect(legacy.meta).toBe("#e7e2d4");
+    expect(legacy.meta).toBe("#f3efe6");
   });
 
   it("survives corrupt storage and still picks the OS mode", () => {
     const boot = runBoot("{not json", true);
-    expect(boot.dataset.theme).toBe("light");
+    expect(boot.dataset.theme).toBe("bauhaus");
     expect(boot.dataset.themeMode).toBe("light");
     expect(boot.vars.size).toBe(0);
   });

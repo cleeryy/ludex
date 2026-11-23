@@ -26,6 +26,11 @@
   --color-signal: var(--signal);
   --color-on-signal: var(--on-signal);
   --color-signal-text: var(--signal-text);
+  --color-info: var(--info);
+  --color-stripe-1: var(--stripe-1);
+  --color-stripe-2: var(--stripe-2);
+  --color-stripe-3: var(--stripe-3);
+  --color-stripe-4: var(--stripe-4);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
@@ -73,9 +78,19 @@
 }
 
 :root {
-  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", ui-serif, Georgia, serif;
-  --font-ui: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter Variable", "Inter", "Instrument Sans Variable", "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
+  --font-ui: "Inter Variable", "Inter", "Instrument Sans Variable", "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
   --font-code: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /*
+   * Geometry scale (#333): restrained radii controlled by `data-radius`.
+   * Default is `shadcn` (4/6/8/10px); `swiss` tightens to 2/2/3/4px;
+   * `brutalist` zeroes every corner.
+   */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
 
   /*
    * Big Picture motion tokens (#220). `components/big-picture/motion.ts` holds
@@ -162,6 +177,20 @@
     calc((100vw - 2 * var(--bp-safe-x) - 5 * var(--bp-rail-gap)) / 5.5),
     calc(44dvh * 2 / 3)
   );
+}
+
+:root[data-radius="swiss"] {
+  --r-xs: 2px;
+  --r-sm: 2px;
+  --r-md: 3px;
+  --r-lg: 4px;
+}
+
+:root[data-radius="brutalist"] {
+  --r-xs: 0px;
+  --r-sm: 0px;
+  --r-md: 0px;
+  --r-lg: 0px;
 }
 
 /* Density changes how many covers the rail shows; it never changes type. */
@@ -385,6 +414,26 @@
 }
 
 @layer components {
+  /* 3px 4-band ARC Raiders hardware signature stripe (#333). */
+  .arc-stripe {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+    height: 3px;
+    flex: none;
+    background: linear-gradient(
+      90deg,
+      var(--stripe-1) 0% 25%,
+      var(--stripe-2) 25% 50%,
+      var(--stripe-3) 50% 75%,
+      var(--stripe-4) 75% 100%
+    );
+  }
+
+  :root[data-stripe="off"] .arc-stripe {
+    display: none;
+  }
+
   /* film grain: one fixed overlay, no blend modes so it stays cheap */
   .grain {
     position: fixed;

@@ -522,8 +522,8 @@ function AppearanceStep() {
   const { locale } = useI18n();
   const { updateLocale } = useAuth();
   const options: { value: ThemeSelection; label: string }[] = [
-    { value: "midnight", label: t("Dark") },
-    { value: "light", label: t("Light") },
+    { value: "speranza", label: t("Dark") },
+    { value: "bauhaus", label: t("Light") },
     { value: "system", label: t("System") },
   ];
   return (

@@ -1,10 +1,11 @@
-import { applyAccent } from "./derive";
+import { applyAccent, applyInfo } from "./derive";
 import { contrastRatio, isHexColor, normalizeHex, roundRatio } from "./contrast";
 import { CONTRAST_PAIRS, builtinTheme, isBuiltinThemeId } from "./registry";
 import {
   COLOR_TOKEN_KEYS,
   THEME_TOKEN_KEYS,
   type BuiltinTheme,
+  type BuiltinThemeId,
   type ThemeFile,
   type ThemeIssue,
   type ThemeTokenKey,
@@ -15,13 +16,36 @@ export type ThemeFileResult = { ok: true; theme: ThemeFile } | { ok: false; issu
 
 const KNOWN_TOKENS = new Set<string>(THEME_TOKEN_KEYS);
 
+/** Pre-#333 built-in base ids accepted when importing older `.ludex-theme` files. */
+const LEGACY_BASE_THEMES: Record<string, BuiltinThemeId> = {
+  midnight: "speranza",
+  dark: "speranza",
+  light: "bauhaus",
+  soft: "bauhaus",
+  nord: "telemetry",
+  gruvbox: "braun",
+  amber: "braun",
+};
+
+/** New #333 tokens backfilled from the resolved base when importing a pre-#333 theme file. */
+const BACKFILLABLE_TOKENS: readonly ThemeTokenKey[] = [
+  "info",
+  "stripe-1",
+  "stripe-2",
+  "stripe-3",
+  "stripe-4",
+];
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-export function validateTokens(input: unknown): { tokens: ThemeTokens | null; issues: ThemeIssue[] } {
+export function validateTokens(
+  input: unknown,
+  fallback?: ThemeTokens | null,
+): { tokens: ThemeTokens | null; issues: ThemeIssue[] } {
   const issues: ThemeIssue[] = [];
   const record = asRecord(input);
   if (!record) {
@@ -34,7 +58,11 @@ export function validateTokens(input: unknown): { tokens: ThemeTokens | null; is
 
   const tokens = {} as ThemeTokens;
   for (const key of THEME_TOKEN_KEYS) {
-    const value = record[key];
+    const raw = record[key];
+    const value =
+      (raw === undefined || raw === null || raw === "") && fallback && BACKFILLABLE_TOKENS.includes(key)
+        ? fallback[key]
+        : raw;
     if (value === undefined || value === null || value === "") {
       issues.push({ code: "missing-token", token: key });
       continue;
@@ -101,14 +129,15 @@ export function validateThemeFile(input: unknown): ThemeFileResult {
   if (!name || name.length > 48) issues.push({ code: "bad-name", field: "name" });
 
   const base = typeof record.base === "string" ? record.base : "";
-  const baseTheme = isBuiltinThemeId(base) ? builtinTheme(base) : null;
+  const resolvedBaseId = isBuiltinThemeId(base) ? base : LEGACY_BASE_THEMES[base] ?? null;
+  const baseTheme = resolvedBaseId ? builtinTheme(resolvedBaseId) : null;
   if (!baseTheme) issues.push({ code: "bad-base", base });
 
   if (record.mode !== undefined && baseTheme && record.mode !== baseTheme.mode) {
     issues.push({ code: "bad-mode", field: "mode" });
   }
 
-  const { tokens, issues: tokenIssues } = validateTokens(record.tokens);
+  const { tokens, issues: tokenIssues } = validateTokens(record.tokens, baseTheme?.tokens ?? null);
   issues.push(...tokenIssues);
 
   if (tokens && baseTheme) {
@@ -122,12 +151,22 @@ export function validateThemeFile(input: unknown): ThemeFileResult {
         if (accented.issue) issues.push(accented.issue);
       }
     }
+
+    if (record.info !== undefined && record.info !== null) {
+      if (typeof record.info !== "string" || !isHexColor(record.info)) {
+        issues.push({ code: "bad-color", foreground: "info" });
+      } else {
+        const informed = applyInfo(tokens, record.info);
+        if (informed.issue) issues.push(informed.issue);
+      }
+    }
   }
 
   if (issues.length > 0 || !tokens || !baseTheme) {
     return { ok: false, issues: issues.length ? issues : [{ code: "bad-format" }] };
   }
 
+  const info = typeof record.info === "string" ? normalizeHex(record.info) : null;
   return {
     ok: true,
     theme: {
@@ -138,6 +177,7 @@ export function validateThemeFile(input: unknown): ThemeFileResult {
       mode: baseTheme.mode,
       tokens,
       accent: typeof record.accent === "string" ? normalizeHex(record.accent) : null,
+      ...(info ? { info } : {}),
     },
   };
 }
@@ -161,6 +201,7 @@ export function themeFileFor(
   base: BuiltinTheme,
   tokens: ThemeTokens,
   accent: string | null,
+  info: string | null = null,
 ): ThemeFile {
   return {
     format: "ludex-theme",
@@ -170,5 +211,6 @@ export function themeFileFor(
     mode: base.mode,
     tokens,
     accent,
+    ...(info ? { info } : {}),
   };
 }

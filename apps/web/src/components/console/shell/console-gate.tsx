@@ -26,8 +26,8 @@ import {
 /** The Cabinet tokens a gate can render without the shell (#268). */
 function useGateMaterial(settings: ConsoleRoomSettings = DEFAULT_CONSOLE_ROOM) {
   const { tokens, resolved } = useSettings();
-  const lightTokens = BUILTIN_THEMES.find((theme) => theme.id === "light")?.tokens ?? tokens;
-  const darkTokens = BUILTIN_THEMES.find((theme) => theme.id === "midnight")?.tokens ?? tokens;
+  const lightTokens = BUILTIN_THEMES.find((theme) => theme.id === "bauhaus")?.tokens ?? tokens;
+  const darkTokens = BUILTIN_THEMES.find((theme) => theme.id === "speranza")?.tokens ?? tokens;
   return {
     style: cssVarsFor(
       cabinetTokens({ settings, tokens, lightTokens, darkTokens, mode: resolved }),

@@ -11,7 +11,7 @@ import {
 import { notifyPreferencesChanged } from "@/lib/preferences-events";
 import { scopedStorageKey } from "@/lib/server-storage";
 import { normalizeHex } from "@/theme/contrast";
-import { applyAccent, applyTint, deriveTheme, tvTokens } from "@/theme/derive";
+import { applyAccent, applyInfo, applyTint, deriveTheme, tvTokens } from "@/theme/derive";
 import {
   contrastReport,
   cssVarsFor,
@@ -19,6 +19,8 @@ import {
   prefersLight,
 } from "@/theme/registry";
 import {
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
   applyAppearance,
   baseThemeFor,
   buildAppearance,
@@ -28,7 +30,9 @@ import {
   modeForSelection,
   readConfig,
   readCustomThemes,
+  sanitizeRadius,
   sanitizeSelection,
+  sanitizeStripe,
   writeAppearance,
   writeCustomThemes,
 } from "@/theme/storage";
@@ -40,7 +44,9 @@ import type {
   ThemeFile,
   ThemeIssue,
   ThemeMode,
+  ThemeRadius,
   ThemeSelection,
+  ThemeStripe,
   ThemeTokens,
 } from "@/theme/types";
 
@@ -63,11 +69,18 @@ interface SettingsValue {
   resolved: ThemeMode;
   /** Built-in base palette behind the current selection. */
   base: BuiltinThemeId;
+  /** Custom C1 (`--signal`) override. */
   accent: string | null;
+  /** Custom C2 (`--info`) override, device-local (#333). */
+  info: string | null;
   tint: string | null;
+  /** Corner geometry preset applied to `data-radius` (#333). */
+  radius: ThemeRadius;
+  /** 3px 4-band hardware stripe toggle applied to `data-stripe` (#333). */
+  stripe: ThemeStripe;
   /** The token map currently painted at the document root (TV-safe included). */
   tokens: ThemeTokens;
-  /** Big Picture's TV-safe variant is on; it enforces 7:1 text. */
+  /** Console's TV-safe variant is on; it enforces 7:1 text. */
   tv: boolean;
   customThemes: ThemeFile[];
   contrast: ReturnType<typeof contrastReport>;
@@ -76,10 +89,15 @@ interface SettingsValue {
    * Applies a whole appearance at once (#201): the selection is sanitised, the
    * accent and tint are validated against the *new* base palette, and an
    * invalid colour is dropped instead of being written back to the account.
+   * Device-local #333 controls (`info`, `radius`, `stripe`) are preserved unless
+   * explicitly provided.
    */
   setAppearance: (config: ThemeConfig) => void;
   setAccent: (accent: string | null) => AppearanceResult;
+  setInfo: (info: string | null) => AppearanceResult;
   setTint: (tint: string | null) => AppearanceResult;
+  setRadius: (radius: ThemeRadius) => void;
+  setStripe: (stripe: ThemeStripe) => void;
   resetAppearance: () => void;
   importTheme: (source: string) => ImportResult;
   removeCustomTheme: (id: string) => void;
@@ -95,13 +113,20 @@ function systemMode(): ThemeMode {
   return prefersLight() ? "light" : "dark";
 }
 
-function sanitizeConfig(config: ThemeConfig, customs: readonly ThemeFile[]): ThemeConfig {
+function sanitizeConfig(config: ThemeConfig, customs: readonly ThemeFile[]): Required<ThemeConfig> {
   let selection = sanitizeSelection(config.selection);
   if (isCustomThemeId(selection) && !customThemeById(selection, customs)) selection = "system";
-  return { selection, accent: config.accent, tint: config.tint };
+  return {
+    selection,
+    accent: config.accent,
+    tint: config.tint,
+    info: config.info ?? null,
+    radius: sanitizeRadius(config.radius),
+    stripe: sanitizeStripe(config.stripe),
+  };
 }
 
-function baseFor(config: ThemeConfig, customs: readonly ThemeFile[], mode: ThemeMode): BuiltinTheme {
+function baseFor(config: Required<ThemeConfig>, customs: readonly ThemeFile[], mode: ThemeMode): BuiltinTheme {
   return baseThemeFor(config.selection, customs, mode);
 }
 
@@ -111,7 +136,7 @@ function rejected(issue: ThemeIssue, ratio = 0): AppearanceResult {
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [customThemes, setCustomThemes] = useState<ThemeFile[]>(() => readCustomThemes());
-  const [config, setConfig] = useState<ThemeConfig>(() =>
+  const [config, setConfig] = useState<Required<ThemeConfig>>(() =>
     sanitizeConfig(readConfig(), readCustomThemes()),
   );
   const [system, setSystem] = useState<ThemeMode>(systemMode);
@@ -124,20 +149,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const appearance = useMemo(() => buildAppearance(config, customThemes), [config, customThemes]);
   const base = baseFor(config, customThemes, resolved);
   const effective = useMemo(
-    () => deriveTheme(base, config.accent, config.tint).tokens,
-    [base, config.accent, config.tint],
+    () => deriveTheme(base, config.accent, config.tint, config.info).tokens,
+    [base, config.accent, config.tint, config.info],
   );
   const contrast = useMemo(() => contrastReport(effective), [effective]);
   // The map actually painted at the document root, TV-safe variant included.
-  // Console appearance derives its Studio accent from this one (#229), so a
-  // console override can never drop a pair below the active contrast contract.
   const renderedTokens = useMemo(
     () => (tv ? tvTokens(effective) : effective),
     [tv, effective],
   );
 
   // The inline boot script already painted the stored variables. Re-applying
-  // here keeps React, HMR and tests on the same source of truth. Big Picture
+  // here keeps React, HMR and tests on the same source of truth. Console mode
   // swaps in the TV-safe map: 7:1 text, a wider focus ring, no grain.
   const tvAppearance = useMemo(
     () =>
@@ -191,14 +214,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         );
         const accent = next.accent ? normalizeHex(next.accent) : null;
         const accentResult = accent ? applyAccent(baseTheme.tokens, accent) : null;
+        const afterAccent = accentResult && !accentResult.issue ? accentResult.tokens : baseTheme.tokens;
+
+        const candidateInfo = next.info !== undefined ? next.info : current.info;
+        const info = candidateInfo ? normalizeHex(candidateInfo) : null;
+        const infoResult = info ? applyInfo(afterAccent, info) : null;
+        const afterInfo = infoResult && !infoResult.issue ? infoResult.tokens : afterAccent;
+
         const tint = next.tint ? normalizeHex(next.tint) : null;
-        const tintResult = tint
-          ? applyTint(accentResult && !accentResult.issue ? accentResult.tokens : baseTheme.tokens, tint)
-          : null;
+        const tintResult = tint ? applyTint(afterInfo, tint) : null;
         return {
           selection,
           accent: accent && (!accentResult || !accentResult.issue) ? accent : null,
+          info: info && (!infoResult || !infoResult.issue) ? info : null,
           tint: tint && (!tintResult || !tintResult.issue) ? tint : null,
+          radius: next.radius !== undefined ? sanitizeRadius(next.radius) : current.radius,
+          stripe: next.stripe !== undefined ? sanitizeStripe(next.stripe) : current.stripe,
         };
       });
     },
@@ -223,6 +254,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [base],
   );
 
+  const setInfo = useCallback(
+    (value: string | null): AppearanceResult => {
+      if (!value || value.trim() === "") {
+        setConfig((current) => ({ ...current, info: null }));
+        return { ok: true, issue: null, ratio: 0 };
+      }
+      const info = normalizeHex(value);
+      if (!info) {
+        return rejected({ code: "bad-color", foreground: "info" });
+      }
+      const result = applyInfo(base.tokens, info);
+      if (result.issue) return rejected(result.issue, result.ratio);
+      setConfig((current) => ({ ...current, info }));
+      return { ok: true, issue: null, ratio: result.ratio };
+    },
+    [base],
+  );
+
   const setTint = useCallback(
     (value: string | null): AppearanceResult => {
       if (!value || value.trim() === "") {
@@ -232,13 +281,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const tint = normalizeHex(value);
       if (!tint) return rejected({ code: "bad-color", foreground: "tint" });
       const accented = applyAccent(base.tokens, config.accent).tokens;
-      const result = applyTint(accented, tint);
+      const informed = applyInfo(accented, config.info).tokens;
+      const result = applyTint(informed, tint);
       if (result.issue) return rejected(result.issue, result.ratio);
       setConfig((current) => ({ ...current, tint }));
       return { ok: true, issue: null, ratio: result.ratio };
     },
-    [base, config.accent],
+    [base, config.accent, config.info],
   );
+
+  const setRadius = useCallback((radius: ThemeRadius) => {
+    setConfig((current) => ({ ...current, radius: sanitizeRadius(radius) }));
+  }, []);
+
+  const setStripe = useCallback((stripe: ThemeStripe) => {
+    setConfig((current) => ({ ...current, stripe: sanitizeStripe(stripe) }));
+  }, []);
 
   const resetAppearance = useCallback(() => {
     setConfig(defaultConfig());
@@ -252,7 +310,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const next = current.filter((theme) => customThemeId(theme.name, theme.tokens) !== id);
       return [...next, parsed.theme];
     });
-    setConfig({ selection: id, accent: parsed.theme.accent, tint: null });
+    setConfig((current) => ({
+      ...current,
+      selection: id,
+      accent: parsed.theme.accent,
+      info: parsed.theme.info ?? null,
+      tint: null,
+    }));
     return { ok: true, theme: parsed.theme };
   }, []);
 
@@ -276,6 +340,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         currentBase,
         custom?.tokens ?? currentBase.tokens,
         config.accent,
+        config.info,
       ),
     );
   }, [config, customThemes, resolved]);
@@ -294,7 +359,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       resolved,
       base: base.id,
       accent: config.accent,
+      info: config.info,
       tint: config.tint,
+      radius: config.radius,
+      stripe: config.stripe,
       tokens: renderedTokens,
       tv,
       customThemes,
@@ -302,7 +370,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setTheme,
       setAppearance,
       setAccent,
+      setInfo,
       setTint,
+      setRadius,
+      setStripe,
       resetAppearance,
       importTheme,
       removeCustomTheme,
@@ -314,7 +385,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [
       config.selection,
       config.accent,
+      config.info,
       config.tint,
+      config.radius,
+      config.stripe,
       resolved,
       renderedTokens,
       tv,
@@ -324,7 +398,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setTheme,
       setAppearance,
       setAccent,
+      setInfo,
       setTint,
+      setRadius,
+      setStripe,
       resetAppearance,
       importTheme,
       removeCustomTheme,
@@ -346,5 +423,5 @@ export function useSettings(): SettingsValue {
 
 /** Quick toggle used by the account menu and the command palette. */
 export function otherModeTheme(resolved: ThemeMode): BuiltinThemeId {
-  return resolved === "dark" ? "light" : "midnight";
+  return resolved === "dark" ? DEFAULT_LIGHT_THEME_ID : DEFAULT_DARK_THEME_ID;
 }
