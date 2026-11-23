@@ -1,0 +1,141 @@
+{
+  "generatedAt": "2026-11-23T23:56:45.945Z",
+  "shots": [
+    {
+      "name": "home-speranza-desktop",
+      "route": "/",
+      "theme": "speranza",
+      "scheme": "dark",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "mobile": false,
+      "bytes": 262306,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "HITMAN 3",
+      "overflowX": false
+    },
+    {
+      "name": "library-speranza-desktop",
+      "route": "/library",
+      "theme": "speranza",
+      "scheme": "dark",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "mobile": false,
+      "bytes": 309750,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "Library",
+      "overflowX": false
+    },
+    {
+      "name": "library-bauhaus-desktop",
+      "route": "/library",
+      "theme": "bauhaus",
+      "scheme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "mobile": false,
+      "bytes": 163853,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "Library",
+      "overflowX": false
+    },
+    {
+      "name": "downloads-speranza-desktop",
+      "route": "/downloads",
+      "theme": "speranza",
+      "scheme": "dark",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "mobile": false,
+      "bytes": 161787,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "Downloads",
+      "overflowX": false
+    },
+    {
+      "name": "admin-health-speranza-desktop",
+      "route": "/admin/health",
+      "theme": "speranza",
+      "scheme": "dark",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "mobile": false,
+      "bytes": 53333,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "Library health",
+      "overflowX": false
+    },
+    {
+      "name": "public-download-speranza-desktop",
+      "route": "/download",
+      "theme": "speranza",
+      "scheme": "dark",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "mobile": false,
+      "bytes": 50701,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "Play your library on your PC.",
+      "overflowX": false
+    },
+    {
+      "name": "library-speranza-mobile",
+      "route": "/library",
+      "theme": "speranza",
+      "scheme": "dark",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "mobile": true,
+      "bytes": 58641,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "Library",
+      "overflowX": false
+    },
+    {
+      "name": "library-bauhaus-mobile",
+      "route": "/library",
+      "theme": "bauhaus",
+      "scheme": "light",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "mobile": true,
+      "bytes": 64127,
+      "radius": "shadcn",
+      "stripeAttr": "on",
+      "hasStripe": true,
+      "h1Text": "Library",
+      "overflowX": false
+    }
+  ]
+}
