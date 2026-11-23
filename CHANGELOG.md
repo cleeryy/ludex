@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.29] - 2026-11-23
+
 ### Added
 
 - Portable Linux game bundles (#332): an installed Linux game gets
