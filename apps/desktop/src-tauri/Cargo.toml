@@ -64,7 +64,7 @@ uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
 fs2 = "0.4"
 sysinfo = { version = "0.40", default-features = false, features = ["network", "system"] }
-sha2 = "0.10"
+sha2 = "0.11"
 crc32fast = "1"
 hex = "0.4"
 tracing = "0.1"
