@@ -42,6 +42,11 @@ export const qk = {
 
   installed: ["installed"] as const,
 
+  /** #332: size and runtime requirement of a portable Linux bundle. */
+  portable: {
+    estimate: (gameId: number) => key("portable-estimate", gameId),
+  },
+
   recentGames: {
     root: ["recent-games"] as const,
     byLimit: (limit: number) => key("recent-games", limit),

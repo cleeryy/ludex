@@ -1404,6 +1404,10 @@ async fn run_job(app: AppHandle, job_id: String, download_slot: &mut Option<Slot
             emit_jobs(&app);
             crate::tray::refresh_menu(&app);
             tracing::info!(job_id = %job_id, game_id = job.game_id, path = ?job.install_path, "install complete");
+            // #332: a Linux install folder gets its portable launcher right away.
+            // Best effort by design: a failure is logged and surfaced as a
+            // `portable://status` event, never as a failed install.
+            crate::portable::after_install(&app, job.game_id, &install_path);
             // #293: "Prepare after install" is a background job queued behind
             // the install, never part of it: a failure marks the game's
             // preparation record and the first launch is unaffected.

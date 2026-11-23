@@ -1,0 +1,20 @@
+{
+  "args": [
+    "--splash=false",
+    "a b"
+  ],
+  "env": {},
+  "executable": "bin/OuterWilds.exe",
+  "generatedAt": "2026-11-23T10:00:00Z",
+  "generator": "Ludex 0.4.28",
+  "kind": "ludex-portable-bundle",
+  "launchMode": "windows",
+  "prefix": "support/prefix",
+  "runtimeRequirement": "windows-compat",
+  "schema": 1,
+  "scriptVersion": 1,
+  "slug": "outer-wilds",
+  "title": "Outer Wilds",
+  "version": "1.1.14",
+  "workingDir": "bin"
+}

@@ -14,6 +14,8 @@ import type {
   LocalSettings,
   ManifestStatus,
   ManifestUpdate,
+  PortableBundleEstimate,
+  PortableBundleInfo,
   RepairReport,
   VerifyReport,
 } from "@/lib/types";
@@ -817,6 +819,41 @@ export const mockInstalls = {
     entry.installPath = `${targetDir.replace(/\/+$/, "")}/${slug}`;
     emit();
     return Promise.resolve(clone(entry));
+  },
+
+  /**
+   * #332: demo answer for the portable bundle panel. The browser has no real
+   * install folder, so the estimate is the recorded size and the created
+   * bundle is a fake path under the chosen destination.
+   */
+  portableEstimate(gameId: number): Promise<PortableBundleEstimate> {
+    const entry = installed.find((game) => game.gameId === gameId);
+    const windows = Boolean(entry?.executable && entry.executable.toLowerCase().endsWith(".exe"));
+    return Promise.resolve({
+      supported: true,
+      platform: "linux",
+      gameId,
+      bytes: entry?.sizeBytes ?? 0,
+      runtimeRequirement: windows ? "windows-compat" : "linux-native",
+      executablePresent: Boolean(entry?.executable),
+      reason: entry ? null : "This game is not installed.",
+    });
+  },
+
+  createPortableBundle(gameId: number, destination?: string | null): Promise<PortableBundleInfo> {
+    const entry = installed.find((game) => game.gameId === gameId);
+    if (!entry) return Promise.reject(new Error("Game is not installed"));
+    const folder = entry.installPath.split("/").filter(Boolean).slice(-1)[0] ?? "game";
+    const windows = Boolean(entry.executable && entry.executable.toLowerCase().endsWith(".exe"));
+    const path = destination ? `${destination.replace(/\/+$/, "")}/${folder}` : entry.installPath;
+    return Promise.resolve({
+      path,
+      bytes: 24_000,
+      runtimeRequired: windows ? "windows-compat" : "linux-native",
+      fileCount: 4,
+      replaced: [],
+      copied: Boolean(destination),
+    });
   },
 
   verifyInstall(gameId: number): Promise<VerifyReport> {
