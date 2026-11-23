@@ -47,17 +47,17 @@ export function ExternalGameCard({
           type="button"
           onClick={onOpen}
           data-gamepad-target="true"
-          className="absolute inset-0 z-[4] rounded-[2px]"
+          className="absolute inset-0 z-[4] rounded-[var(--r-sm)]"
           aria-label={t("Open {title}", { title: entry.title })}
         />
         <span className="absolute left-2 top-2 z-[5] inline-flex items-center gap-1">
           <LauncherBadge entry={entry} />
-          <span className="inline-flex h-5 items-center rounded-[2px] bg-stage/70 px-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-sheen backdrop-blur-sm">
+          <span className="inline-flex h-5 items-center rounded-[var(--r-sm)] bg-stage/70 px-1.5 text-micro uppercase tracking-[0.1em] text-sheen backdrop-blur-sm">
             {t("Import")}
           </span>
         </span>
         <div
-          className="shadow-cover pointer-events-none absolute inset-0 z-[3] rounded-[2px] opacity-0 transition-opacity duration-[200ms] group-hover:opacity-100"
+          className="shadow-cover pointer-events-none absolute inset-0 z-[3] rounded-[var(--r-sm)] opacity-0 transition-opacity duration-[200ms] group-hover:opacity-100"
           aria-hidden="true"
         />
       </div>
@@ -65,12 +65,12 @@ export function ExternalGameCard({
       <div className="mt-3 flex items-start gap-2">
         <span className="mt-[5px] h-3.5 w-[2px] shrink-0 bg-line-2" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[13.5px] font-medium leading-snug text-ink">
+          <h3 className="truncate text-body font-medium leading-snug text-ink">
             <button type="button" onClick={onOpen} className="text-left hover:text-ink">
               {entry.title}
             </button>
           </h3>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[10.5px] leading-none text-ink-3">
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-micro leading-none text-ink-3">
             <span className="num">{formatBytes(entry.sizeBytes)}</span>
             {entry.install?.installPath && (
               <span className="max-w-[14ch] truncate" title={entry.install.installPath}>
@@ -85,7 +85,7 @@ export function ExternalGameCard({
               type="button"
               onClick={onLaunch}
               aria-label={t("Play {title}", { title: entry.title })}
-              className="grid size-10 place-items-center rounded-[2px] text-ink-3 transition-colors hover:bg-surface hover:text-ink max-sm:size-11"
+              className="grid size-10 place-items-center rounded-[var(--r-sm)] text-ink-3 transition-colors hover:bg-surface hover:text-ink max-sm:size-11"
             >
               <Play className="size-[15px]" />
             </button>
@@ -96,7 +96,7 @@ export function ExternalGameCard({
                 type="button"
                 onClick={onOpenFolder}
                 aria-label={t("Open folder for {title}", { title: entry.title })}
-                className="grid size-10 place-items-center rounded-[2px] text-ink-3 transition-colors hover:bg-surface hover:text-ink max-sm:size-11"
+                className="grid size-10 place-items-center rounded-[var(--r-sm)] text-ink-3 transition-colors hover:bg-surface hover:text-ink max-sm:size-11"
               >
                 <FolderOpen className="size-[15px]" />
               </button>
@@ -129,16 +129,16 @@ export function ExternalGameRow({
       }}
       className="row-hover group grid grid-cols-[2rem_1fr_auto] items-center gap-4 border-t border-line py-2.5 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]"
     >
-      <span className="num text-[10.5px] text-ink-3">—</span>
+      <span className="num text-micro text-ink-3">—</span>
       <div className="flex min-w-0 items-center gap-3">
         <div className="w-9 shrink-0 overflow-hidden rounded-[1px]">
           <GameCover title={entry.title} coverUrl={null} showType={false} />
         </div>
         <div className="min-w-0">
-          <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-[14px] text-ink">
+          <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-body text-ink">
             {entry.title}
           </button>
-          <p className="flex min-w-0 items-center gap-2 truncate text-[11.5px] text-ink-3">
+          <p className="flex min-w-0 items-center gap-2 truncate text-meta text-ink-3">
             <LauncherBadge entry={entry} />
             <span className="truncate font-mono" title={entry.install?.installPath ?? undefined}>
               {entry.install?.installPath ? folderLabel(entry.install.installPath) : t("Launcher import")}
@@ -146,9 +146,9 @@ export function ExternalGameRow({
           </p>
         </div>
       </div>
-      <span className="num hidden text-right text-[11.5px] text-ink-3 sm:block">—</span>
-      <span className="num text-right text-[11.5px] text-ink-3">{formatBytes(entry.sizeBytes)}</span>
-      <span className="num hidden text-right text-[11.5px] text-ink-2 md:block">—</span>
+      <span className="num hidden text-right text-meta text-ink-3 sm:block">—</span>
+      <span className="num text-right text-meta text-ink-3">{formatBytes(entry.sizeBytes)}</span>
+      <span className="num hidden text-right text-meta text-ink-2 md:block">—</span>
       <span className="hidden justify-end gap-1 sm:flex">
         <Button
           variant="ghost"
@@ -223,21 +223,21 @@ export function ExternalImportDialog({
         <div className="flex flex-wrap items-center gap-2">
           <LauncherBadge entry={entry} />
           <Badge tone="outline">{t("Launcher import")}</Badge>
-          <span className="num text-[11.5px] text-ink-3">{formatBytes(entry.sizeBytes)}</span>
+          <span className="num text-meta text-ink-3">{formatBytes(entry.sizeBytes)}</span>
         </div>
 
-        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-[12px]">
+        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-label">
           <dt className="text-ink-3">{t("Folder")}</dt>
-          <dd className="min-w-0 truncate font-mono text-[11.5px] text-ink-2" title={path || undefined}>
+          <dd className="min-w-0 truncate font-mono text-meta text-ink-2" title={path || undefined}>
             {path || t("No folder reported by the launcher")}
           </dd>
           <dt className="text-ink-3">{t("Launch URI")}</dt>
-          <dd className="min-w-0 truncate font-mono text-[11.5px] text-ink-2" title={uri ?? undefined}>
+          <dd className="min-w-0 truncate font-mono text-meta text-ink-2" title={uri ?? undefined}>
             {uri ?? t("Not reported")}
           </dd>
         </dl>
 
-        <p className="border-l-2 border-line-2 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
           {t("Removing it from Ludex deletes the index row only. The launcher's files stay where they are and the game keeps working there.")}
         </p>
 
@@ -258,7 +258,7 @@ export function ExternalImportDialog({
               target="_blank"
               rel="noreferrer"
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-[2px] border border-line-2 px-2.5 text-[12.5px] text-ink-2",
+                "inline-flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] border border-line-2 px-2.5 text-label text-ink-2",
                 "transition-colors hover:border-ink-3 hover:text-ink",
               )}
             >

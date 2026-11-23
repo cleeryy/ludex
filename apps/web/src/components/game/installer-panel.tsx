@@ -25,7 +25,7 @@ function CandidateList({
     <ul className="mt-2 border-t border-line">
       {candidates.map((candidate) => (
         <li key={candidate} className="flex items-center gap-3 border-b border-line py-1.5">
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-2" title={candidate}>
+          <span className="min-w-0 flex-1 truncate font-mono text-meta text-ink-2" title={candidate}>
             {candidate}
           </span>
           <Button
@@ -221,9 +221,9 @@ export function InstallerPanel({
           <div className="mb-5 border-l-2 border-signal pl-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="signal">{t("Setup program detected")}</Badge>
-              <span className="truncate font-mono text-[11px] text-ink-2">{guidedSetup}</span>
+              <span className="truncate font-mono text-meta text-ink-2">{guidedSetup}</span>
             </div>
-            <p className="mt-2 max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
+            <p className="mt-2 max-w-[70ch] text-label leading-relaxed text-ink-3">
               {t("This archive contains a setup program. Run it once to install the game files; Ludex then finds the game executable it produced.")}
             </p>
             {repack.candidates.length > 1 && (
@@ -235,7 +235,7 @@ export function InstallerPanel({
                       onClick={() => setSetupChoice(candidate)}
                       aria-pressed={guidedSetup === candidate}
                       className={cn(
-                        "flex w-full min-w-0 items-center gap-2 text-left text-[12.5px]",
+                        "flex w-full min-w-0 items-center gap-2 text-left text-label",
                         guidedSetup === candidate ? "text-ink" : "text-ink-3 hover:text-ink",
                       )}
                     >
@@ -246,14 +246,14 @@ export function InstallerPanel({
                         )}
                         aria-hidden="true"
                       />
-                      <span className="truncate font-mono text-[11px]">{candidate}</span>
+                      <span className="truncate font-mono text-meta">{candidate}</span>
                     </button>
                   </li>
                 ))}
               </ul>
             )}
             {repack.markers.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10.5px] text-ink-3">
+              <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-micro text-ink-3">
                 {repack.markers.map((marker) => (
                   <span key={marker} className="border border-line-2 px-1.5 py-0.5">
                     {marker}
@@ -262,7 +262,7 @@ export function InstallerPanel({
               </div>
             )}
             {linux && !linuxTool && (
-              <p className="mt-2 max-w-[70ch] text-[12px] leading-relaxed text-ink-2">
+              <p className="mt-2 max-w-[70ch] text-label leading-relaxed text-ink-2">
                 {t("No compatibility tool is installed, so this setup program cannot run yet. Install UMU, GE-Proton/Proton or Wine, then rescan in Settings → Compatibility.")}
               </p>
             )}
@@ -288,7 +288,7 @@ export function InstallerPanel({
                 {t("Choose executable")}
               </Button>
             </div>
-            <p className="mt-2 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-2 max-w-[70ch] text-meta leading-relaxed text-ink-3">
               {t("The setup window stays open until you finish it. Nothing runs silently and Ludex never elevates the installer.")}
             </p>
 
@@ -309,20 +309,20 @@ export function InstallerPanel({
                           : t("Failed")}
                   </Badge>
                   {repackReport.exitCode !== null && (
-                    <span className="num text-[11px] text-ink-3">
+                    <span className="num text-meta text-ink-3">
                       {t("exit")} {repackReport.exitCode}
                     </span>
                   )}
                   {repackReport.recordedExecutable && (
-                    <span className="truncate font-mono text-[10.5px] text-ink-2">
+                    <span className="truncate font-mono text-micro text-ink-2">
                       {repackReport.recordedExecutable}
                     </span>
                   )}
                 </div>
-                <p className="text-[12px] leading-relaxed text-ink-2">{repackReport.message}</p>
+                <p className="text-label leading-relaxed text-ink-2">{repackReport.message}</p>
                 {repackReport.candidates.length > 0 && (
                   <>
-                    <p className="text-[11.5px] text-ink-3">{t("Choose the game executable")}</p>
+                    <p className="text-meta text-ink-3">{t("Choose the game executable")}</p>
                     <CandidateList
                       candidates={repackReport.candidates}
                       saving={saving}
@@ -331,7 +331,7 @@ export function InstallerPanel({
                   </>
                 )}
                 {repackReport.logTail && (
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap border border-line bg-surface p-2 font-mono text-[10.5px] leading-relaxed text-ink-3">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap border border-line bg-surface p-2 font-mono text-micro leading-relaxed text-ink-3">
                     {repackReport.logTail}
                   </pre>
                 )}
@@ -342,23 +342,23 @@ export function InstallerPanel({
 
         {rescan.length > 0 && (
           <div className="mb-5 border-l-2 border-line-2 pl-3">
-            <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-2">
+            <p className="max-w-[70ch] text-label leading-relaxed text-ink-2">
               {t("Programs found in the install folder. Pick the one Ludex should launch.")}
             </p>
             <CandidateList candidates={rescan} saving={saving} onPick={useCandidate} />
           </div>
         )}
 
-        <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
+        <p className="max-w-[70ch] text-label leading-relaxed text-ink-3">
           {t("Some releases are an archive of a setup program. Silent switches are tried in order and the exit code is checked; if every attempt fails you can run the installer interactively.")}{" "}
           {linux
             ? t("On Linux it runs through the game's compatibility tool inside its Wine prefix and the log is captured.")
             : t("On Windows the setup program runs directly.")}{" "}
-          {t("Current executable:")} <span className="font-mono text-[11px] text-ink-2">{executable ?? t("none recorded")}</span>.
+          {t("Current executable:")} <span className="font-mono text-meta text-ink-2">{executable ?? t("none recorded")}</span>.
         </p>
 
         {linux && !linuxTool && (
-          <p className="mt-3 border-l-2 border-signal/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
+          <p className="mt-3 border-l-2 border-signal/60 pl-3 text-label leading-relaxed text-ink-2">
             {t("No compatibility tool is installed, so this setup program cannot run yet. Install UMU, GE-Proton/Proton or Wine, then rescan in Settings → Compatibility.")}
           </p>
         )}
@@ -382,7 +382,7 @@ export function InstallerPanel({
                     onClick={() => setChoice(installer)}
                     aria-pressed={choice === installer}
                     className={cn(
-                      "flex min-w-0 flex-1 items-center gap-2 text-left text-[12.5px]",
+                      "flex min-w-0 flex-1 items-center gap-2 text-left text-label",
                       choice === installer ? "text-ink" : "text-ink-3 hover:text-ink",
                     )}
                   >
@@ -393,14 +393,14 @@ export function InstallerPanel({
                       )}
                       aria-hidden="true"
                     />
-                    <span className="truncate font-mono text-[11px]">{installer}</span>
+                    <span className="truncate font-mono text-meta">{installer}</span>
                   </button>
                 </li>
               ))}
             </ul>
 
             {plan && (
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
                 <span>
                   {windows
                     ? t("silent plan")
@@ -453,11 +453,11 @@ export function InstallerPanel({
                   <Badge tone={report.success ? "ok" : report.cancelled ? "outline" : "danger"}>
                     {report.success ? t("Installed") : report.cancelled ? t("Cancelled") : report.timedOut ? t("Timed out") : t("Failed")}
                   </Badge>
-                  {report.exitCode !== null && <span className="num text-[11px] text-ink-3">{t("exit")} {report.exitCode}</span>}
-                  <span className="text-[12px] text-ink-2">{report.message}</span>
+                  {report.exitCode !== null && <span className="num text-meta text-ink-3">{t("exit")} {report.exitCode}</span>}
+                  <span className="text-label text-ink-2">{report.message}</span>
                 </div>
                 {report.attempts.length > 0 && (
-                  <ul className="flex flex-col gap-0.5 font-mono text-[10.5px] text-ink-3">
+                  <ul className="flex flex-col gap-0.5 font-mono text-micro text-ink-3">
                     {report.attempts.map((attempt, index) => (
                       <li key={`${attempt.args.join(" ")}-${index}`} className="truncate">
                         {attempt.args.length > 0 ? attempt.args.join(" ") : t("(no arguments)")} ·{" "}
@@ -472,12 +472,12 @@ export function InstallerPanel({
                   </ul>
                 )}
                 {report.logTail && (
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap border border-line bg-surface p-2 font-mono text-[10.5px] leading-relaxed text-ink-3">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap border border-line bg-surface p-2 font-mono text-micro leading-relaxed text-ink-3">
                     {report.logTail}
                   </pre>
                 )}
                 {!report.success && !report.cancelled && (
-                  <p className="text-[11.5px] leading-relaxed text-ink-3">
+                  <p className="text-meta leading-relaxed text-ink-3">
                     {t("Run it interactively to see what the installer is asking for. The arguments can be changed in Settings → Desktop.")}
                   </p>
                 )}
@@ -487,7 +487,7 @@ export function InstallerPanel({
         )}
 
         {error && (
-          <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}

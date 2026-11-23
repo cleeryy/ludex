@@ -281,15 +281,15 @@ export function UpdateNotifier() {
       {showBadge && (
         <Link
           to="/updates"
-          className="fade-in fixed bottom-[calc(40px+16px)] end-5 z-40 hidden items-center gap-3 rounded-[2px] border border-line-2 bg-surface px-3.5 py-2.5 text-ink shadow-panel md:flex"
+          className="fade-in fixed bottom-[calc(40px+16px)] end-5 z-40 hidden items-center gap-3 rounded-[var(--r-sm)] border border-line-2 bg-surface px-3.5 py-2.5 text-ink shadow-panel md:flex"
           aria-label={t("Update available: Ludex {version}", { version })}
         >
-          <span className="grid size-7 shrink-0 place-items-center rounded-[2px] border border-signal/50 bg-signal/12 text-signal-text">
+          <span className="grid size-7 shrink-0 place-items-center rounded-[var(--r-sm)] border border-signal/50 bg-signal/12 text-signal-text">
             <Download className="size-3.5" aria-hidden="true" />
           </span>
           <span className="min-w-0">
-            <span className="block text-[12px] font-medium leading-tight">{t("Update available")}</span>
-            <span className="num block text-[10.5px] leading-tight text-ink-3">{version}</span>
+            <span className="block text-label font-medium leading-tight">{t("Update available")}</span>
+            <span className="num block text-micro leading-tight text-ink-3">{version}</span>
           </span>
           <ArrowRight className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
         </Link>
@@ -371,7 +371,7 @@ export function UpdateNotifier() {
       >
         {available && (
           <>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-3">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-micro uppercase tracking-[0.12em] text-ink-3">
               <span>{t("Installed {version}", { version: available.currentVersion })}</span>
               {available.publishedAt && (
                 <>
@@ -395,15 +395,15 @@ export function UpdateNotifier() {
             {installing && (
               <div className="mt-5 border border-line bg-surface/60 p-3.5">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="text-[12px] text-ink-2">{t("Downloading and installing")}</p>
-                  <p className="num text-[10.5px] text-ink-3">
+                  <p className="text-label text-ink-2">{t("Downloading and installing")}</p>
+                  <p className="num text-micro text-ink-3">
                     {progress?.percent !== null && progress?.percent !== undefined
                       ? `${Math.round(progress.percent)}%`
                       : t("Starting")}
                   </p>
                 </div>
                 <Progress value={progress?.percent ?? null} label={t("Update download")} className="mt-3" />
-                <p className="num mt-2 text-[10.5px] text-ink-3">
+                <p className="num mt-2 text-micro text-ink-3">
                   {formatBytes(progress?.downloaded ?? 0)}
                   {progress?.total ? ` / ${formatBytes(progress.total)}` : ""}
                   {progress?.speedBps ? ` · ${formatSpeed(progress.speedBps)}` : ""}
@@ -412,17 +412,17 @@ export function UpdateNotifier() {
             )}
 
             {error && !installing && (
-              <p className="mt-4 border border-danger/45 bg-danger/10 p-3 text-[12px] leading-relaxed text-danger" role="alert">
+              <p className="mt-4 border border-danger/45 bg-danger/10 p-3 text-label leading-relaxed text-danger" role="alert">
                 {error}
               </p>
             )}
 
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-              <ExternalAnchor href={available.releaseUrl} className="text-[12px]">
+              <ExternalAnchor href={available.releaseUrl} className="text-label">
                 {t("Release page")}
                 <ArrowRight className="size-3.5" aria-hidden="true" />
               </ExternalAnchor>
-              <span className="text-[11px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 {t("Signed build. Game files are never part of an app update.")}
               </span>
             </div>

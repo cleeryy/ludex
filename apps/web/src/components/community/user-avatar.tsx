@@ -37,7 +37,7 @@ export function UserAvatar({
         decoding="async"
         loading="lazy"
         style={{ width: size, height: size }}
-        className={cn("shrink-0 rounded-[2px] border border-line-2 object-cover", className)}
+        className={cn("shrink-0 rounded-[var(--r-sm)] border border-line-2 object-cover", className)}
       />
     );
   }
@@ -46,7 +46,7 @@ export function UserAvatar({
       aria-hidden="true"
       style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.36)) }}
       className={cn(
-        "grid shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-ink",
+        "grid shrink-0 place-items-center rounded-[var(--r-sm)] border border-line-2 bg-surface-2 font-mono text-ink",
         className,
       )}
     >

@@ -138,7 +138,7 @@ export function SaveManifestPanel({
       />
       <div className="border-t border-line pt-4">
         {status.isError && (
-          <p role="alert" className="mb-3 text-[12.5px] text-danger">
+          <p role="alert" className="mb-3 text-label text-danger">
             {t("The save database status did not load.")} {errorMessage(status.error)}
           </p>
         )}
@@ -155,41 +155,41 @@ export function SaveManifestPanel({
                     ? t("Cached, last check failed")
                     : t("Not downloaded")}
           </Badge>
-          <span className="text-[12px] text-ink-3">{data?.message ?? t("Checking…")}</span>
+          <span className="text-label text-ink-3">{data?.message ?? t("Checking…")}</span>
         </div>
 
         {data?.error && (
-          <p role="status" className="mt-2 max-w-[86ch] border-l-2 border-line-2 pl-3 text-[11px] leading-relaxed text-ink-3">
+          <p role="status" className="mt-2 max-w-[86ch] border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
             {data.error}
           </p>
         )}
 
         <dl className="mt-4 grid gap-x-8 gap-y-2 sm:grid-cols-2">
           <div className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-            <dt className="shrink-0 text-[12px] text-ink-3">{t("Version")}</dt>
-            <dd className="truncate font-mono text-[10.5px] text-ink-2">{version || t("Unknown")}</dd>
+            <dt className="shrink-0 text-label text-ink-3">{t("Version")}</dt>
+            <dd className="truncate font-mono text-micro text-ink-2">{version || t("Unknown")}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-            <dt className="shrink-0 text-[12px] text-ink-3">{t("Last updated")}</dt>
-            <dd className="text-[11.5px] text-ink-2">{lastUpdated}</dd>
+            <dt className="shrink-0 text-label text-ink-3">{t("Last updated")}</dt>
+            <dd className="text-meta text-ink-2">{lastUpdated}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-            <dt className="shrink-0 text-[12px] text-ink-3">{t("Last checked")}</dt>
-            <dd className="text-[11.5px] text-ink-2">{lastChecked}</dd>
+            <dt className="shrink-0 text-label text-ink-3">{t("Last checked")}</dt>
+            <dd className="text-meta text-ink-2">{lastChecked}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-            <dt className="shrink-0 text-[12px] text-ink-3">{t("Size")}</dt>
-            <dd className="text-[11.5px] text-ink-2">{size}</dd>
+            <dt className="shrink-0 text-label text-ink-3">{t("Size")}</dt>
+            <dd className="text-meta text-ink-2">{size}</dd>
           </div>
         </dl>
 
         {data?.path && (
-          <p className="mt-3 truncate font-mono text-[10.5px] text-ink-3" title={data.path}>
+          <p className="mt-3 truncate font-mono text-micro text-ink-3" title={data.path}>
             {data.path}
           </p>
         )}
         {data?.source && (
-          <p className="mt-1 flex items-center gap-1.5 truncate font-mono text-[10.5px] text-ink-3" title={data.source}>
+          <p className="mt-1 flex items-center gap-1.5 truncate font-mono text-micro text-ink-3" title={data.source}>
             <ExternalLink className="size-3 shrink-0" aria-hidden />
             {data.source}
           </p>
@@ -197,8 +197,8 @@ export function SaveManifestPanel({
 
         <div className="mt-5 flex flex-wrap items-start justify-between gap-4 border-t border-line pt-4">
           <div>
-            <p className="text-[13px] font-medium text-ink">{t("Download updates automatically")}</p>
-            <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-body font-medium text-ink">{t("Download updates automatically")}</p>
+            <p className="mt-1 max-w-[62ch] text-meta leading-relaxed text-ink-3">
               {t("Checks at most once per day at startup and keeps the cached copy when the download fails. Turn this off to update only from this page.")}
             </p>
           </div>
@@ -211,44 +211,44 @@ export function SaveManifestPanel({
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Download URL")}</span>
+            <span className="text-label text-ink-2">{t("Download URL")}</span>
             <Input
               value={draft.ludusaviManifestUrl}
               placeholder="https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/data/data/manifest.yaml"
               onChange={(event) => update({ ludusaviManifestUrl: event.target.value })}
-              className="h-10 font-mono text-[11px]"
+              className="h-10 font-mono text-meta"
             />
-            <span className="text-[10.5px] leading-relaxed text-ink-3">
+            <span className="text-micro leading-relaxed text-ink-3">
               {t("Leave empty for the official manifest. A mirror or pinned copy must serve the same manifest.yaml. Save the settings before updating.")}
             </span>
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Manifest path override")}</span>
+            <span className="text-label text-ink-2">{t("Manifest path override")}</span>
             <Input
               value={draft.ludusaviManifestPath}
               placeholder={t("Detected automatically")}
               onChange={(event) => update({ ludusaviManifestPath: event.target.value })}
-              className="h-10 font-mono text-[11px]"
+              className="h-10 font-mono text-meta"
             />
-            <span className="text-[10.5px] leading-relaxed text-ink-3">
+            <span className="text-micro leading-relaxed text-ink-3">
               {t("A file you point at wins over the managed copy. Leave empty to use the downloaded database, then a Ludusavi install.")}
             </span>
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Ludusavi binary (optional)")}</span>
+            <span className="text-label text-ink-2">{t("Ludusavi binary (optional)")}</span>
             <Input
               value={draft.ludusaviBinary}
               placeholder={t("Looked up on PATH")}
               onChange={(event) => update({ ludusaviBinary: event.target.value })}
-              className="h-10 font-mono text-[11px]"
+              className="h-10 font-mono text-meta"
             />
-            <span className="text-[10.5px] leading-relaxed text-ink-3">
+            <span className="text-micro leading-relaxed text-ink-3">
               {t("Advanced: a Ludusavi CLI can preview saves with its own rules. It is only asked when the manifest lists nothing.")}
             </span>
           </label>
         </div>
 
-        <p className="mt-4 max-w-[86ch] border-l-2 border-line-2 pl-3 text-[11px] leading-relaxed text-ink-3">
+        <p className="mt-4 max-w-[86ch] border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
           {t("The save database comes from the Ludusavi manifest (MIT), which is built from PCGamingWiki data (CC BY-NC-SA). Ludex downloads it at runtime, never bundles it and never sends it to your server. Saves stay on this machine unless you upload a snapshot.")}
         </p>
       </div>

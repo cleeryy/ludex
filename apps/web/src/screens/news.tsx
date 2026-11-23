@@ -68,17 +68,17 @@ export function NewsScreen() {
                 className="grid grid-cols-1 gap-x-8 gap-y-2 border-t border-line py-7 first:border-t-0 first:pt-0 sm:grid-cols-[120px_1fr]"
               >
                 <div className="flex flex-col gap-1 pt-1">
-                  <time dateTime={post.createdAt} className="num text-[11px] text-ink-3">
+                  <time dateTime={post.createdAt} className="num text-meta text-ink-3">
                     {formatDate(post.createdAt)}
                   </time>
-                  <span className="text-[11.5px] text-ink-3">{post.author}</span>
+                  <span className="text-meta text-ink-3">{post.author}</span>
                   {index === 0 && <span className="mt-1 h-px w-5 bg-signal" aria-hidden="true" />}
                 </div>
                 <div>
-                  <h2 className="text-[24px] font-semibold leading-tight tracking-[-0.025em]">{post.title}</h2>
+                  <h2 className="text-title font-semibold leading-tight tracking-[-0.025em]">{post.title}</h2>
                   <div className="mt-3 flex flex-col gap-3">
                     {post.body.split("\n\n").map((paragraph, i) => (
-                      <p key={i} className="measure text-[14px] leading-relaxed text-ink-2">
+                      <p key={i} className="measure text-body leading-relaxed text-ink-2">
                         {paragraph}
                       </p>
                     ))}

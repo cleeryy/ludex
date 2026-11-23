@@ -64,7 +64,7 @@ function Elapsed({ active }: { active: boolean }) {
     const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
-  return <span className="num text-[11.5px] text-ink-3">{t("{seconds}s", { seconds })}</span>;
+  return <span className="num text-meta text-ink-3">{t("{seconds}s", { seconds })}</span>;
 }
 
 export function BackupsScreen() {
@@ -161,7 +161,7 @@ export function BackupsScreen() {
           <>
             <span>{t("{count} archives", { count: entries.length })}</span>
             {backups.data && (
-              <code className="truncate font-mono text-[11px] text-ink-2">{backups.data.directory}</code>
+              <code className="truncate font-mono text-meta text-ink-2">{backups.data.directory}</code>
             )}
             {USING_MOCKS && <Badge tone="outline">{t("Demo data")}</Badge>}
           </>
@@ -183,7 +183,7 @@ export function BackupsScreen() {
       {restored && (
         <div className="mt-6 flex items-start gap-3 border border-signal/40 bg-signal/10 px-4 py-3">
           <RotateCcw className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
-          <div className="text-[12.5px] leading-relaxed text-ink-2">
+          <div className="text-label leading-relaxed text-ink-2">
             <p className="font-medium text-ink">{t("Restore complete — restart the server")}</p>
             <p className="mt-1">
               {t(
@@ -191,7 +191,7 @@ export function BackupsScreen() {
               )}{" "}
               {restored.safetyBackup && (
                 <>
-                  {t("Safety copy:")} <code className="font-mono text-[11px]">{restored.safetyBackup}</code>.
+                  {t("Safety copy:")} <code className="font-mono text-meta">{restored.safetyBackup}</code>.
                 </>
               )}
             </p>
@@ -214,8 +214,8 @@ export function BackupsScreen() {
         {!backups.isPending && entries.length === 0 && (
           <div className="border border-dashed border-line-2 px-6 py-10 text-center">
             <Archive className="mx-auto size-6 text-ink-3" aria-hidden="true" />
-            <p className="mt-3 text-[14px] font-medium">{t("No backups yet")}</p>
-            <p className="mt-1 text-[12.5px] text-ink-3">
+            <p className="mt-3 text-body font-medium">{t("No backups yet")}</p>
+            <p className="mt-1 text-label text-ink-3">
               {t("Create one before a risky operation, then verify and download a copy.")}
             </p>
             <Button
@@ -230,15 +230,15 @@ export function BackupsScreen() {
         )}
 
         {entries.length > 0 && (
-          <div className="border border-line">
+          <div className="overflow-hidden rounded-[var(--r-md)] border border-line bg-surface">
             {entries.map((entry) => (
-              <div key={entry.name} className="border-b border-line p-4 last:border-b-0">
+              <div key={entry.name} className="border-b border-line p-4 transition-colors last:border-b-0 hover:bg-surface-2">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-mono text-[12.5px] text-ink" title={entry.name}>
+                    <p className="truncate font-mono text-label text-ink" title={entry.name}>
                       {entry.name}
                     </p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-ink-3">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-3">
                       <Badge tone="outline">{kindLabel(entry.kind)}</Badge>
                       <Badge tone={VERIFICATION_TONE[entry.verification.state]}>
                         {verificationLabel(entry.verification.state)}
@@ -252,7 +252,7 @@ export function BackupsScreen() {
                       )}
                     </div>
                     {entry.verification.state === "failed" && entry.verification.message && (
-                      <p className="mt-2 flex items-start gap-2 text-[11.5px] text-danger">
+                      <p className="mt-2 flex items-start gap-2 text-meta text-danger">
                         <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                         <span className="break-all">{entry.verification.message}</span>
                       </p>
@@ -296,7 +296,7 @@ export function BackupsScreen() {
                   </div>
                 </div>
                 {entry.verification.state === "verified" && (
-                  <p className="mt-2 text-[11.5px] text-ink-3">
+                  <p className="mt-2 text-meta text-ink-3">
                     {t("Contains {games} games, {versions} versions and {users} users.", {
                       games: entry.verification.games ?? 0,
                       versions: entry.verification.versions ?? 0,
@@ -313,7 +313,7 @@ export function BackupsScreen() {
       <section className="mt-10 grid gap-8 lg:grid-cols-2">
         <div>
           <SectionHeader title={t("What is archived")} />
-          <ul className="flex flex-col gap-3 border-t border-line pt-4 text-[13px] leading-relaxed text-ink-2">
+          <ul className="flex flex-col gap-3 border-t border-line pt-4 text-body leading-relaxed text-ink-2">
             <li>{t("The SQLite database, copied with VACUUM INTO for a consistent snapshot.")}</li>
             <li>{t("Cloud save snapshots and, unless disabled, the media cache.")}</li>
             <li>{t("A manifest with SHA-256 checksums, versions and row counters.")}</li>
@@ -322,7 +322,7 @@ export function BackupsScreen() {
         </div>
         <div>
           <SectionHeader title={t("Restoring")} />
-          <ul className="flex flex-col gap-3 border-t border-line pt-4 text-[13px] leading-relaxed text-ink-2">
+          <ul className="flex flex-col gap-3 border-t border-line pt-4 text-body leading-relaxed text-ink-2">
             <li>{t("A dry-run preview verifies every checksum before anything is written.")}</li>
             <li>{t("A real restore requires typing the archive name and creates a safety copy first.")}</li>
             <li>{t("Restores are refused while a library scan is running.")}</li>
@@ -365,8 +365,8 @@ export function BackupsScreen() {
         <div className="flex flex-col gap-5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[13px] font-medium">{t("Include media cache")}</p>
-              <p className="mt-0.5 text-[11.5px] text-ink-3">
+              <p className="text-body font-medium">{t("Include media cache")}</p>
+              <p className="mt-0.5 text-meta text-ink-3">
                 {t("Covers, backgrounds and screenshots. Disable for a smaller archive.")}
               </p>
             </div>
@@ -379,8 +379,8 @@ export function BackupsScreen() {
           </div>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[13px] font-medium">{t("Upload to S3")}</p>
-              <p className="mt-0.5 text-[11.5px] text-ink-3">
+              <p className="text-body font-medium">{t("Upload to S3")}</p>
+              <p className="mt-0.5 text-meta text-ink-3">
                 {t("Uses the configured archive storage; requires the S3 backend.")}
               </p>
             </div>
@@ -394,13 +394,13 @@ export function BackupsScreen() {
           {create.isPending && (
             <div className="flex flex-col gap-2 border border-line p-3">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[12px] text-ink-2">
+                <span className="text-label text-ink-2">
                   {create.variables === true ? t("Measuring the archive…") : t("Writing the archive…")}
                 </span>
                 <Elapsed active={create.isPending} />
               </div>
               <Progress value={null} label={t("Backup in progress")} />
-              <p className="text-[11px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 {t("Large media caches take a while; the server keeps serving requests.")}
               </p>
             </div>
@@ -507,7 +507,7 @@ function RestoreDialog({
       <div className="flex flex-col gap-5">
         <div className="flex items-start gap-3 border border-danger/40 bg-danger/10 px-3 py-2.5">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
-          <p className="text-[12px] leading-relaxed text-ink-2">
+          <p className="text-label leading-relaxed text-ink-2">
             {t(
               "A safety copy is written to the backup directory before the database is replaced. Restart the server afterwards.",
             )}
@@ -534,8 +534,8 @@ function RestoreDialog({
               ] as const
             ).map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-                <dt className="text-[11.5px] text-ink-3">{label}</dt>
-                <dd className="num text-[12px] text-ink-2">{value}</dd>
+                <dt className="text-meta text-ink-3">{label}</dt>
+                <dd className="num text-label text-ink-2">{value}</dd>
               </div>
             ))}
           </dl>
@@ -561,7 +561,7 @@ function RestoreDialog({
         {restore.isPending && (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[12px] text-ink-2">{t("Restoring…")}</span>
+              <span className="text-label text-ink-2">{t("Restoring…")}</span>
               <Elapsed active={restore.isPending} />
             </div>
             <Progress value={null} label={t("Restore in progress")} />

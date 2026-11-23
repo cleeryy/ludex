@@ -512,12 +512,12 @@ export function CloudSavesPanel({
                 )}
               </span>
               <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-x-2 text-[13px] font-medium text-ink">
+                <p className="flex flex-wrap items-center gap-x-2 text-body font-medium text-ink">
                   Automatic backup
                   {native && status && (
                     <span
                       className={cn(
-                        "font-mono text-[9.5px] uppercase tracking-[0.08em]",
+                        "text-micro uppercase tracking-[0.08em]",
                         status.toggle.enabled ? "text-signal-text" : "text-ink-3",
                       )}
                     >
@@ -525,7 +525,7 @@ export function CloudSavesPanel({
                     </span>
                   )}
                 </p>
-                <p className="mt-0.5 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+                <p className="mt-0.5 max-w-[62ch] text-meta leading-relaxed text-ink-3">
                   {native
                     ? status
                       ? cloudSaveReasonText(status.toggle)
@@ -546,7 +546,7 @@ export function CloudSavesPanel({
 
           {native && (cloud.isPending || searching) && (
             <div className="mt-4 flex flex-col gap-2">
-              <p className="text-[11.5px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 {searching ? t("Searching for save folders…") : t("Reading the save folder status…")}
               </p>
               <Skeleton className="h-8 w-3/4" />
@@ -556,7 +556,7 @@ export function CloudSavesPanel({
 
           {native && cloud.isError && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2" role="alert">
-              <p className="text-[12.5px] text-ink-2">Cloud save status did not load. {errorMessage(cloud.error)}</p>
+              <p className="text-label text-ink-2">Cloud save status did not load. {errorMessage(cloud.error)}</p>
               <Button variant="ghost" size="sm" disabled={retryBlocked} onClick={retryStatus}>
                 {t("Try again")}
               </Button>
@@ -566,7 +566,7 @@ export function CloudSavesPanel({
           {native && status && (
             <>
               {!status.serverConfigured && (
-                <p className="mt-3 border-l-2 border-line-2 pl-3 text-[12px] leading-relaxed text-ink-3">
+                <p className="mt-3 border-l-2 border-line-2 pl-3 text-label leading-relaxed text-ink-3">
                   Connect the desktop app to your Ludex server to upload and restore snapshots.
                 </p>
               )}
@@ -596,18 +596,18 @@ export function CloudSavesPanel({
                           )}
                           aria-hidden="true"
                         />
-                        <span className="text-[12px] text-ink">{label}</span>
+                        <span className="text-label text-ink">{label}</span>
                         {folder.status === "skipped" && folder.reason && (
-                          <span className="text-[11px] text-ink-3">{folder.reason}</span>
+                          <span className="text-meta text-ink-3">{folder.reason}</span>
                         )}
                         <span
-                          className="min-w-0 flex-1 truncate text-right font-mono text-[10.5px] text-ink-3"
+                          className="min-w-0 flex-1 truncate text-right font-mono text-micro text-ink-3"
                           title={folder.path}
                         >
                           {folder.path}
                         </span>
                         {folder.sizeBytes > 0 && (
-                          <span className="font-mono text-[10.5px] text-ink-3">
+                          <span className="font-mono text-micro text-ink-3">
                             {formatBytes(folder.sizeBytes)}
                           </span>
                         )}
@@ -626,7 +626,7 @@ export function CloudSavesPanel({
                 </ul>
               )}
 
-              <dl className="mt-4 grid gap-x-8 gap-y-2 font-mono text-[10.5px] text-ink-3 sm:grid-cols-2">
+              <dl className="mt-4 grid gap-x-8 gap-y-2 font-mono text-micro text-ink-3 sm:grid-cols-2">
                 <div className="flex min-w-0 items-baseline justify-between gap-3 border-b border-line/60 pb-1.5">
                   <dt>Last backup</dt>
                   <dd className="truncate text-ink-2" title={status.latest?.createdAt}>
@@ -664,7 +664,7 @@ export function CloudSavesPanel({
               {status.pending.pending && status.pending.error && (
                 <div className="mt-3 flex items-start gap-2 border-l-2 border-warning/60 pl-3" role="status">
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
-                  <p className="text-[12px] leading-relaxed text-ink-2">
+                  <p className="text-label leading-relaxed text-ink-2">
                     {status.pending.error}
                     {status.pending.nextAttemptAt && (
                       <span className="text-ink-3"> Retrying after {formatDate(status.pending.nextAttemptAt)}.</span>
@@ -674,16 +674,16 @@ export function CloudSavesPanel({
               )}
 
               {status.message && !status.pending.error && (
-                <p className="mt-3 whitespace-pre-line text-[12px] leading-relaxed text-ink-3">{status.message}</p>
+                <p className="mt-3 whitespace-pre-line text-label leading-relaxed text-ink-3">{status.message}</p>
               )}
 
               {conflict && (
                 <div className="mt-4 border border-warning/40 bg-warning/[0.05] px-3 py-3">
-                  <p className="flex items-center gap-2 text-[12.5px] font-medium text-ink">
+                  <p className="flex items-center gap-2 text-label font-medium text-ink">
                     <AlertTriangle className="size-3.5 text-warning" aria-hidden="true" />
                     Local and server saves both changed
                   </p>
-                  <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-2">
+                  <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-2">
                     The local files are newer than the last upload from this machine, and the newest server snapshot is
                     different. Keeping local uploads it as a new snapshot; restoring the server copy writes a local
                     backup first.
@@ -711,8 +711,8 @@ export function CloudSavesPanel({
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line/70 pt-3">
                 <div className="min-w-0">
-                  <p className="text-[12px] text-ink">{t("When both devices changed")}</p>
-                  <p className="mt-0.5 max-w-[58ch] text-[11.5px] leading-relaxed text-ink-3">
+                  <p className="text-label text-ink">{t("When both devices changed")}</p>
+                  <p className="mt-0.5 max-w-[58ch] text-meta leading-relaxed text-ink-3">
                     {t("Ludex never overwrites: the losing save is kept as a restore point.")}
                   </p>
                 </div>
@@ -789,15 +789,15 @@ export function CloudSavesPanel({
               <span className="flex min-w-0 items-center gap-3">
                 <FileArchive className="size-4 shrink-0 text-ink-3 transition-colors group-hover:text-ink-2" aria-hidden="true" />
                 <span className="min-w-0">
-                  <span className="block truncate text-[13px] text-ink">
+                  <span className="block truncate text-body text-ink">
                     {file ? file.name : t("Choose a .zip archive")}
                   </span>
-                  <span className="mt-0.5 block font-mono text-[10.5px] text-ink-3">
+                  <span className="mt-0.5 block font-mono text-micro text-ink-3">
                     {file ? `${formatBytes(file.size)} · ready to upload` : t("Drag it here or browse · up to 2 GiB")}
                   </span>
                 </span>
               </span>
-              <span className="shrink-0 text-[12px] text-ink-2 underline-offset-4 group-hover:text-ink group-hover:underline">
+              <span className="shrink-0 text-label text-ink-2 underline-offset-4 group-hover:text-ink group-hover:underline">
                 {file ? t("Change") : t("Browse")}
               </span>
             </label>
@@ -812,7 +812,7 @@ export function CloudSavesPanel({
                   disabled={uploading}
                   onChange={(event) => setLabel(event.target.value)}
                   placeholder={t("Label (optional) — e.g. Before the final boss")}
-                  className="h-10 text-[13px]"
+                  className="h-10 text-body"
                 />
               </label>
               <Button
@@ -828,7 +828,7 @@ export function CloudSavesPanel({
             {uploading && (
               <div aria-busy="true">
                 <Progress value={pct} label={t("Save upload progress")} />
-                <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
+                <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-micro text-ink-3">
                   <span className="text-ink-2">{t("Uploading")}</span>
                   {pct !== null && <span>{formatPercent(pct)}</span>}
                   {progress && (
@@ -849,7 +849,7 @@ export function CloudSavesPanel({
           </div>
         ) : saves.isError ? (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line py-5" role="alert">
-            <p className="text-[13px] text-ink-2">{t("Cloud saves didn’t load.")} {errorMessage(saves.error)}</p>
+            <p className="text-body text-ink-2">{t("Cloud saves didn’t load.")} {errorMessage(saves.error)}</p>
             <Button variant="default" size="sm" onClick={() => void saves.refetch()}>
               {t("Try again")}
             </Button>
@@ -875,7 +875,7 @@ export function CloudSavesPanel({
                 </Button>
               )}
             </EmptyState>
-            <p className="measure font-mono text-[10.5px] leading-relaxed text-ink-3">
+            <p className="measure font-mono text-micro leading-relaxed text-ink-3">
               {native
                 ? t("Launch the game once, then Sync now to create the first automatic snapshot.")
                 : t("Automatic snapshots are created by the desktop app after each session.")}
@@ -889,20 +889,20 @@ export function CloudSavesPanel({
                 className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line py-3"
               >
                 <div className="min-w-0">
-                  <p className="flex items-center gap-2 truncate text-[13.5px] text-ink">
+                  <p className="flex items-center gap-2 truncate text-body text-ink">
                     <span className="truncate">{snapshot.label}</span>
                     {snapshot.source === "auto" && (
-                      <span className="shrink-0 border border-line-2 px-1 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">
+                      <span className="shrink-0 border border-line-2 px-1 py-0.5 text-micro uppercase tracking-[0.06em] text-ink-3">
                         auto
                       </span>
                     )}
                     {index === 0 && (
-                      <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em] text-signal-text">
+                      <span className="shrink-0 text-micro uppercase tracking-[0.08em] text-signal-text">
                         {t("latest")}
                       </span>
                     )}
                   </p>
-                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
                     <span className="truncate">{snapshot.fileName}</span>
                     <span className="num">{formatBytes(snapshot.size)}</span>
                     <span title={new Date(snapshot.createdAt).toLocaleString("en-GB")}>
@@ -936,7 +936,7 @@ export function CloudSavesPanel({
                 </div>
               </div>
             ))}
-            <p className="pt-3 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="pt-3 text-meta leading-relaxed text-ink-3">
               {t("Snapshots are private to your account and stored as-is; the server never opens them.")}
             </p>
           </div>
@@ -961,11 +961,11 @@ export function CloudSavesPanel({
         }
       >
         <label className="flex flex-col gap-1.5">
-          <span className="text-[12px] text-ink-2">{t("Save folder")}</span>
+          <span className="text-label text-ink-2">{t("Save folder")}</span>
           <Input
             value={choosePath}
             onChange={(event) => setChoosePath(event.target.value)}
-            className="h-10 font-mono text-[12px]"
+            className="h-10 font-mono text-label"
             aria-label={t("Save folder")}
             placeholder={chooseTarget ?? ""}
           />
@@ -1028,7 +1028,7 @@ export function CloudSavesPanel({
       >
         {conflict && (
           <div className="flex flex-col gap-3">
-            <p className="text-[12.5px] leading-relaxed text-ink-2">
+            <p className="text-label leading-relaxed text-ink-2">
               {conflict.reason === "clock_skew"
                 ? t("One device's clock is too far from the server to order the saves safely.")
                 : conflict.reason === "counter_diverged"
@@ -1036,7 +1036,7 @@ export function CloudSavesPanel({
                   : t("Both sides were played since the last sync.")}
             </p>
             {Math.abs(conflict.clockOffsetSecs) > 300 && (
-              <p className="border-l-2 border-warning/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+              <p className="border-l-2 border-warning/60 pl-3 text-meta leading-relaxed text-ink-2">
                 {t("This device's clock is {minutes} minutes away from the server. The server time decides save order.", {
                   minutes: Math.max(1, Math.round(Math.abs(conflict.clockOffsetSecs) / 60)),
                 })}
@@ -1044,13 +1044,13 @@ export function CloudSavesPanel({
             )}
             <div className="grid gap-3 sm:grid-cols-2">
               <section className="border border-line px-3 py-2.5" aria-label={t("This device")}>
-                <p className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">
+                <p className="text-micro uppercase tracking-[0.08em] text-ink-3">
                   {t("This device")}
                 </p>
-                <p className="mt-1 truncate text-[13px] text-ink">
+                <p className="mt-1 truncate text-body text-ink">
                   {conflict.localDeviceLabel ?? t("This machine")}
                 </p>
-                <dl className="mt-2 flex flex-col gap-1 text-[11.5px] text-ink-2">
+                <dl className="mt-2 flex flex-col gap-1 text-meta text-ink-2">
                   <div className="flex items-baseline justify-between gap-2">
                     <dt>{t("Files")}</dt>
                     <dd className="num">{conflict.localFiles}</dd>
@@ -1061,40 +1061,40 @@ export function CloudSavesPanel({
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
                     <dt>{t("Modified")}</dt>
-                    <dd className="font-mono text-[10.5px]" title={conflict.localNewestMtime ?? undefined}>
+                    <dd className="font-mono text-micro" title={conflict.localNewestMtime ?? undefined}>
                       {conflict.localNewestMtime ? formatDate(conflict.localNewestMtime) : t("Unknown")}
                     </dd>
                   </div>
                 </dl>
               </section>
               <section className="border border-line px-3 py-2.5" aria-label={t("Server copy")}>
-                <p className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">
+                <p className="text-micro uppercase tracking-[0.08em] text-ink-3">
                   {t("Server copy")}
                 </p>
-                <p className="mt-1 truncate text-[13px] text-ink" title={conflict.remoteLabel}>
+                <p className="mt-1 truncate text-body text-ink" title={conflict.remoteLabel}>
                   {conflict.remoteLabel || t("Save snapshot")}
                 </p>
-                <dl className="mt-2 flex flex-col gap-1 text-[11.5px] text-ink-2">
+                <dl className="mt-2 flex flex-col gap-1 text-meta text-ink-2">
                   <div className="flex items-baseline justify-between gap-2">
                     <dt>{t("Size")}</dt>
                     <dd className="num">{formatBytes(conflict.remoteSize)}</dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
                     <dt>{t("Created")}</dt>
-                    <dd className="font-mono text-[10.5px]" title={conflict.remoteCreatedAt}>
+                    <dd className="font-mono text-micro" title={conflict.remoteCreatedAt}>
                       {formatDate(conflict.remoteCreatedAt)}
                     </dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
                     <dt>{t("Device")}</dt>
-                    <dd className="truncate font-mono text-[10.5px]">
+                    <dd className="truncate font-mono text-micro">
                       {shortDeviceId(conflict.remoteDeviceId)}
                     </dd>
                   </div>
                 </dl>
               </section>
             </div>
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               {t("Both archives stay on the server: the side you do not pick is kept as a restore point.")}
             </p>
           </div>

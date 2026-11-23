@@ -69,23 +69,23 @@ export function ControllerPicker({ gameId }: { gameId: number }) {
   return (
     <div className="mt-6 border-t border-line pt-4">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <p className="text-[13px] font-medium text-ink">{t("Controllers")}</p>
+        <p className="text-body font-medium text-ink">{t("Controllers")}</p>
         <Badge tone={selected ? "signal" : "outline"}>
           {selected ? t("Preferred") : t("Host order")}
         </Badge>
       </div>
-      <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
         {t(
           "Games read controller 0 first. When a wheel or an extra pad comes first, the game can bind the wrong device. Pick the pad below: Ludex hides the other joysticks from SDL for this game only.",
         )}
       </p>
 
       {query.isError ? (
-        <p className="mt-3 border-l-2 border-danger/60 pl-3 text-[12px] leading-relaxed text-ink-2">
+        <p className="mt-3 border-l-2 border-danger/60 pl-3 text-label leading-relaxed text-ink-2">
           {errorMessage(query.error)}
         </p>
       ) : !data ? (
-        <p className="mt-3 text-[12px] text-ink-3">{t("Reading the input devices…")}</p>
+        <p className="mt-3 text-label text-ink-3">{t("Reading the input devices…")}</p>
       ) : (
         <fieldset className="mt-3" disabled={saving}>
           <legend className="sr-only">{t("Preferred controller")}</legend>
@@ -118,10 +118,10 @@ export function ControllerPicker({ gameId }: { gameId: number }) {
                       <Badge tone={device.role === "wheel" ? "signal" : "outline"}>
                         {roleLabel(device.role)}
                       </Badge>
-                      <span className="font-mono text-[10.5px] text-ink-3">
+                      <span className="font-mono text-micro text-ink-3">
                         {device.deviceId ?? "—"}
                       </span>
-                      <span className="font-mono text-[10.5px] text-ink-3">
+                      <span className="font-mono text-micro text-ink-3">
                         {device.jsIndex !== null
                           ? `js${device.jsIndex}`
                           : device.eventIndex !== null
@@ -139,17 +139,17 @@ export function ControllerPicker({ gameId }: { gameId: number }) {
       )}
 
       {!data?.inventory.available && data ? (
-        <p className="mt-3 border-l-2 border-line pl-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-3 border-l-2 border-line pl-3 text-meta leading-relaxed text-ink-3">
           {data.inventory.note ?? t("The input device list is unavailable on this system.")}
         </p>
       ) : null}
 
       {joysticks.length === 0 && data?.inventory.available ? (
-        <p className="mt-3 text-[11.5px] text-ink-3">{t("No joystick detected.")}</p>
+        <p className="mt-3 text-meta text-ink-3">{t("No joystick detected.")}</p>
       ) : null}
 
       {data?.launch.warning ? (
-        <p className="mt-3 border-l-2 border-signal/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+        <p className="mt-3 border-l-2 border-signal/60 pl-3 text-meta leading-relaxed text-ink-2">
           {data.launch.warning}
         </p>
       ) : null}
@@ -158,16 +158,16 @@ export function ControllerPicker({ gameId }: { gameId: number }) {
 
       {env.length > 0 ? (
         <div className="mt-4">
-          <p className="text-[11px] font-medium text-ink-2">{t("Launch environment")}</p>
+          <p className="text-meta font-medium text-ink-2">{t("Launch environment")}</p>
           <dl className="mt-1.5 flex flex-col gap-1">
             {env.map(([key, value]) => (
-              <div key={key} className="flex flex-wrap items-baseline gap-1.5 font-mono text-[10.5px]">
+              <div key={key} className="flex flex-wrap items-baseline gap-1.5 font-mono text-micro">
                 <dt className="text-ink-3">{key}</dt>
                 <dd className="break-all text-ink-2">= {value}</dd>
               </div>
             ))}
           </dl>
-          <p className="mt-1.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-1.5 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t(
               "Wine and Proton receive these through SDL. A per-game environment override with the same name still wins.",
             )}
@@ -175,7 +175,7 @@ export function ControllerPicker({ gameId }: { gameId: number }) {
         </div>
       ) : null}
 
-      <p className="mt-3 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+      <p className="mt-3 max-w-[70ch] text-meta leading-relaxed text-ink-3">
         {t("Applies from the next launch. The overlay and Console mode keep using every pad.")}
       </p>
     </div>
@@ -202,7 +202,7 @@ function Choice({
   return (
     <label
       className={cn(
-        "flex cursor-pointer items-start gap-3 rounded-[3px] border px-3 py-2.5 transition-colors",
+        "flex cursor-pointer items-start gap-3 rounded-[var(--r-sm)] border px-3 py-2.5 transition-colors",
         checked ? "border-signal/50 bg-signal/12" : "border-line hover:border-line-2",
         disabled && "cursor-not-allowed opacity-55",
       )}
@@ -217,10 +217,10 @@ function Choice({
       />
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center justify-between gap-2">
-          <span className="truncate text-[12.5px] text-ink">{title}</span>
+          <span className="truncate text-label text-ink">{title}</span>
           {meta}
         </span>
-        <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-3">{description}</span>
+        <span className="mt-0.5 block text-meta leading-relaxed text-ink-3">{description}</span>
       </span>
     </label>
   );
@@ -287,28 +287,28 @@ function VirtualPadSection({ gameId, data }: { gameId: number; data: GameControl
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-ink-2">{t("Virtual gamepad")}</span>
+            <span className="text-label text-ink-2">{t("Virtual gamepad")}</span>
             <Badge tone={available ? "ok" : pad.status === "missingPermission" ? "signal" : "outline"}>
               {virtualPadStatusLabel(pad.status)}
             </Badge>
           </span>
-          <p className="mt-1 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t(
               "Ludex creates one virtual Xbox-style pad for this game, hides every physical pad from SDL and reads the preferred controller itself.",
             )}
           </p>
           {!available && (
-            <p className="mt-1.5 border-l-2 border-signal/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+            <p className="mt-1.5 border-l-2 border-signal/60 pl-3 text-meta leading-relaxed text-ink-2">
               {pad.detail}
             </p>
           )}
           {available && pad.source && (
-            <p className="mt-1.5 font-mono text-[10.5px] text-ink-3">
+            <p className="mt-1.5 font-mono text-micro text-ink-3">
               {tr("Reads {pad}", { pad: pad.source })}
             </p>
           )}
           {pad.warning && (
-            <p className="mt-1.5 border-l-2 border-signal/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+            <p className="mt-1.5 border-l-2 border-signal/60 pl-3 text-meta leading-relaxed text-ink-2">
               {pad.warning}
             </p>
           )}
@@ -320,7 +320,7 @@ function VirtualPadSection({ gameId, data }: { gameId: number; data: GameControl
           label={t("Virtual gamepad")}
         />
       </div>
-      <p className="mt-2 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+      <p className="mt-2 max-w-[70ch] text-meta leading-relaxed text-ink-3">
         {t(
           "Enable it for games that bind the wheel instead of the pad. It applies to the next launch; the overlay and Console mode keep using every pad.",
         )}

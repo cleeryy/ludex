@@ -101,7 +101,7 @@ export function ProfileScreen() {
     <div className="page page-in">
       <Link
         to="/community"
-        className="inline-flex h-8 items-center gap-2 text-[12.5px] text-ink-2 transition-colors hover:text-ink"
+        className="inline-flex h-8 items-center gap-2 text-label text-ink-2 transition-colors hover:text-ink"
       >
         <ArrowLeft className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
         {t("Community")}
@@ -136,7 +136,7 @@ export function ProfileScreen() {
       />
 
       {!data.user.publicProfile && own && (
-        <p className="mt-5 flex items-start gap-2 border-l-2 border-line-2 pl-3 text-[12px] leading-relaxed text-ink-3">
+        <p className="mt-5 flex items-start gap-2 border-l-2 border-line-2 pl-3 text-label leading-relaxed text-ink-3">
           <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           {t("Only you can see this page. Turn on the public profile in Settings to share your library and activity.")}
         </p>
@@ -157,7 +157,7 @@ export function ProfileScreen() {
           ) : incoming ? (
             <>
               <Badge tone="signal">{t("Wants to be friends")}</Badge>
-              <Link to="/community/friends" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+              <Link to="/community/friends" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
                 {t("Answer the request")}
               </Link>
             </>
@@ -178,8 +178,8 @@ export function ProfileScreen() {
           { label: t("Collections"), value: String(data.stats.collections) },
         ].map((stat) => (
           <div key={stat.label} className="border border-line bg-surface/40 p-3">
-            <p className="num text-[22px] leading-none text-ink">{stat.value}</p>
-            <p className="mt-2 text-[11.5px] text-ink-3">{stat.label}</p>
+            <p className="num text-title leading-none text-ink">{stat.value}</p>
+            <p className="mt-2 text-meta text-ink-3">{stat.label}</p>
           </div>
         ))}
       </section>
@@ -199,7 +199,7 @@ export function ProfileScreen() {
             description={own ? t("Start a game or bookmark one and it will appear here.") : `${display} has not recorded any progress yet.`}
           />
         ) : (
-          <div id="profile-library" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div id="profile-library" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {data.library.slice(0, 10).map((game) => (
               <GameCard
                 key={game.id}

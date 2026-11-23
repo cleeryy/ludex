@@ -67,15 +67,15 @@ export function AdminNewsScreen() {
         {data?.map((post) => (
           <div key={post.id} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line py-4">
             <div className="min-w-0">
-              <p className="truncate text-[14.5px] text-ink">{post.title}</p>
-              <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
+              <p className="truncate text-lead text-ink">{post.title}</p>
+              <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
                 <span>{formatDate(post.createdAt)}</span>
                 <span>{post.author}</span>
                 {post.updatedAt !== post.createdAt && <span>{t("edited")} {formatDate(post.updatedAt)}</span>}
               </p>
             </div>
             <div className="flex items-center gap-1">
-              <Link to="/news" className="mr-1 flex h-8 items-center gap-1 text-[12px] text-ink-3 hover:text-ink">
+              <Link to="/news" className="mr-1 flex h-8 items-center gap-1 text-label text-ink-3 hover:text-ink">
                 {t("View")}
                 <ArrowUpRight className="size-3" aria-hidden="true" />
               </Link>
@@ -192,7 +192,7 @@ function NewsEditor({
           <Textarea id="news-body" value={body} onChange={(event) => setBody(event.target.value)} rows={10} className="min-h-[220px]" />
         </Field>
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}

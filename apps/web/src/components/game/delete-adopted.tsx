@@ -135,24 +135,24 @@ export function DeleteAdoptedDialog({
       }
     >
       <div className="flex flex-col gap-4">
-        <p className="flex items-start gap-2 border-l-2 border-danger pl-3 text-[12px] leading-relaxed text-ink-2">
+        <p className="flex items-start gap-2 border-l-2 border-danger pl-3 text-label leading-relaxed text-ink-2">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
           {t("Adopted folders are not managed by Ludex: there is no archive to download again. To remove the entry but keep the files, use Remove from Ludex instead.")}
         </p>
 
-        {loading && <p className="text-[12.5px] text-ink-3">{t("Counting the files…")}</p>}
+        {loading && <p className="text-label text-ink-3">{t("Counting the files…")}</p>}
 
         {preview && (
-          <dl className="flex flex-col gap-1.5 text-[12px]">
+          <dl className="flex flex-col gap-1.5 text-label">
             <div className="flex items-baseline justify-between gap-4">
               <dt className="shrink-0 text-ink-3">{t("Folder")}</dt>
-              <dd className="truncate font-mono text-[11px] text-ink-2" title={preview.folder}>
+              <dd className="truncate font-mono text-meta text-ink-2" title={preview.folder}>
                 {preview.folder}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-4">
               <dt className="shrink-0 text-ink-3">{t("Size on disk")}</dt>
-              <dd className="num text-[12px] text-ink-2">
+              <dd className="num text-label text-ink-2">
                 {formatBytes(preview.sizeBytes)}
                 <span className="ml-2 text-ink-3">{tn(preview.fileCount, "1 file", "{count} files")}</span>
               </dd>
@@ -161,7 +161,7 @@ export function DeleteAdoptedDialog({
         )}
 
         {preview?.warnings.map((warning) => (
-          <p key={warning} className="text-[11.5px] leading-relaxed text-signal-text">
+          <p key={warning} className="text-meta leading-relaxed text-signal-text">
             {warning}
           </p>
         ))}
@@ -180,13 +180,13 @@ export function DeleteAdoptedDialog({
               spellCheck={false}
               autoComplete="off"
               disabled={deleting}
-              className="h-10 font-mono text-[12px]"
+              className="h-10 font-mono text-label"
             />
           </Field>
         )}
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}

@@ -232,9 +232,9 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
       />
       <div className="border-t border-line pt-4">
         {!view ? (
-          <p className="text-[12.5px] text-ink-3">{t("Reading the cache…")}</p>
+          <p className="text-label text-ink-3">{t("Reading the cache…")}</p>
         ) : !view.supported ? (
-          <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-2">
+          <p className="max-w-[70ch] text-label leading-relaxed text-ink-2">
             {t(
               "Shader preparation is only available on Linux, where DXVK, VKD3D-Proton and the Mesa drivers keep their caches in files Ludex can fill.",
             )}
@@ -243,8 +243,8 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
           <>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[12.5px] text-ink-2">{t("Prepare after install")}</p>
-                <p className="mt-0.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+                <p className="text-label text-ink-2">{t("Prepare after install")}</p>
+                <p className="mt-0.5 max-w-[70ch] text-meta leading-relaxed text-ink-3">
                   {t(
                     "Runs {title} once in the background after an install, then stops it once the caches stop growing. It never blocks the first launch, and a failure leaves the game untouched.",
                     { title },
@@ -261,14 +261,14 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.06em] text-ink-3">{t("Cache size")}</p>
-                <p className="num mt-1 text-[15px] text-ink">{formatBytes(view.cacheBytes)}</p>
+                <p className="text-meta uppercase tracking-[0.06em] text-ink-3">{t("Cache size")}</p>
+                <p className="num mt-1 text-lead text-ink">{formatBytes(view.cacheBytes)}</p>
               </div>
               <div>
-                <p className="text-[11px] uppercase tracking-[0.06em] text-ink-3">
+                <p className="text-meta uppercase tracking-[0.06em] text-ink-3">
                   {t("Last prepared")}
                 </p>
-                <p className="mt-1 text-[13px] text-ink">
+                <p className="mt-1 text-body text-ink">
                   {view.preparedAt ? formatRelative(view.preparedAt) : t("Never prepared")}
                 </p>
               </div>
@@ -284,7 +284,7 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
                   }
                   label={t("Preparing shaders…")}
                 />
-                <p className="mt-1.5 font-mono text-[10.5px] text-ink-3">
+                <p className="mt-1.5 font-mono text-micro text-ink-3">
                   {formatBytes(tick?.cacheBytes ?? view.cacheBytes)} ·{" "}
                   {formatDuration(Math.round((tick?.elapsedMs ?? 0) / 1000))} /{" "}
                   {formatDuration(view.budgetSecs)}
@@ -293,7 +293,7 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
             )}
 
             {view.message && (
-              <p className="mt-3 border-l-2 border-line-2 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+              <p className="mt-3 border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-2">
                 {view.message}
               </p>
             )}
@@ -323,7 +323,7 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
 
             <div className="mt-5 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1.5">
-                <span className="text-[12px] text-ink-3">{t("Time budget (seconds)")}</span>
+                <span className="text-label text-ink-3">{t("Time budget (seconds)")}</span>
                 <Input
                   type="number"
                   inputMode="numeric"
@@ -331,7 +331,7 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
                   max={900}
                   value={budget}
                   onChange={(event) => setBudget(event.target.value)}
-                  className="num h-10 w-28 font-mono text-[12px]"
+                  className="num h-10 w-28 font-mono text-label"
                   aria-label={t("Time budget (seconds)")}
                 />
               </label>
@@ -344,12 +344,12 @@ export function ShaderPrepPanel({ gameId, title }: { gameId: number; title: stri
               </Button>
             </div>
 
-            <p className="mt-3 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+            <p className="mt-3 max-w-[70ch] text-meta leading-relaxed text-ink-3">
               {t(
                 "No reliable headless precompile exists: the game may open a window while it warms up, and Ludex stops it after the caches stop growing or the budget ends. The game is always launchable, prepared or not.",
               )}
             </p>
-            <p className="mt-1 font-mono text-[10px] text-ink-3">{view.cachePath}</p>
+            <p className="mt-1 font-mono text-micro text-ink-3">{view.cachePath}</p>
           </>
         )}
       </div>
@@ -461,17 +461,17 @@ export function ShaderPrepJobs() {
               <div className="min-w-0">
                 <Link
                   to={`/games/${entry.gameId}`}
-                  className="text-[13.5px] font-medium text-ink underline-offset-4 hover:underline"
+                  className="text-body font-medium text-ink underline-offset-4 hover:underline"
                 >
                   {title}
                 </Link>
-                <p className="mt-0.5 font-mono text-[10.5px] text-ink-3">
+                <p className="mt-0.5 font-mono text-micro text-ink-3">
                   {formatBytes(entry.cacheBytes)}
                   {entry.preparedAt ? ` · ${formatRelative(entry.preparedAt)}` : ""}
                   {entry.state === "running" ? ` · ${t("preparing…")}` : ""}
                 </p>
                 {entry.state === "failed" && entry.message ? (
-                  <p className="mt-1 max-w-[60ch] text-[11px] leading-relaxed text-ink-2">
+                  <p className="mt-1 max-w-[60ch] text-meta leading-relaxed text-ink-2">
                     {entry.message}
                   </p>
                 ) : null}

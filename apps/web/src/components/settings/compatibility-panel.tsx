@@ -52,12 +52,12 @@ export function CompatibilityPanel({
       />
       <div className="border-t border-line pt-4">
         {scan.isError && (
-          <p role="alert" className="mb-3 text-[12.5px] text-danger">
+          <p role="alert" className="mb-3 text-label text-danger">
             {t("The compatibility scan failed. The desktop app reports the reason in its log.")}
           </p>
         )}
 
-        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 font-mono text-[10.5px] text-ink-3">
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 font-mono text-micro text-ink-3">
           <span>{scan.data?.platform ?? t("detecting…")}</span>
           {scan.data?.linux && <span>{t("Linux compatibility active")}</span>}
           <span>
@@ -77,8 +77,8 @@ export function CompatibilityPanel({
                 ["protonfixes", scan.data.protonfixes],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-                  <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
-                  <dd className={value ? "truncate font-mono text-[10.5px] text-ink-2" : "text-[12px] text-ink-3"}>
+                  <dt className="shrink-0 text-label text-ink-3">{label}</dt>
+                  <dd className={value ? "truncate font-mono text-micro text-ink-2" : "text-label text-ink-3"}>
                     {value ? <span title={value}>{value}</span> : t("not detected")}
                   </dd>
                 </div>
@@ -86,7 +86,7 @@ export function CompatibilityPanel({
             </dl>
 
             {scan.data.steamRoots.length > 0 && (
-              <p className="mt-2 truncate font-mono text-[10.5px] text-ink-3" title={scan.data.steamRoots.join("\n")}>
+              <p className="mt-2 truncate font-mono text-micro text-ink-3" title={scan.data.steamRoots.join("\n")}>
                 {t("Steam:")} {scan.data.steamRoots.join(" · ")}
               </p>
             )}
@@ -95,15 +95,15 @@ export function CompatibilityPanel({
               <ul className="mt-4 border-t border-line">
                 {tools.map((tool) => (
                   <li key={tool.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line py-2">
-                    <span className="w-[52px] shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+                    <span className="w-[52px] shrink-0 text-micro uppercase tracking-[0.08em] text-ink-3">
                       {tool.kind}
                     </span>
-                    <span className="text-[12.5px] text-ink">{tool.name}</span>
+                    <span className="text-label text-ink">{tool.name}</span>
                     {tool.version && tool.version !== tool.name && (
-                      <span className="font-mono text-[10.5px] text-ink-3">{tool.version}</span>
+                      <span className="font-mono text-micro text-ink-3">{tool.version}</span>
                     )}
-                    <span className="font-mono text-[10.5px] text-ink-3">{tool.source}</span>
-                    <span className="ml-auto max-w-[46ch] truncate font-mono text-[10.5px] text-ink-3" title={tool.path}>
+                    <span className="font-mono text-micro text-ink-3">{tool.source}</span>
+                    <span className="ml-auto max-w-[46ch] truncate font-mono text-micro text-ink-3" title={tool.path}>
                       {tool.path}
                     </span>
                   </li>
@@ -112,14 +112,14 @@ export function CompatibilityPanel({
             )}
 
             {proton.length > 1 && (
-              <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+              <p className="mt-2 text-meta leading-relaxed text-ink-3">
                 {t("GE-Proton builds rank above Valve's Experimental and stable builds when Auto picks a tool.")}
               </p>
             )}
 
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5">
-                <span className="text-[13px] font-medium text-ink">{t("Default launch mode")}</span>
+                <span className="text-body font-medium text-ink">{t("Default launch mode")}</span>
                 <Select
                   label={t("Default launch mode")}
                   value={draft.defaultLaunchMode}
@@ -131,17 +131,17 @@ export function CompatibilityPanel({
                     { value: "umu", label: t("UMU"), hint: t("umu-run only") },
                   ]}
                 />
-                <span className="text-[11.5px] text-ink-3">
+                <span className="text-meta text-ink-3">
                   {t("New games start with this profile; each game can override it.")}
                 </span>
               </label>
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-[13px] font-medium text-ink">{t("Steam client path")}</span>
-                <p className="truncate font-mono text-[10.5px] text-ink-3" title={scan.data.steamClientPath ?? ""}>
+                <span className="text-body font-medium text-ink">{t("Steam client path")}</span>
+                <p className="truncate font-mono text-micro text-ink-3" title={scan.data.steamClientPath ?? ""}>
                   {scan.data.steamClientPath ?? t("not detected")}
                 </p>
-                <span className="text-[11.5px] text-ink-3">
+                <span className="text-meta text-ink-3">
                   {t("Used as")} <span className="font-mono">STEAM_COMPAT_CLIENT_INSTALL_PATH</span>.
                 </span>
               </div>
@@ -172,7 +172,7 @@ export function CompatibilityPanel({
             </div>
 
             {scan.data.warnings.length > 0 && (
-              <ul className="mt-4 flex flex-col gap-1 text-[11.5px] text-ink-3">
+              <ul className="mt-4 flex flex-col gap-1 text-meta text-ink-3">
                 {scan.data.warnings.map((warning) => (
                   <li key={warning} className="border-l-2 border-line-2 pl-2">
                     {warning}
@@ -181,7 +181,7 @@ export function CompatibilityPanel({
               </ul>
             )}
 
-            <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-4 text-meta leading-relaxed text-ink-3">
               {t("Overrides are saved with the desktop settings. Nothing is required: a missing tool only disables the launches that need it.")}
             </p>
           </>
@@ -206,15 +206,15 @@ function OverrideField({
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[13px] font-medium text-ink">{label}</span>
+      <span className="text-body font-medium text-ink">{label}</span>
       <Input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         spellCheck={false}
-        className="h-10 font-mono text-[11.5px]"
+        className="h-10 font-mono text-meta"
       />
-      <span className="text-[11.5px] text-ink-3">{hint}</span>
+      <span className="text-meta text-ink-3">{hint}</span>
     </label>
   );
 }

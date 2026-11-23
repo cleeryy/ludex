@@ -29,7 +29,7 @@ import { ShaderPrepJobs } from "@/components/game/shader-prep";
 import { VirusTotalArchiveWarning } from "@/components/game/virustotal";
 import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
 import { GameCover } from "@/components/art/cover";
-import { Badge, Button, Progress } from "@/components/ui/controls";
+import { Badge, Button, SegmentedGauge, TelemetryStrip } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { tr, t, tn } from "@/lib/i18n";
@@ -114,7 +114,7 @@ function TransferGraph({ points, now }: { points: SpeedPoint[]; now: number }) {
         preserveAspectRatio="none"
         role="img"
         aria-label={summary}
-        className="h-10 w-[160px] text-signal sm:w-[240px]"
+        className="h-10 w-[160px] text-info sm:w-[240px]"
       >
         <title>{summary}</title>
         <line
@@ -140,15 +140,15 @@ function TransferGraph({ points, now }: { points: SpeedPoint[]; now: number }) {
           />
         )}
       </svg>
-      <figcaption className="flex flex-col gap-0.5 font-mono text-[10px] leading-tight text-ink-3">
+      <figcaption className="flex flex-col gap-0.5 text-micro leading-tight text-ink-3">
         <span>
-          {t("Now")} <span className="text-ink-2">{speedLabel(current)}</span>
+          {t("Now")} <span className="num text-ink-2">{speedLabel(current)}</span>
         </span>
         <span>
-          {t("peak")} <span className="text-ink-2">{speedLabel(peak)}</span>
+          {t("peak")} <span className="num text-ink-2">{speedLabel(peak)}</span>
         </span>
         <span>
-          {t("Avg")} <span className="text-ink-2">{speedLabel(average)}</span>
+          {t("Avg")} <span className="num text-ink-2">{speedLabel(average)}</span>
         </span>
       </figcaption>
       <span className="sr-only">{summary}</span>
@@ -290,22 +290,40 @@ export function DownloadsScreen() {
         }
       />
 
-      <section className="mt-8" aria-labelledby="downloads-active">
+      <TelemetryStrip
+        className="mt-8"
+        label={t("Downloads")}
+        items={[
+          { label: t("Active"), value: activeCount, tone: activeCount > 0 ? "signal" : "default" },
+          {
+            label: t("Speed"),
+            value: aggregate?.speedBps ? formatSpeed(aggregate.speedBps) : "—",
+            tone: aggregate?.speedBps ? "info" : "default",
+          },
+          {
+            label: t("Overall"),
+            value: status?.text ?? (activeCount > 0 ? t("Active") : "—"),
+          },
+          { label: t("History"), value: history.length },
+        ]}
+      />
+
+      <section className="mt-10" aria-labelledby="downloads-active">
         <SectionHeader
           title={t("Active")}
           count={activeCount}
           actions={
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {aggregate && aggregate.percent !== null ? (
-                <span className="num text-[11px] text-ink-3">{t("{percent} overall", { percent: formatPercent(aggregate.percent) })}</span>
+                <span className="num text-meta text-ink-3">{t("{percent} overall", { percent: formatPercent(aggregate.percent) })}</span>
               ) : null}
               {active.length > 0 ? <TransferGraph points={speedHistory} now={speedHistoryAt} /> : null}
             </div>
           }
         />
-        <div id="downloads-active" className="border-t border-line">
+        <div id="downloads-active" className="rounded-[var(--r-md)] border border-line bg-surface px-4">
           {active.length === 0 && (
-            <p className="py-6 text-[13px] text-ink-3">{t("Nothing downloading. New installs appear here and in the status bar.")}</p>
+            <p className="py-6 text-body text-ink-3">{t("Nothing downloading. New installs appear here and in the status bar.")}</p>
           )}
           {active.map((job) => (
             <JobRow
@@ -330,7 +348,7 @@ export function DownloadsScreen() {
             />
           ))}
           {waiting.length > 1 ? (
-            <p className="py-2.5 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="py-2.5 text-meta leading-relaxed text-ink-3">
               {t("Queued installs start in this order. The running install keeps its place until it finishes, pauses or is cancelled.")}
             </p>
           ) : null}
@@ -348,16 +366,16 @@ export function DownloadsScreen() {
               <button
                 type="button"
                 onClick={() => void clear()}
-                className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+                className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline"
               >
                 {t("Clear finished")}
               </button>
             ) : null
           }
         />
-        <div id="downloads-history" className="border-t border-line">
+        <div id="downloads-history" className="rounded-[var(--r-md)] border border-line bg-surface px-4">
           {history.length === 0 && (
-            <p className="py-6 text-[13px] text-ink-3">{t("No finished downloads yet.")}</p>
+            <p className="py-6 text-body text-ink-3">{t("No finished downloads yet.")}</p>
           )}
           {history.map((job) => (
             <JobRow
@@ -378,7 +396,7 @@ export function DownloadsScreen() {
         </div>
       </section>
 
-      <p className="mt-6 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-6 max-w-[70ch] text-meta leading-relaxed text-ink-3">
         {tr("Install folders, stream installs and archive passwords are set in Settings. Downloads are indexed by the desktop app and survive a restart. Removing an entry from history never deletes the installed game, its folder or a partial {part} download.", {
           part: <span className="font-mono">.part</span>,
         })}
@@ -538,35 +556,38 @@ function JobRow({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <div className="flex min-w-0 items-baseline gap-2">
-            <h3 className="truncate text-[14px] font-medium text-ink">{title}</h3>
-            {year && <span className="num text-[10.5px] text-ink-3">{year.slice(0, 4)}</span>}
+            <h3 className="truncate text-body font-medium text-ink">{title}</h3>
+            {year && <span className="num text-micro text-ink-3">{year.slice(0, 4)}</span>}
           </div>
           <div className="flex items-center gap-2">
             {queueRank ? (
-              <span className="num text-[10.5px] text-ink-3" title={t("Place in the install queue")}>
+              <span className="num text-micro text-ink-3" title={t("Place in the install queue")}>
                 {t("Queue #{rank}", { rank: queueRank })}
               </span>
             ) : null}
-            <Badge tone={done ? "ok" : job.phase === "error" ? "danger" : paused ? "outline" : active ? "signal" : "outline"}>
+            <Badge
+              tone={done ? "ok" : job.phase === "error" ? "danger" : paused ? "warn" : active ? "info" : "outline"}
+              led={active && !paused}
+            >
               {installPhaseLabel(job.phase)}
             </Badge>
           </div>
         </div>
 
-        <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-meta text-ink-3">
           {starting ? (
             <>
               <span>{t("Starting")}</span>
-              {job.bytesTotal && <span>{formatBytes(job.bytesTotal)}</span>}
+              {job.bytesTotal && <span className="num">{formatBytes(job.bytesTotal)}</span>}
             </>
           ) : waitingForSpace ? (
             <span className="text-signal-text">{spaceLabel ?? t("Waiting for disk space")}</span>
           ) : (
             <>
-              <span>{formatBytes(job.bytesDone)}</span>
-              {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
+              <span className="num">{formatBytes(job.bytesDone)}</span>
+              {job.bytesTotal && <span className="num">{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
               {job.reconnecting ? (
-                <span className="text-signal-text" title={job.lastError ?? undefined}>
+                <span className="text-warn" title={job.lastError ?? undefined}>
                   {job.waitingForNetwork
                     ? t("Waiting for the network")
                     : retryIn !== null
@@ -574,39 +595,40 @@ function JobRow({
                       : t("Connection lost, resuming from {percent}", { percent: formatPercent(pct ?? 0) })}
                 </span>
               ) : (
-                speed > 0 && <span>{formatSpeed(speed)}</span>
+                speed > 0 && <span className="num text-info">{formatSpeed(speed)}</span>
               )}
-              {eta && <span>{eta}</span>}
+              {eta && <span className="num">{eta}</span>}
               {fileLabel && <span className="text-signal-text">{fileLabel}</span>}
-              {verifying && <span className="text-signal-text">{verifyLabel}</span>}
+              {verifying && <span className="text-info">{verifyLabel}</span>}
               {phaseElapsed && !verifying && (
                 <span>{t("{phase} for {duration}", { phase: installPhaseLabel(job.phase), duration: phaseElapsed })}</span>
               )}
-              {verifying && phaseElapsed && <span>{verifyingElapsedLabel((meter?.elapsedMs ?? 0))}</span>}
-              {pct !== null && <span>{formatPercent(pct, 1)}</span>}
+              {verifying && phaseElapsed && <span className="num">{verifyingElapsedLabel((meter?.elapsedMs ?? 0))}</span>}
+              {pct !== null && <span className="num text-ink-2">{formatPercent(pct, 1)}</span>}
               {/* #225: a queued job has not touched a single entry yet, and
                   "0/N files" reads as a stall. The message line still carries
                   "Resuming from 12.4 GiB" when a checkpoint exists. */}
               {job.entriesTotal && !fileLabel && !(job.phase === "queued" && (job.entriesDone ?? 0) === 0) ? (
-                <span>{t("{done}/{total} files", { done: job.entriesDone ?? 0, total: job.entriesTotal })}</span>
+                <span className="num">{t("{done}/{total} files", { done: job.entriesDone ?? 0, total: job.entriesTotal })}</span>
               ) : null}
             </>
           )}
-          {job.phase === "interrupted" && <span className="text-signal-text">{t("resume keeps the bytes already received")}</span>}
+          {job.phase === "interrupted" && <span className="text-warn">{t("resume keeps the bytes already received")}</span>}
         </div>
 
         {showBar && (
-          <div className="mt-2 max-w-[520px]">
-            <Progress
+          <div className="mt-2.5 max-w-[520px]">
+            <SegmentedGauge
               value={starting ? null : pct}
+              segments={16}
+              active={active && !paused && job.phase !== "error"}
               label={t("Install progress for {title}", { title })}
-              tone={job.phase === "error" ? "danger" : "signal"}
             />
           </div>
         )}
 
         {showMessage && (
-          <p className={cn("mt-1.5 text-[12px] leading-snug", job.phase === "error" ? "text-danger" : "text-ink-3")}>
+          <p className={cn("mt-1.5 text-label leading-snug", job.phase === "error" ? "text-danger" : "text-ink-3")}>
             {job.message}
           </p>
         )}
@@ -620,11 +642,11 @@ function JobRow({
         )}
 
         {prefetch && (
-          <p className="mt-1 text-[11px] leading-snug text-signal-text">{prefetch}</p>
+          <p className="mt-1 text-meta leading-snug text-signal-text">{prefetch}</p>
         )}
 
         {digestLabel && (
-          <p className="mt-1 font-mono text-[10.5px] text-ink-3" title={job.verifiedSha256 ?? undefined}>
+          <p className="mt-1 font-mono text-micro text-ink-3" title={job.verifiedSha256 ?? undefined}>
             {isFileManifestJob(job)
               ? t("Files verified · {digest}", { digest: digestLabel })
               : t("Archive verified · {digest}", { digest: digestLabel })}
@@ -632,7 +654,7 @@ function JobRow({
         )}
 
         {fallbackLabel && (
-          <p className="mt-1 text-[11px] leading-snug text-signal-text">{fallbackLabel}</p>
+          <p className="mt-1 text-meta leading-snug text-signal-text">{fallbackLabel}</p>
         )}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-1">
@@ -690,7 +712,7 @@ function JobRow({
             <button
               type="button"
               onClick={onCancel}
-              className="flex h-8 items-center gap-1.5 pr-2 text-[12px] text-danger underline-offset-4 hover:underline"
+              className="flex h-8 items-center gap-1.5 pr-2 text-label text-danger underline-offset-4 hover:underline"
             >
               <X className="size-3.5" aria-hidden="true" />
               {t("Cancel")}
@@ -742,7 +764,7 @@ function JobRow({
             </Button>
           )}
           {retryable && !resumes && (
-            <span className="px-1 text-[11px] leading-snug text-ink-3">
+            <span className="px-1 text-meta leading-snug text-ink-3">
               {t("No saved checkpoint: restarting starts from zero and keeps one Downloads row.")}
             </span>
           )}
@@ -757,21 +779,21 @@ function JobRow({
               onClick={onRemove}
               aria-label={t("Remove {title} from history", { title })}
               title={t("Only the history entry is deleted; the installed files and any .part download are kept")}
-              className="flex h-8 items-center gap-1.5 px-1 text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+              className="flex h-8 items-center gap-1.5 px-1 text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline"
             >
               <Trash2 className="size-3.5" aria-hidden="true" />
               {t("Remove from history")}
             </button>
           )}
           {done && (
-            <span className="flex items-center gap-1.5 px-1 text-[11.5px] text-ok">
+            <span className="flex items-center gap-1.5 px-1 text-meta text-ok">
               <Check className="size-3.5" aria-hidden="true" />
               {t("Ready to play")}
             </span>
           )}
           <Link
             to={`/game/${job.gameId}`}
-            className="ml-auto flex h-8 items-center px-1 text-[12px] text-ink-3 hover:text-ink"
+            className="ml-auto flex h-8 items-center px-1 text-label text-ink-3 hover:text-ink"
           >
             {t("Game page")}
           </Link>

@@ -96,7 +96,7 @@ export function GameSettingsPanel({ gameId, title }: { gameId: number; title: st
             aria-selected={tab === item.id}
             onClick={() => setTab(item.id)}
             className={cn(
-              "-mb-px flex items-center gap-1.5 border-b px-3 py-2 text-[12.5px] transition-colors duration-100 motion-reduce:transition-none",
+              "-mb-px flex items-center gap-1.5 border-b px-3 py-2 text-label transition-colors duration-100 motion-reduce:transition-none",
               tab === item.id
                 ? "border-signal text-ink"
                 : "border-transparent text-ink-3 hover:text-ink",
@@ -105,7 +105,7 @@ export function GameSettingsPanel({ gameId, title }: { gameId: number; title: st
             {item.icon}
             {item.label}
             {typeof item.count === "number" && item.count > 0 && (
-              <span className="num text-[10.5px] text-ink-3">{item.count}</span>
+              <span className="num text-micro text-ink-3">{item.count}</span>
             )}
           </button>
         ))}
@@ -161,13 +161,13 @@ function AdaptersTab({
   error: string | null;
   onSaved: () => void;
 }) {
-  if (loading) return <p className="text-[12.5px] text-ink-3">{t("Detecting the engine…")}</p>;
-  if (error) return <p className="text-[12.5px] text-danger">{error}</p>;
+  if (loading) return <p className="text-label text-ink-3">{t("Detecting the engine…")}</p>;
+  if (error) return <p className="text-label text-danger">{error}</p>;
   if (adapters.length === 0) {
     return (
       <div className="border border-dashed border-line px-4 py-6">
-        <p className="text-[12.5px] text-ink-2">{t("No engine marker found in this install folder.")}</p>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-label text-ink-2">{t("No engine marker found in this install folder.")}</p>
+        <p className="mt-1 text-meta leading-relaxed text-ink-3">
           {t("Use the Config files tab to edit an ini, cfg, toml or json file directly.")}
         </p>
       </div>
@@ -240,7 +240,7 @@ function AdapterCard({
     <div className="border border-line">
       <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line px-4 py-3">
         <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium text-ink">{adapter.label}</span>
+          <span className="text-body font-medium text-ink">{adapter.label}</span>
           <Badge tone="outline">{adapter.evidence ?? t("detected")}</Badge>
         </div>
         <Button
@@ -267,13 +267,13 @@ function AdapterCard({
           ))}
         </div>
       ) : (
-        <p className="px-4 py-4 text-[12px] text-ink-3">
+        <p className="px-4 py-4 text-label text-ink-3">
           {t("This install has no editable field in the detected format.")}
         </p>
       )}
 
       {adapter.notes.length > 0 && (
-        <ul className="flex flex-col gap-1 border-t border-line px-4 py-3 text-[11px] leading-relaxed text-ink-3">
+        <ul className="flex flex-col gap-1 border-t border-line px-4 py-3 text-meta leading-relaxed text-ink-3">
           {adapter.notes.map((note) => (
             <li key={note}>{note}</li>
           ))}
@@ -298,10 +298,10 @@ function AdapterControl({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className="text-[12px] text-ink-2">
+        <label htmlFor={id} className="text-label text-ink-2">
           {field.label}
         </label>
-        {disabled && <span className="text-[10px] text-ink-3">{t("read-only")}</span>}
+        {disabled && <span className="text-micro text-ink-3">{t("read-only")}</span>}
       </div>
 
       {field.control === "select" ? (
@@ -314,7 +314,7 @@ function AdapterControl({
               ? field.options
               : [...field.options, { value, label: value }]
           }
-          className="h-10 text-[12px]"
+          className="h-10 text-label"
         />
       ) : field.control === "toggle" ? (
         <Switch
@@ -331,14 +331,14 @@ function AdapterControl({
           inputMode={field.control === "number" ? "numeric" : "text"}
           type={field.control === "number" ? "number" : "text"}
           disabled={disabled}
-          className="h-10 font-mono text-[12px]"
+          className="h-10 font-mono text-label"
         />
       )}
 
-      <p className="truncate font-mono text-[10px] text-ink-3">
+      <p className="truncate font-mono text-micro text-ink-3">
         {field.file && field.key ? `${field.file} · ${field.key}` : field.note ?? t("Not stored in the install folder")}
       </p>
-      {field.note && field.file && <p className="text-[10.5px] leading-relaxed text-ink-3">{field.note}</p>}
+      {field.note && field.file && <p className="text-micro leading-relaxed text-ink-3">{field.note}</p>}
     </div>
   );
 }
@@ -377,8 +377,8 @@ function FilesTab({
 
   const visible = useMemo(() => filterConfigFiles(files, filter), [files, filter]);
 
-  if (loading) return <p className="text-[12.5px] text-ink-3">{t("Looking for config files…")}</p>;
-  if (error) return <p className="text-[12.5px] text-danger">{error}</p>;
+  if (loading) return <p className="text-label text-ink-3">{t("Looking for config files…")}</p>;
+  if (error) return <p className="text-label text-danger">{error}</p>;
 
   return (
     <>
@@ -392,15 +392,15 @@ function FilesTab({
             onChange={(event) => setFilter(event.target.value)}
             placeholder={t("Filter files")}
             aria-label={t("Filter files")}
-            className="h-9 pl-8 text-[12px]"
+            className="h-9 pl-8 text-label"
           />
         </div>
-        <p className="mt-2 text-[10.5px] leading-relaxed text-ink-3">
+        <p className="mt-2 text-micro leading-relaxed text-ink-3">
           {t("Every text config file in the install folder is listed. Nothing is hidden by name.")}
         </p>
         <div className="mt-2 flex flex-col border-y border-line">
           {visible.length === 0 && (
-            <p className="py-3 text-[11.5px] text-ink-3">{t("No config file found in this install folder.")}</p>
+            <p className="py-3 text-meta text-ink-3">{t("No config file found in this install folder.")}</p>
           )}
           {visible.map((file) => {
             const reason = readOnlyReason(file);
@@ -415,14 +415,14 @@ function FilesTab({
                 )}
               >
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-[12px] text-ink">{file.name}</span>
-                  <span className="shrink-0 font-mono text-[9.5px] uppercase text-ink-3">{file.format}</span>
+                  <span className="truncate text-label text-ink">{file.name}</span>
+                  <span className="shrink-0 text-micro uppercase text-ink-3">{file.format}</span>
                 </span>
-                <span className="truncate font-mono text-[10px] text-ink-3">
+                <span className="truncate font-mono text-micro text-ink-3">
                   {file.path} · {formatBytes(file.sizeBytes)} · {t("{count} keys", { count: file.entries })}
                 </span>
                 {!file.editable && (
-                  <span className="text-[10px] text-danger">{reason ?? t("Read-only")}</span>
+                  <span className="text-micro text-danger">{reason ?? t("Read-only")}</span>
                 )}
               </button>
             );
@@ -434,19 +434,19 @@ function FilesTab({
         {selectedFile && !selectedFile.editable && (
           <div className="flex flex-col gap-1.5">
             <Badge tone="outline">{t("Read-only")}</Badge>
-            <p className="text-[12.5px] leading-relaxed text-ink-3">
+            <p className="text-label leading-relaxed text-ink-3">
               {readOnlyReason(selectedFile) ?? t("Read-only")}
             </p>
-            <p className="font-mono text-[10.5px] text-ink-3">
+            <p className="font-mono text-micro text-ink-3">
               {selectedFile.path} · {formatBytes(selectedFile.sizeBytes)}
             </p>
           </div>
         )}
         {document.isError && selectedFile?.editable && (
-          <p className="text-[12.5px] text-danger">{errorMessage(document.error)}</p>
+          <p className="text-label text-danger">{errorMessage(document.error)}</p>
         )}
         {document.isPending && selectedFile?.editable && (
-          <p className="text-[12.5px] text-ink-3">{t("Opening…")}</p>
+          <p className="text-label text-ink-3">{t("Opening…")}</p>
         )}
         {document.data && selectedFile?.editable && (
           <KeyEditor
@@ -459,7 +459,7 @@ function FilesTab({
           />
         )}
         {!selected && files.length > 0 && (
-          <p className="text-[12.5px] text-ink-3">{t("Choose a file on the left.")}</p>
+          <p className="text-label text-ink-3">{t("Choose a file on the left.")}</p>
         )}
       </div>
       </div>
@@ -515,8 +515,8 @@ function KeyEditor({
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[13px] text-ink">{document.path}</p>
-          <p className="mt-0.5 font-mono text-[10.5px] text-ink-3">
+          <p className="truncate text-body text-ink">{document.path}</p>
+          <p className="mt-0.5 font-mono text-micro text-ink-3">
             {document.format} · {formatBytes(document.sizeBytes)} · {t("{count} keys", { count: document.entries.length })}
           </p>
         </div>
@@ -534,36 +534,36 @@ function KeyEditor({
 
       <div className="mt-3 max-h-[420px] overflow-y-auto border-y border-line">
         {document.note && (
-          <p className="border-b border-line px-2 py-2 text-[11px] leading-relaxed text-ink-3">
+          <p className="border-b border-line px-2 py-2 text-meta leading-relaxed text-ink-3">
             {document.note}
           </p>
         )}
         {document.entries.length === 0 && (
-          <p className="py-3 text-[12px] text-ink-3">{t("This file has no editable scalar key.")}</p>
+          <p className="py-3 text-label text-ink-3">{t("This file has no editable scalar key.")}</p>
         )}
         {document.entries.map((entry) => (
           <div key={entry.key} className="grid gap-2 border-b border-line px-2 py-2 last:border-0 sm:grid-cols-[1fr_180px_64px] sm:items-center">
             <div className="min-w-0">
-              <p className="truncate font-mono text-[11px] text-ink-2">{entry.key}</p>
-              {entry.line > 0 && <p className="font-mono text-[9.5px] text-ink-3">{t("line {line}", { line: entry.line })}</p>}
+              <p className="truncate font-mono text-meta text-ink-2">{entry.key}</p>
+              {entry.line > 0 && <p className="font-mono text-micro text-ink-3">{t("line {line}", { line: entry.line })}</p>}
             </div>
             <Input
               value={draft[entry.key] ?? entry.value}
               onChange={(event) => setDraft((current) => ({ ...current, [entry.key]: event.target.value }))}
               aria-label={entry.key}
               className={cn(
-                "h-8 font-mono text-[11px]",
+                "h-8 font-mono text-meta",
                 (draft[entry.key] ?? entry.value) !== entry.value && "border-signal",
               )}
             />
-            <span className="font-mono text-[9.5px] uppercase text-ink-3">{entry.valueType}</span>
+            <span className="text-micro uppercase text-ink-3">{entry.valueType}</span>
           </div>
         ))}
       </div>
-      <p className="mt-2 text-[10.5px] leading-relaxed text-ink-3">
+      <p className="mt-2 text-micro leading-relaxed text-ink-3">
         {t("Comments and ordering are preserved. Ludex refuses binary files, files over 1 MiB and values that do not match the existing type.")}
       </p>
-      <p className="mt-1 text-[10.5px] leading-relaxed text-ink-3">
+      <p className="mt-1 text-micro leading-relaxed text-ink-3">
         {t("The file keeps its encoding (UTF-8, UTF-16 or Windows-1252) and line endings when saved.")}
       </p>
     </div>
@@ -717,10 +717,10 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
     <section aria-labelledby="common-fields-heading" className="mb-6 border border-line">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <h3 id="common-fields-heading" className="text-[13px] font-medium text-ink">
+          <h3 id="common-fields-heading" className="text-body font-medium text-ink">
             {t("Common fields")}
           </h3>
-          <p className="mt-1 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t("Ludex recognised the language and player name this game stores. Applying one previews the change and backs the file up first.")}
           </p>
         </div>
@@ -733,8 +733,8 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[12px] text-ink-2">{t("Keep in sync on launch")}</p>
-          <p className="mt-0.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+          <p className="text-label text-ink-2">{t("Keep in sync on launch")}</p>
+          <p className="mt-0.5 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t(
               "Ludex applies {language} and {name} without asking the next time this game starts.",
               { language: locale.toUpperCase(), name: displayName || t("your profile name") },
@@ -754,11 +754,11 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
         return (
           <div key={match.field} className="border-b border-line px-4 py-3 last:border-0">
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-[12.5px] font-medium text-ink">{fieldLabel(match.field)}</span>
+              <span className="text-label font-medium text-ink">{fieldLabel(match.field)}</span>
               <Badge tone={confidenceTone(match.confidence)}>{confidenceLabel(match.confidence)}</Badge>
               <Badge tone="outline">{match.source === "template" ? t("Game template") : t("Built-in")}</Badge>
               {isResolvedField(match) && (
-                <span className="min-w-0 truncate font-mono text-[10.5px] text-ink-3">
+                <span className="min-w-0 truncate font-mono text-micro text-ink-3">
                   {match.file} · {match.key}
                 </span>
               )}
@@ -766,16 +766,16 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
 
             {isResolvedField(match) ? (
               <>
-                <p className="mt-1 text-[11.5px] text-ink-2">
+                <p className="mt-1 text-meta text-ink-2">
                   {t("Current value")}:{" "}
                   <span className="font-mono text-ink">{match.value || t("empty")}</span>
                 </p>
                 {match.allowedValues.length > 0 && (
-                  <p className="mt-0.5 text-[10.5px] text-ink-3">
+                  <p className="mt-0.5 text-micro text-ink-3">
                     {t("Accepted values: {values}", { values: match.allowedValues.join(", ") })}
                   </p>
                 )}
-                {match.note && <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-3">{match.note}</p>}
+                {match.note && <p className="mt-0.5 text-micro leading-relaxed text-ink-3">{match.note}</p>}
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {match.field === "language" ? (
@@ -793,7 +793,7 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
                       {t("Apply my name ({name})", { name: nameTarget.value })}
                     </Button>
                   ) : (
-                    <span className="text-[10.5px] text-ink-3">
+                    <span className="text-micro text-ink-3">
                       {t("Set a display name in Settings → Profile to apply it here.")}
                     </span>
                   )}
@@ -814,7 +814,7 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
               </>
             ) : (
               <>
-                <p className="mt-1 text-[11.5px] leading-relaxed text-ink-2">
+                <p className="mt-1 text-meta leading-relaxed text-ink-2">
                   {t("Several keys match. Choose the one this game reads; Ludex will not guess.")}
                 </p>
                 <div className="mt-2 flex flex-col divide-y divide-line border-y border-line">
@@ -823,7 +823,7 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
                       key={candidateLabel(candidate)}
                       className="flex flex-wrap items-center justify-between gap-2 py-2"
                     >
-                      <span className="min-w-0 truncate font-mono text-[10.5px] text-ink-3">
+                      <span className="min-w-0 truncate font-mono text-micro text-ink-3">
                         {candidateLabel(candidate)} ={" "}
                         <span className="text-ink-2">{candidate.value || t("empty")}</span>
                       </span>
@@ -869,22 +869,22 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
       >
         {pending && (
           <div>
-            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px]">
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-meta">
               <span className="text-ink-3">{t("Before")}</span>
               <span className="break-all text-ink-2">{pending.preview.currentValue || t("empty")}</span>
               <span className="text-ink-3">{t("After")}</span>
               <span className="break-all text-ink">{pending.preview.nextValue || t("empty")}</span>
             </div>
             {pending.preview.unchanged ? (
-              <p className="mt-3 text-[11.5px] text-ink-2">
+              <p className="mt-3 text-meta text-ink-2">
                 {t("This value is already set; nothing will be written.")}
               </p>
             ) : (
-              <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap border-l-2 border-line-2 pl-3 font-mono text-[10px] leading-relaxed text-ink-3">
+              <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap border-l-2 border-line-2 pl-3 font-mono text-micro leading-relaxed text-ink-3">
                 {pending.preview.diff}
               </pre>
             )}
-            <p className="mt-2 text-[10.5px] leading-relaxed text-ink-3">
+            <p className="mt-2 text-micro leading-relaxed text-ink-3">
               {t("The file is copied to the Backups tab before it changes, and keeps its encoding.")}
             </p>
           </div>
@@ -913,7 +913,7 @@ function CommonFieldsPanel({ gameId, onSaved }: { gameId: number; onSaved: () =>
           rows={10}
           value={template ?? ""}
           aria-label={t("Game template")}
-          className="font-mono text-[10.5px]"
+          className="font-mono text-micro"
         />
       </Dialog>
     </section>
@@ -937,7 +937,7 @@ function BackupsTab({
   const [confirm, setConfirm] = useState<ConfigBackupRecord | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (loading) return <p className="text-[12.5px] text-ink-3">{t("Reading the backup history…")}</p>;
+  if (loading) return <p className="text-label text-ink-3">{t("Reading the backup history…")}</p>;
 
   const restore = async (record: ConfigBackupRecord) => {
     setBusy(true);
@@ -955,7 +955,7 @@ function BackupsTab({
   return (
     <div>
       {records.length === 0 && (
-        <p className="border border-dashed border-line px-4 py-5 text-[12px] text-ink-3">
+        <p className="border border-dashed border-line px-4 py-5 text-label text-ink-3">
           {t("No backup yet. The first config change creates one automatically.")}
         </p>
       )}
@@ -964,8 +964,8 @@ function BackupsTab({
           <div key={record.id} className="py-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-[12.5px] text-ink">{record.filePath}</p>
-                <p className="mt-0.5 font-mono text-[10px] text-ink-3">
+                <p className="truncate text-label text-ink">{record.filePath}</p>
+                <p className="mt-0.5 font-mono text-micro text-ink-3">
                   {formatRelative(record.createdAt)} · {formatBytes(record.bytes)} · {record.origin}
                 </p>
               </div>
@@ -979,7 +979,7 @@ function BackupsTab({
               </Button>
             </div>
             {record.diff && (
-              <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-line-2 pl-3 font-mono text-[10px] leading-relaxed text-ink-3">
+              <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-line-2 pl-3 font-mono text-micro leading-relaxed text-ink-3">
                 {record.diff}
               </pre>
             )}
@@ -1004,7 +1004,7 @@ function BackupsTab({
           </>
         }
       >
-        <p className="text-[12.5px] leading-relaxed text-ink-2">
+        <p className="text-label leading-relaxed text-ink-2">
           {t("The current file is copied to a new backup before the restore, so this too can be undone.")}
         </p>
       </Dialog>

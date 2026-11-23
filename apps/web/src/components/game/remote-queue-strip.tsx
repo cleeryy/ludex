@@ -37,7 +37,7 @@ export function RemoteQueueStrip() {
         title={t("Remote installs")}
         count={installs.length}
         actions={
-          <Link to="/remote" className="inline-flex items-center gap-1 text-[12.5px] text-ink-2 hover:text-ink">
+          <Link to="/remote" className="inline-flex items-center gap-1 text-label text-ink-2 hover:text-ink">
             {t("Open the queue")}
             <ArrowRight className="size-3.5 rtl:-scale-x-100" aria-hidden="true" />
           </Link>
@@ -49,10 +49,10 @@ export function RemoteQueueStrip() {
           return (
             <li key={install.id} className="flex items-center gap-3 border border-line bg-surface/40 px-3 py-2.5">
               <div className="min-w-0 flex-1">
-                <Link to={`/games/${install.gameId}`} className="block truncate text-[13.5px] text-ink hover:text-signal-text">
+                <Link to={`/games/${install.gameId}`} className="block truncate text-body text-ink hover:text-signal-text">
                   {install.gameTitle}
                 </Link>
-                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-ink-3">
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-meta text-ink-3">
                   <Badge tone={remoteStatusTone(install.status)}>{remoteStatusLabel(install.status)}</Badge>
                   {install.sizeBytes !== null && <span className="num">{formatBytes(install.sizeBytes)}</span>}
                   {percent !== null && <span className="num">{formatPercent(percent)}</span>}

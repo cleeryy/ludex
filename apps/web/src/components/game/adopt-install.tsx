@@ -211,7 +211,7 @@ export function AdoptInstallDialog({
               }
               spellCheck={false}
               disabled={busy !== null}
-              className="h-10 font-mono text-[11.5px]"
+              className="h-10 font-mono text-meta"
             />
             <Button
               variant="default"
@@ -251,7 +251,7 @@ export function AdoptInstallDialog({
             placeholder={preview?.executable ?? t("Detected automatically")}
             spellCheck={false}
             disabled={busy !== null}
-            className="h-10 font-mono text-[11.5px]"
+            className="h-10 font-mono text-meta"
           />
         </Field>
 
@@ -278,7 +278,7 @@ export function AdoptInstallDialog({
         {preview && (
           <div className="flex flex-col gap-3 border border-line bg-surface/50 p-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-2 text-[12.5px] text-ink">
+              <span className="flex items-center gap-2 text-label text-ink">
                 <Link2 className="size-3.5 text-ink-3" aria-hidden="true" />
                 {t("Folder checked")}
               </span>
@@ -286,22 +286,22 @@ export function AdoptInstallDialog({
                 {preview.executable ? t("Executable found") : t("No executable")}
               </Badge>
             </div>
-            <dl className="flex flex-col gap-1.5 text-[12px]">
+            <dl className="flex flex-col gap-1.5 text-label">
               <div className="flex items-baseline justify-between gap-4">
                 <dt className="shrink-0 text-ink-3">{t("Folder")}</dt>
-                <dd className="truncate font-mono text-[11px] text-ink-2" title={preview.folder}>
+                <dd className="truncate font-mono text-meta text-ink-2" title={preview.folder}>
                   {preview.folder}
                 </dd>
               </div>
               <div className="flex items-baseline justify-between gap-4">
                 <dt className="shrink-0 text-ink-3">{t("Executable")}</dt>
-                <dd className="truncate font-mono text-[11px] text-ink-2" title={preview.executable ?? ""}>
+                <dd className="truncate font-mono text-meta text-ink-2" title={preview.executable ?? ""}>
                   {preview.executable ?? t("None found")}
                 </dd>
               </div>
               <div className="flex items-baseline justify-between gap-4">
                 <dt className="shrink-0 text-ink-3">{t("Size on disk")}</dt>
-                <dd className="num flex items-center gap-2 text-[12px] text-ink-2">
+                <dd className="num flex items-center gap-2 text-label text-ink-2">
                   <HardDrive className="size-3.5 text-ink-3" aria-hidden="true" />
                   {formatBytes(preview.sizeBytes)}
                   <span className="text-ink-3">{tn(preview.fileCount, "1 file", "{count} files")}</span>
@@ -310,20 +310,20 @@ export function AdoptInstallDialog({
             </dl>
 
             {preview.warnings.map((warning) => (
-              <p key={warning} className="text-[11.5px] leading-relaxed text-signal-text">
+              <p key={warning} className="text-meta leading-relaxed text-signal-text">
                 {warning}
               </p>
             ))}
 
             {needsReplace && preview.existing && (
               <div className="flex flex-col gap-2 border-l-2 border-danger pl-3">
-                <p className="text-[12px] leading-relaxed text-ink-2">
+                <p className="text-label leading-relaxed text-ink-2">
                   {t("“{title}” is already {source}. Linking this folder replaces that Ludex entry. Its files are left alone.", {
                     title: preview.existing.title,
                     source: preview.existing.source === "ludex" ? t("installed through Ludex") : t("imported from {source}", { source: preview.existing.source }),
                   })}
                 </p>
-                <label className="flex items-center gap-2.5 text-[12px] text-ink-2">
+                <label className="flex items-center gap-2.5 text-label text-ink-2">
                   <Checkbox
                     checked={replace}
                     onCheckedChange={setReplace}
@@ -337,12 +337,12 @@ export function AdoptInstallDialog({
         )}
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}
 
-        <p className="text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-meta leading-relaxed text-ink-3">
           {t("Ludex keeps the folder where it is, launches the executable from it and records playtime like any other install. The game page then offers Play, Open folder, Build manifest, Remove from Ludex and Uninstall and delete files.")}
         </p>
       </div>

@@ -46,20 +46,20 @@ function ShowcaseTile({ achievement }: { achievement: Achievement }) {
           src={achievement.iconUrl}
           alt=""
           loading="lazy"
-          className="size-9 shrink-0 rounded-[2px] border border-line object-cover"
+          className="size-9 shrink-0 rounded-[var(--r-sm)] border border-line object-cover"
         />
       ) : (
         <span
           aria-hidden="true"
-          className="grid size-9 shrink-0 place-items-center rounded-[2px] border border-signal/40 bg-signal/10 font-mono text-[12px] text-signal-text"
+          className="grid size-9 shrink-0 place-items-center rounded-[var(--r-sm)] border border-signal/40 bg-signal/10 font-mono text-label text-signal-text"
         >
           {letter}
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[12.5px] text-ink">{achievement.name}</p>
-        <p className="mt-0.5 truncate text-[11px] text-ink-3">{achievement.gameTitle ?? t("Library")}</p>
-        <p className="mt-1 flex items-center gap-1 font-mono text-[10px] text-ink-3">
+        <p className="truncate text-label text-ink">{achievement.name}</p>
+        <p className="mt-0.5 truncate text-meta text-ink-3">{achievement.gameTitle ?? t("Library")}</p>
+        <p className="mt-1 flex items-center gap-1 font-mono text-micro text-ink-3">
           <Trophy className="size-3" aria-hidden="true" />
           {t("{count} pts", { count: achievement.points })}
           {achievement.unlockedAt && <span className="text-ink-3">· {formatDate(achievement.unlockedAt)}</span>}

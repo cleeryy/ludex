@@ -52,10 +52,10 @@ function Metric({
 }) {
   return (
     <div className="flex flex-col gap-1 border-t border-line py-4">
-      <dt className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">{label}</dt>
+      <dt className="text-micro uppercase tracking-[0.08em] text-ink-3">{label}</dt>
       <dd
         className={cn(
-          "num text-[26px] leading-none tracking-[-0.02em]",
+          "num text-title leading-none tracking-[-0.02em]",
           tone === "danger" && "text-danger",
           tone === "ok" && "text-ok",
           tone === "warn" && "text-warn",
@@ -63,7 +63,7 @@ function Metric({
       >
         {value}
       </dd>
-      {hint && <span className="text-[11.5px] leading-snug text-ink-3">{hint}</span>}
+      {hint && <span className="text-meta leading-snug text-ink-3">{hint}</span>}
     </div>
   );
 }
@@ -160,14 +160,14 @@ function RequestPanel({ data }: { data: ObservabilitySnapshot }) {
         />
       </dl>
       {data.series.length === 0 ? (
-        <p className="text-[13px] text-ink-3">
+        <p className="text-body text-ink-3">
           {t("No requests recorded in this window yet.")}
         </p>
       ) : (
         <div className="grid gap-6 md:grid-cols-3">
           <figure className="flex flex-col gap-2">
             <Spark geometry={requests} label={requestLabel} />
-            <figcaption className="flex items-baseline justify-between gap-3 text-[11.5px] text-ink-3">
+            <figcaption className="flex items-baseline justify-between gap-3 text-meta text-ink-3">
               <span>{t("Requests per bucket")}</span>
               <span className="num">
                 {t("peak {peak}", { peak: requests.max })}
@@ -176,7 +176,7 @@ function RequestPanel({ data }: { data: ObservabilitySnapshot }) {
           </figure>
           <figure className="flex flex-col gap-2">
             <Spark geometry={errors} label={errorLabel} tone="danger" />
-            <figcaption className="flex items-baseline justify-between gap-3 text-[11.5px] text-ink-3">
+            <figcaption className="flex items-baseline justify-between gap-3 text-meta text-ink-3">
               <span>{t("Errors per bucket")}</span>
               <span className="num">
                 {t("last {last}", { last: errors.last })}
@@ -185,7 +185,7 @@ function RequestPanel({ data }: { data: ObservabilitySnapshot }) {
           </figure>
           <figure className="flex flex-col gap-2">
             <Spark geometry={latency} label={latencyLabel} tone="ok" />
-            <figcaption className="flex items-baseline justify-between gap-3 text-[11.5px] text-ink-3">
+            <figcaption className="flex items-baseline justify-between gap-3 text-meta text-ink-3">
               <span>{t("Latency per bucket")}</span>
               <span className="num">
                 {t("last {last}", { last: formatMs(latency.last) })}
@@ -308,19 +308,19 @@ function StoragePanel({ data }: { data: ObservabilitySnapshot }) {
             key={label}
             className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line py-2.5"
           >
-            <dt className="text-[12.5px] text-ink-3">{label}</dt>
-            <dd className="num text-[12.5px] text-ink-2">{value}</dd>
+            <dt className="text-label text-ink-3">{label}</dt>
+            <dd className="num text-label text-ink-2">{value}</dd>
           </div>
         ))}
       </dl>
       {storage.roots.length === 0 ? (
-        <p className="text-[13px] text-ink-3">{t("No library roots configured.")}</p>
+        <p className="text-body text-ink-3">{t("No library roots configured.")}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse text-left">
             <caption className="sr-only">{t("Library roots")}</caption>
             <thead>
-              <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+              <tr className="border-b border-line text-micro uppercase tracking-[0.08em] text-ink-3">
                 <th scope="col" className="py-2 pr-3 font-normal">
                   {t("Root")}
                 </th>
@@ -334,7 +334,7 @@ function StoragePanel({ data }: { data: ObservabilitySnapshot }) {
             </thead>
             <tbody>
               {storage.roots.map((root) => (
-                <tr key={root.label} className="border-b border-line text-[12.5px]">
+                <tr key={root.label} className="border-b border-line text-label">
                   <th scope="row" className="py-2 pr-3 font-normal text-ink-2">
                     {root.label}
                   </th>
@@ -345,7 +345,7 @@ function StoragePanel({ data }: { data: ObservabilitySnapshot }) {
                     ) : (
                       <Badge tone="danger">{t("Unavailable")}</Badge>
                     )}
-                    {!root.enabled && <span className="ml-2 text-[11.5px] text-ink-3">{t("Disabled")}</span>}
+                    {!root.enabled && <span className="ml-2 text-meta text-ink-3">{t("Disabled")}</span>}
                   </td>
                 </tr>
               ))}
@@ -366,7 +366,7 @@ function EventsPanel({ data }: { data: ObservabilitySnapshot }) {
         description={t("Newest first, capped at 12.")}
       />
       {data.recentEvents.length === 0 ? (
-        <p className="text-[13px] text-ink-3">{t("No audit events recorded yet.")}</p>
+        <p className="text-body text-ink-3">{t("No audit events recorded yet.")}</p>
       ) : (
         <ul className="border-t border-line">
           {data.recentEvents.map((event) => (
@@ -374,8 +374,8 @@ function EventsPanel({ data }: { data: ObservabilitySnapshot }) {
               key={event.id}
               className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line py-2.5"
             >
-              <span className="num text-[12.5px] text-ink-2">{event.action}</span>
-              <span className="text-[11.5px] text-ink-3">
+              <span className="num text-label text-ink-2">{event.action}</span>
+              <span className="text-meta text-ink-3">
                 {event.actorKind}
                 {event.targetType ? ` · ${event.targetType}` : ""} ·{" "}
                 <time dateTime={event.createdAt ?? undefined}>{formatRelative(event.createdAt)}</time>
@@ -397,7 +397,7 @@ function ErrorsPanel({ data }: { data: ObservabilitySnapshot }) {
         description={t("Most frequent 4xx/5xx responses since the server started.")}
       />
       {data.topErrors.length === 0 ? (
-        <p className="text-[13px] text-ink-3">
+        <p className="text-body text-ink-3">
           {t("No errors recorded since the server started.")}
         </p>
       ) : (
@@ -407,10 +407,10 @@ function ErrorsPanel({ data }: { data: ObservabilitySnapshot }) {
               key={`${row.method}-${row.route}-${row.status}`}
               className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line py-2.5"
             >
-              <span className="num min-w-0 break-all text-[12.5px] text-ink-2">
+              <span className="num min-w-0 break-all text-label text-ink-2">
                 {row.method} {row.route}
               </span>
-              <span className="text-[11.5px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 <span className={row.status >= 500 ? "text-danger" : "text-warn"}>
                   {t("HTTP {status}", { status: row.status })}
                 </span>{" "}
@@ -440,14 +440,14 @@ function WebhooksPanel({ data }: { data: ObservabilitySnapshot }) {
         }
       />
       {data.webhooks.recentFailures.length === 0 ? (
-        <p className="text-[13px] text-ink-3">{t("No undelivered webhook attempts.")}</p>
+        <p className="text-body text-ink-3">{t("No undelivered webhook attempts.")}</p>
       ) : (
         <ul className="border-t border-line">
           {data.webhooks.recentFailures.map((failure) => (
             <li key={failure.id} className="flex flex-col gap-1 border-b border-line py-3">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <span className="num text-[12.5px] text-ink-2">{failure.event}</span>
-                <span className="text-[11.5px] text-ink-3">
+                <span className="num text-label text-ink-2">{failure.event}</span>
+                <span className="text-meta text-ink-3">
                   {failure.statusCode !== null
                     ? t("HTTP {status}", { status: failure.statusCode })
                     : t("No response")}{" "}
@@ -455,9 +455,9 @@ function WebhooksPanel({ data }: { data: ObservabilitySnapshot }) {
                 </span>
               </div>
               {failure.lastError && (
-                <p className="text-[12px] leading-snug text-danger">{failure.lastError}</p>
+                <p className="text-label leading-snug text-danger">{failure.lastError}</p>
               )}
-              <span className="text-[11.5px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 {failure.nextAttemptAt
                   ? t("Retrying {when}", { when: formatRelative(failure.nextAttemptAt) })
                   : t("No retry scheduled")}
@@ -486,18 +486,18 @@ function IntegrityPanel({ data }: { data: ObservabilitySnapshot }) {
         }
       />
       {!last ? (
-        <p className="text-[13px] text-ink-3">{t("No integrity report has run yet.")}</p>
+        <p className="text-body text-ink-3">{t("No integrity report has run yet.")}</p>
       ) : (
         <dl className="border-t border-line">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-line py-2.5">
-            <dt className="text-[12.5px] text-ink-3">{t("Findings")}</dt>
-            <dd className={cn("num text-[12.5px]", last.findings > 0 ? "text-danger" : "text-ink-2")}>
+            <dt className="text-label text-ink-3">{t("Findings")}</dt>
+            <dd className={cn("num text-label", last.findings > 0 ? "text-danger" : "text-ink-2")}>
               {last.findings}
             </dd>
           </div>
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-line py-2.5">
-            <dt className="text-[12.5px] text-ink-3">{t("Finished")}</dt>
-            <dd className="num text-[12.5px] text-ink-2">{formatDate(last.finishedAt)}</dd>
+            <dt className="text-label text-ink-3">{t("Finished")}</dt>
+            <dd className="num text-label text-ink-2">{formatDate(last.finishedAt)}</dd>
           </div>
         </dl>
       )}
@@ -508,12 +508,12 @@ function IntegrityPanel({ data }: { data: ObservabilitySnapshot }) {
               key={`${finding.kind}-${finding.targetId ?? index}`}
               className="flex flex-col gap-0.5 border-l-2 border-danger/60 pl-3"
             >
-              <span className="text-[12px] text-ink-2">
+              <span className="text-label text-ink-2">
                 {finding.kind} · {finding.targetType}
                 {finding.targetId ? ` · ${finding.targetId}` : ""}
               </span>
               {finding.detail && (
-                <span className="text-[11.5px] leading-snug text-ink-3">{finding.detail}</span>
+                <span className="text-meta leading-snug text-ink-3">{finding.detail}</span>
               )}
             </li>
           ))}
@@ -527,7 +527,7 @@ function LinksPanel({ data }: { data: ObservabilitySnapshot }) {
   // A link target is a URL sink: validate it like every other one (#266).
   const metricsUrl = api.metricsUrl();
   const linkClass =
-    "inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 underline decoration-line-2 underline-offset-4 transition-colors duration-[120ms] hover:text-ink";
+    "inline-flex items-center gap-1.5 text-label text-ink-2 underline decoration-line-2 underline-offset-4 transition-colors duration-[120ms] hover:text-ink";
   return (
     <section aria-labelledby="links-heading" className="flex flex-col gap-4">
       <SectionHeader
@@ -535,7 +535,7 @@ function LinksPanel({ data }: { data: ObservabilitySnapshot }) {
         title={t("Diagnostics")}
         description={t("Prometheus, audit trail and integrity reports.")}
       />
-      <div className="flex flex-col gap-3 border-t border-line pt-4 text-[12.5px]">
+      <div className="flex flex-col gap-3 border-t border-line pt-4 text-label">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <a href={metricsUrl ?? undefined} target="_blank" rel="noreferrer" className={linkClass}>
             <Radio className="size-3.5" aria-hidden="true" />
@@ -670,7 +670,7 @@ export function ObservabilityScreen() {
             </div>
           </div>
 
-          <footer className="flex flex-wrap items-center gap-2 border-t border-line pt-4 text-[11.5px] text-ink-3">
+          <footer className="flex flex-wrap items-center gap-2 border-t border-line pt-4 text-meta text-ink-3">
             <Database className="size-3.5" aria-hidden="true" />
             {t("Backend {backend} · {size} · probe {latency}", {
               backend: data.database.backend,

@@ -146,7 +146,7 @@ export function VersionManager({
         description={t("Archives on the server, newest first")}
         actions={
           isEditor ? (
-            <span className="text-[11px] text-ink-3">
+            <span className="text-meta text-ink-3">
               {manager.isFetching ? t("Refreshing…") : t("Preferred version drives downloads and updates")}
             </span>
           ) : undefined
@@ -155,7 +155,7 @@ export function VersionManager({
       <div className="border-t border-line">
         {selection && <div className="border-b border-line py-3">{selection}</div>}
         {defaultVersionId != null && preferred && preferred.id !== defaultVersionId && (
-          <p className="border-b border-line py-2.5 text-[12px] leading-relaxed text-signal-text">
+          <p className="border-b border-line py-2.5 text-label leading-relaxed text-signal-text">
             {t(
               "The pinned archive is missing. {version} is used for downloads and updates instead.",
               { version: versionLabel(preferred) },
@@ -164,7 +164,7 @@ export function VersionManager({
         )}
 
         {installed && preferred && preferredDiffersFromInstalled(preferred.id, installed.versionId) && (
-          <p className="border-b border-line py-2.5 text-[12px] leading-relaxed text-ink-2">
+          <p className="border-b border-line py-2.5 text-label leading-relaxed text-ink-2">
             {preferredIsOlder
               ? t(
                   "Installed {installed} is newer than the preferred {preferred}. New downloads and update checks use {preferred} until another version is pinned.",
@@ -198,7 +198,7 @@ export function VersionManager({
               className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line py-3"
             >
               <div className="min-w-0 flex-1">
-                <p className="flex flex-wrap items-baseline gap-2 text-[13.5px] text-ink">
+                <p className="flex flex-wrap items-baseline gap-2 text-body text-ink">
                   <span className="truncate">{versionLabel(version)}</span>
                   {state === "default" && <Badge tone="solid">{t("Default")}</Badge>}
                   {isInstalled && <Badge tone="ok">{t("Installed")}</Badge>}
@@ -214,7 +214,7 @@ export function VersionManager({
                     />
                   )}
                 </p>
-                <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+                <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
                   <span className="truncate">{version.fileName}</span>
                   <span>{formatBytes(version.size)}</span>
                   <span>{formatDate(version.releaseDate)}</span>
@@ -226,12 +226,12 @@ export function VersionManager({
                   )}
                 </p>
                 {state === "missing" && (
-                  <p className="mt-1 text-[11px] leading-relaxed text-ink-3">
+                  <p className="mt-1 text-meta leading-relaxed text-ink-3">
                     {t("The archive is gone from disk; the row stays so saves and history keep their reference.")}
                   </p>
                 )}
                 {state === "unavailable" && (
-                  <p className="mt-1 text-[11px] leading-relaxed text-ink-3">
+                  <p className="mt-1 text-meta leading-relaxed text-ink-3">
                     {t("The library root holding this archive is offline. Restore it before deleting or pinning this version.")}
                   </p>
                 )}
@@ -342,7 +342,7 @@ export function VersionManager({
           </>
         }
       >
-        <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-ink-2">
+        <div className="flex flex-col gap-3 text-label leading-relaxed text-ink-2">
           <p>
             {t(
               "This removes the archive from the server (and its object-storage copy). The game, its metadata, progress and cloud saves stay; only this version stops being downloadable.",

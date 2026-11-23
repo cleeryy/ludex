@@ -70,13 +70,13 @@ export function ScanScreen() {
               {isPending ? (
                 <Skeleton className="h-7 w-10" />
               ) : (
-                <p className="num text-[30px] leading-none text-ink">{value}</p>
+                <p className="num text-display leading-none text-ink">{value}</p>
               )}
-              <p className="mt-2 text-[11.5px] text-ink-3">{label}</p>
+              <p className="mt-2 text-meta text-ink-3">{label}</p>
             </div>
           ))}
         </div>
-        <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 font-mono text-[10.5px] text-ink-3">
+        <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 font-mono text-micro text-ink-3">
           <span>{t("Started")} {data?.startedAt ? formatRelative(data.startedAt) : "—"}</span>
           <span>{t("Finished")} {data?.finishedAt ? formatRelative(data.finishedAt) : "—"}</span>
         </div>
@@ -87,7 +87,7 @@ export function ScanScreen() {
           <SectionHeader title={t("Errors")} count={data.errors.length} />
           <div className="border-t border-line">
             {data.errors.map((message, index) => (
-              <p key={index} className="flex items-start gap-2 border-b border-line py-2.5 text-[12.5px] text-danger">
+              <p key={index} className="flex items-start gap-2 border-b border-line py-2.5 text-label text-danger">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 {message}
               </p>
@@ -99,7 +99,7 @@ export function ScanScreen() {
       <section className="mt-10 grid gap-8 lg:grid-cols-2">
         <div>
           <SectionHeader title={t("What it does")} />
-          <ul className="flex flex-col gap-3 border-t border-line pt-4 text-[13px] leading-relaxed text-ink-2">
+          <ul className="flex flex-col gap-3 border-t border-line pt-4 text-body leading-relaxed text-ink-2">
             <li className="flex gap-3">
               <span className="mt-[7px] size-1.5 shrink-0 bg-signal" aria-hidden="true" />
               <span>{t("Walks the games folder three levels deep and indexes archives and portable executables.")}</span>
@@ -122,19 +122,19 @@ export function ScanScreen() {
           <SectionHeader title={t("Schedule")} />
           <div className="border-t border-line pt-4">
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <span className="text-[12.5px] text-ink-3">{t("Automatic scan")}</span>
+              <span className="text-label text-ink-3">{t("Automatic scan")}</span>
               <Badge tone="ok">{t("Every 15 minutes")}</Badge>
             </div>
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <span className="text-[12.5px] text-ink-3">{t("After an ingest")}</span>
+              <span className="text-label text-ink-3">{t("After an ingest")}</span>
               <Badge tone="ok">{t("On completion")}</Badge>
             </div>
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <span className="text-[12.5px] text-ink-3">{t("Manual")}</span>
-              <span className="text-[12.5px] text-ink-2">{t("This page, or the command palette")}</span>
+              <span className="text-label text-ink-3">{t("Manual")}</span>
+              <span className="text-label text-ink-2">{t("This page, or the command palette")}</span>
             </div>
           </div>
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             {t("A scan only stats files. Metadata enrichment runs separately and is rate limited by the provider.")}
           </p>
         </div>

@@ -34,10 +34,10 @@ export function StreamingPanel({
     <section className="mt-10" aria-labelledby="streaming-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h3 id="streaming-heading" className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
+          <h3 id="streaming-heading" className="text-lead font-semibold tracking-[-0.01em] text-ink">
             {t("Game streaming")}
           </h3>
-          <p className="mt-1 max-w-[70ch] text-[12px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[70ch] text-label leading-relaxed text-ink-3">
             {t("Publish the Ludex library as Sunshine apps and start streams from Moonlight. Ludex never bundles either application.")}
           </p>
         </div>
@@ -69,13 +69,13 @@ function ConsoleModePanel({
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-2">
           <Gamepad2 className="size-4 text-ink-3" aria-hidden="true" />
-          <h4 className="text-[13.5px] font-semibold text-ink">{t("Console app")}</h4>
+          <h4 className="text-body font-semibold text-ink">{t("Console app")}</h4>
           <Badge tone={draft.consoleMode ? "ok" : "outline"}>
             {draft.consoleMode ? t("on") : t("off")}
           </Badge>
         </div>
       </div>
-      <p className="mt-1 max-w-[76ch] text-[12px] leading-relaxed text-ink-3">
+      <p className="mt-1 max-w-[76ch] text-label leading-relaxed text-ink-3">
         {t("Publish one Console app that opens Console mode fullscreen on the host. Games are installed, launched and stopped from there, and quitting the Console app returns to the host desktop. Per-game Sunshine entries are removed by the next sync.")}
       </p>
 
@@ -102,7 +102,7 @@ function ConsoleModePanel({
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <label className="flex flex-col gap-1.5">
-          <span className="text-[12.5px] font-medium text-ink">{t("Console app name")}</span>
+          <span className="text-label font-medium text-ink">{t("Console app name")}</span>
           <Input
             value={draft.consoleAppName}
             onChange={(event) => update({ consoleAppName: event.target.value })}
@@ -110,25 +110,25 @@ function ConsoleModePanel({
             spellCheck={false}
             className="h-9"
           />
-          <span className="text-[11px] text-ink-3">
+          <span className="text-meta text-ink-3">
             {t("Name Moonlight shows for the Console app. Empty uses Ludex.")}
           </span>
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-[12.5px] font-medium text-ink">{t("Exit shortcut")}</span>
+          <span className="text-label font-medium text-ink">{t("Exit shortcut")}</span>
           <Input
             value={draft.consoleExitShortcut}
             onChange={(event) => update({ consoleExitShortcut: event.target.value })}
             placeholder="f12"
             spellCheck={false}
-            className="h-9 font-mono text-[11px]"
+            className="h-9 font-mono text-meta"
           />
-          <span className="text-[11px] text-ink-3">
+          <span className="text-meta text-ink-3">
             {t("Key combination that quits the Console app back to the desktop, for example f12 or ctrl+shift+q.")}
           </span>
         </label>
       </div>
-      <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
+      <p className="mt-3 text-meta leading-relaxed text-ink-3">
         {t("Save the desktop settings first, then publish the library above. Sunshine starts the Console app with the Ludex binary and --console; the app must be installed on the streaming host itself.")}
       </p>
     </div>
@@ -265,7 +265,7 @@ function SunshinePanel({
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-2">
           <Tv className="size-4 text-ink-3" aria-hidden="true" />
-          <h4 className="text-[13.5px] font-semibold text-ink">{t("Sunshine host")}</h4>
+          <h4 className="text-body font-semibold text-ink">{t("Sunshine host")}</h4>
           {status.data && (
             <Badge tone={status.data.detected ? "ok" : "outline"}>
               {status.data.detected ? t("detected") : t("not found")}
@@ -290,14 +290,14 @@ function SunshinePanel({
         </div>
       )}
       {status.isError && (
-        <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-[12px] text-danger">
+        <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-label text-danger">
           {errorMessage(status.error)}
         </p>
       )}
 
       {status.data && (
         <>
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-3">{status.data.message}</p>
+          <p className="mt-3 text-label leading-relaxed text-ink-3">{status.data.message}</p>
           <dl className="mt-4 border-t border-line">
             {[
               [t("Sunshine"), status.data.binary ?? t("not detected")],
@@ -314,8 +314,8 @@ function SunshinePanel({
               ],
             ].map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-                <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
-                <dd className="min-w-0 truncate font-mono text-[10.5px] text-ink-2" title={value}>
+                <dt className="shrink-0 text-label text-ink-3">{label}</dt>
+                <dd className="min-w-0 truncate font-mono text-micro text-ink-2" title={value}>
                   {value}
                 </dd>
               </div>
@@ -323,7 +323,7 @@ function SunshinePanel({
           </dl>
 
           {status.data.warnings.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-1.5 text-[11.5px] leading-relaxed text-ink-3">
+            <ul className="mt-3 flex flex-col gap-1.5 text-meta leading-relaxed text-ink-3">
               {status.data.warnings.map((warning) => (
                 <li key={warning} className="flex items-start gap-2 border-l-2 border-line-2 pl-2">
                   <AlertTriangle className="mt-0.5 size-3 shrink-0 text-warn" aria-hidden="true" />
@@ -366,14 +366,14 @@ function SunshinePanel({
           </div>
 
           {syncError && (
-            <div role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12px] text-danger">
+            <div role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
               <p className="leading-relaxed">{syncError.message}</p>
               {syncError.needsElevation && isNative() && status.data.platform === "windows" && (
                 <div className="mt-2">
-                  <p className="max-w-[68ch] text-[11px] leading-relaxed text-ink-3">
+                  <p className="max-w-[68ch] text-meta leading-relaxed text-ink-3">
                     {t("This grants your Windows account modify rights on Sunshine's config folder, including sunshine.conf. Only needed for a Program Files install; Windows asks once, and cancelling changes nothing.")}
                   </p>
-                  <p className="mt-1 max-w-[68ch] text-[11px] leading-relaxed text-ink-3">
+                  <p className="mt-1 max-w-[68ch] text-meta leading-relaxed text-ink-3">
                     {t("You can also set a Sunshine config folder your account can write to.")}
                   </p>
                   <Button
@@ -393,7 +393,7 @@ function SunshinePanel({
           )}
 
           {backupPath && (
-            <p className="mt-3 flex items-center gap-2 text-[11px] text-ink-3">
+            <p className="mt-3 flex items-center gap-2 text-meta text-ink-3">
               <CheckCircle2 className="size-3 shrink-0 text-ok" aria-hidden="true" />
               <span className="min-w-0">
                 {t("Backup:")} <span className="break-all font-mono">{backupPath}</span>
@@ -402,20 +402,20 @@ function SunshinePanel({
           )}
 
           {preview.isError && (
-            <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12px] text-danger">
+            <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
               {errorMessage(preview.error)}
             </p>
           )}
 
           {preview.data && (
             <div className="mt-4">
-              <p className="text-[11.5px] text-ink-3">{preview.data.message}</p>
+              <p className="text-meta text-ink-3">{preview.data.message}</p>
               {preview.data.entries.length > 0 && (
                 <ul className="mt-2 max-h-[240px] overflow-y-auto border-t border-line">
                   {preview.data.entries.map((entry) => (
                     <li key={entry.gameId} className="flex items-center gap-2 border-b border-line py-1.5">
                       <ActionBadge action={entry.action} />
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={entry.name}>
+                      <span className="min-w-0 flex-1 truncate text-label text-ink" title={entry.name}>
                         {entry.name}
                       </span>
                       {entry.console && <Badge tone="signal">{t("console")}</Badge>}
@@ -424,7 +424,7 @@ function SunshinePanel({
                           <AlertTriangle className="size-3 text-warn" aria-label={t("Needs a ludex:// handler")} />
                         </span>
                       )}
-                      <span className="max-w-[45%] truncate font-mono text-[10px] text-ink-3" title={entry.cmd}>
+                      <span className="max-w-[45%] truncate font-mono text-micro text-ink-3" title={entry.cmd}>
                         {entry.cmd}
                       </span>
                     </li>
@@ -432,12 +432,12 @@ function SunshinePanel({
                 </ul>
               )}
               {preview.data.removals.length > 0 && (
-                <p className="mt-2 text-[11.5px] text-ink-3">
+                <p className="mt-2 text-meta text-ink-3">
                   {t("To remove: {names}", { names: preview.data.removals.map((item) => item.name).join(", ") })}
                 </p>
               )}
               {preview.data.skipped.length > 0 && (
-                <ul className="mt-2 flex flex-col gap-1 text-[11.5px] text-ink-3">
+                <ul className="mt-2 flex flex-col gap-1 text-meta text-ink-3">
                   {preview.data.skipped.map((item) => (
                     <li key={item.gameId}>
                       {item.title}: {item.reason}
@@ -450,37 +450,37 @@ function SunshinePanel({
 
           <div className="mt-5 grid gap-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12.5px] font-medium text-ink">{t("apps.json override")}</span>
+              <span className="text-label font-medium text-ink">{t("apps.json override")}</span>
               <Input
                 value={draft.sunshineAppsPath}
                 onChange={(event) => update({ sunshineAppsPath: event.target.value })}
                 placeholder={status.data.appsPath ?? "/home/me/.config/sunshine/apps.json"}
                 spellCheck={false}
-                className="h-9 font-mono text-[11px]"
+                className="h-9 font-mono text-meta"
               />
-              <span className="text-[11px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 {t("Save the desktop settings, then rescan. Empty = detect Sunshine automatically.")}
               </span>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12.5px] font-medium text-ink">{t("sunshine.conf override")}</span>
+              <span className="text-label font-medium text-ink">{t("sunshine.conf override")}</span>
               <Input
                 value={draft.sunshineConfPath}
                 onChange={(event) => update({ sunshineConfPath: event.target.value })}
                 placeholder={status.data.confPath ?? "/home/me/.config/sunshine/sunshine.conf"}
                 spellCheck={false}
-                className="h-9 font-mono text-[11px]"
+                className="h-9 font-mono text-meta"
               />
             </label>
           </div>
 
-          <p className="mt-3 flex items-start gap-2 text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-3 flex items-start gap-2 text-meta leading-relaxed text-ink-3">
             <FolderOpen className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
             <span>
               {t("Only entries carrying the Ludex marker are updated or removed. Your own Sunshine apps are never touched, and nothing is written without this button.")}
             </span>
           </p>
-          <p className="mt-2 flex items-start gap-2 text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-2 flex items-start gap-2 text-meta leading-relaxed text-ink-3">
             <ShieldCheck className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
             <span>
               {t("When Windows denies a write to a Program Files install, the publish error offers a one-time elevation that grants this account write access; nothing is elevated automatically.")}
@@ -543,7 +543,7 @@ function MoonlightPanel({
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-2">
           <Wifi className="size-4 text-ink-3" aria-hidden="true" />
-          <h4 className="text-[13.5px] font-semibold text-ink">{t("Moonlight client")}</h4>
+          <h4 className="text-body font-semibold text-ink">{t("Moonlight client")}</h4>
           {status.data && (
             <Badge tone={status.data.detected ? "ok" : "outline"}>
               {status.data.detected ? t("detected") : t("not found")}
@@ -568,22 +568,22 @@ function MoonlightPanel({
         </div>
       )}
       {status.isError && (
-        <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-[12px] text-danger">
+        <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-label text-danger">
           {errorMessage(status.error)}
         </p>
       )}
 
       {status.data && (
         <>
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-3">{status.data.message}</p>
+          <p className="mt-3 text-label leading-relaxed text-ink-3">{status.data.message}</p>
           <dl className="mt-4 border-t border-line">
             {[
               [t("Moonlight"), status.data.binary ?? t("not detected")],
               [t("Host list"), status.data.configPath ?? status.data.configSource ?? t("not found")],
             ].map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-                <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
-                <dd className="min-w-0 truncate font-mono text-[10.5px] text-ink-2" title={value}>
+                <dt className="shrink-0 text-label text-ink-3">{label}</dt>
+                <dd className="min-w-0 truncate font-mono text-micro text-ink-2" title={value}>
                   {value}
                 </dd>
               </div>
@@ -591,7 +591,7 @@ function MoonlightPanel({
           </dl>
 
           {status.data.configSource && status.data.configPath && (
-            <p className="mt-2 text-[11px] text-ink-3">
+            <p className="mt-2 text-meta text-ink-3">
               {t("Read from {source}.", { source: status.data.configSource })}
             </p>
           )}
@@ -600,8 +600,8 @@ function MoonlightPanel({
             <ul className="mt-3 border-t border-line">
               {status.data.hosts.map((host) => (
                 <li key={`${host.name}-${host.address}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line py-2">
-                  <span className="text-[12.5px] text-ink">{host.name}</span>
-                  <span className="font-mono text-[10.5px] text-ink-3">{host.address}</span>
+                  <span className="text-label text-ink">{host.name}</span>
+                  <span className="font-mono text-micro text-ink-3">{host.address}</span>
                   <span className="ml-auto">
                     <Badge tone={host.paired ? "ok" : "outline"}>{host.paired ? t("paired") : t("not paired")}</Badge>
                   </span>
@@ -609,14 +609,14 @@ function MoonlightPanel({
               ))}
             </ul>
           ) : (
-            <p className="mt-3 flex items-start gap-2 text-[11.5px] text-ink-3">
+            <p className="mt-3 flex items-start gap-2 text-meta text-ink-3">
               <ServerOff className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
               <span>{t("No host yet. Pair a Sunshine host in Moonlight once; Ludex then reuses that pairing.")}</span>
             </p>
           )}
 
           {status.data.warnings.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-1.5 text-[11.5px] leading-relaxed text-ink-3">
+            <ul className="mt-3 flex flex-col gap-1.5 text-meta leading-relaxed text-ink-3">
               {status.data.warnings.map((warning) => (
                 <li key={warning} className="flex items-start gap-2 border-l-2 border-line-2 pl-2">
                   <AlertTriangle className="mt-0.5 size-3 shrink-0 text-warn" aria-hidden="true" />
@@ -626,47 +626,47 @@ function MoonlightPanel({
             </ul>
           )}
 
-          <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             {t("Published games gain a Stream action on their page. Moonlight opens the stream; Ludex stays out of the video path.")}
           </p>
 
           <div className="mt-5 grid gap-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12.5px] font-medium text-ink">{t("Moonlight override")}</span>
+              <span className="text-label font-medium text-ink">{t("Moonlight override")}</span>
               <Input
                 value={draft.moonlightBinary}
                 onChange={(event) => update({ moonlightBinary: event.target.value })}
                 placeholder={status.data.binary ?? "/usr/bin/moonlight"}
                 spellCheck={false}
-                className="h-9 font-mono text-[11px]"
+                className="h-9 font-mono text-meta"
               />
-              <span className="text-[11px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 {t("Save the desktop settings, then rescan. Empty = look on PATH and in the usual install folders.")}
               </span>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12.5px] font-medium text-ink">{t("Moonlight config override")}</span>
+              <span className="text-label font-medium text-ink">{t("Moonlight config override")}</span>
               <Input
                 value={draft.moonlightConfigPath}
                 onChange={(event) => update({ moonlightConfigPath: event.target.value })}
                 placeholder={status.data.configPath ?? "~/.config/Moonlight Game Streaming Project/Moonlight.conf"}
                 spellCheck={false}
-                className="h-9 font-mono text-[11px]"
+                className="h-9 font-mono text-meta"
               />
-              <span className="text-[11px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 {t("Optional. Portable builds keep Moonlight.ini next to Moonlight.exe; installed Windows builds keep their settings in the registry, which Ludex reads without writing.")}
               </span>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12.5px] font-medium text-ink">{t("Manual Moonlight host")}</span>
+              <span className="text-label font-medium text-ink">{t("Manual Moonlight host")}</span>
               <Input
                 value={draft.moonlightHost}
                 onChange={(event) => update({ moonlightHost: event.target.value })}
                 placeholder={status.data.manualHost ?? status.data.hosts[0]?.address ?? "192.168.1.20"}
                 spellCheck={false}
-                className="h-9 font-mono text-[11px]"
+                className="h-9 font-mono text-meta"
               />
-              <span className="text-[11px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 {t("Host name or IP used when Ludex cannot read Moonlight's saved hosts. The Stream action still runs moonlight stream <host> <app>.")}
               </span>
             </label>

@@ -294,11 +294,11 @@ export function SettingsTiersPanel({
       <div className="mt-4 border border-line bg-surface px-4 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={statusTone}>{tierLabel("works")}</Badge>
-          <p className="text-[13.5px] font-medium text-ink">{tierOneTitle(readiness.status)}</p>
+          <p className="text-body font-medium text-ink">{tierOneTitle(readiness.status)}</p>
         </div>
         {diagnosisQuery.isError ? (
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            <p className="flex items-center gap-1.5 text-[12.5px] text-danger">
+            <p className="flex items-center gap-1.5 text-label text-danger">
               <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
               {t("Ludex could not check this game.")}
             </p>
@@ -313,7 +313,7 @@ export function SettingsTiersPanel({
           </div>
         ) : (
           <>
-            <p className="mt-1.5 max-w-[70ch] text-[12.5px] leading-relaxed text-ink-2">
+            <p className="mt-1.5 max-w-[70ch] text-label leading-relaxed text-ink-2">
               {tierOneDescription(readiness.status, readiness.cause)}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -343,7 +343,7 @@ export function SettingsTiersPanel({
             open={planOpen}
             onToggle={(event) => setPlanOpen(event.currentTarget.open)}
           >
-            <summary className="cursor-pointer select-none text-[11.5px] text-ink-3">
+            <summary className="cursor-pointer select-none text-meta text-ink-3">
               {t("See exactly what Ludex will do")}
             </summary>
             {planOpen && (
@@ -359,8 +359,8 @@ export function SettingsTiersPanel({
       <div className="mt-8">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <p className="text-[13px] font-medium text-ink">{tierLabel("game")}</p>
-            <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-body font-medium text-ink">{tierLabel("game")}</p>
+            <p className="mt-1 max-w-[62ch] text-meta leading-relaxed text-ink-3">
               {tier2Intro()}
             </p>
           </div>
@@ -381,8 +381,8 @@ export function SettingsTiersPanel({
               <div key={meta.id} className="border-b border-line py-4">
                 <div className="flex items-start justify-between gap-6">
                   <div className="min-w-0">
-                    <p className="text-[13px] font-medium text-ink">{tier2Label(meta.id)}</p>
-                    <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+                    <p className="text-body font-medium text-ink">{tier2Label(meta.id)}</p>
+                    <p className="mt-1 max-w-[62ch] text-meta leading-relaxed text-ink-3">
                       {tier2Explanation(meta.id, {
                         enabled: checked,
                         blockedReason: reason,
@@ -398,7 +398,7 @@ export function SettingsTiersPanel({
                           placeholder={t("Headset or HDMI device name")}
                           aria-label={t("Audio device")}
                           spellCheck={false}
-                          className="h-9 w-[240px] font-mono text-[11.5px]"
+                          className="h-9 w-[240px] font-mono text-meta"
                         />
                         <Button
                           variant="ghost"
@@ -431,12 +431,12 @@ export function SettingsTiersPanel({
           <div className="border border-line bg-surface px-4 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-ink">
+                <p className="flex flex-wrap items-center gap-2 text-body font-medium text-ink">
                   <Lock className="size-3.5 text-ink-3" aria-hidden="true" />
                   {tierLabel("advanced")}
                   <Badge tone="danger">{t("Unsupported")}</Badge>
                 </p>
-                <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+                <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
                   {advancedWarning()}
                 </p>
               </div>
@@ -447,11 +447,11 @@ export function SettingsTiersPanel({
           </div>
         ) : (
           <div className="border border-line bg-surface px-4 py-4">
-            <p className="flex items-center gap-2 text-[13px] font-medium text-ink">
+            <p className="flex items-center gap-2 text-body font-medium text-ink">
               <Lock className="size-3.5 text-ink-3" aria-hidden="true" />
               {t("Advanced view")}
             </p>
-            <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
               {advancedWarning()}
             </p>
             <Button
@@ -493,16 +493,16 @@ export function SettingsTiersPanel({
         <ul className="divide-y divide-line border-y border-line">
           {downloads.map((step) => (
             <li key={step.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2">
-              <span className="font-mono text-[11.5px] text-ink-2">{step.download?.host}</span>
-              <span className="num text-[11.5px] text-ink-3">
+              <span className="font-mono text-meta text-ink-2">{step.download?.host}</span>
+              <span className="num text-meta text-ink-3">
                 {step.download ? formatBytes(step.download.sizeBytes) : ""}
               </span>
-              <span className="text-[11px] text-ink-3">{step.download?.licence}</span>
+              <span className="text-meta text-ink-3">{step.download?.licence}</span>
             </li>
           ))}
         </ul>
         {downloadBytes > 0 && (
-          <p className="mt-2 text-[11.5px] text-ink-3">
+          <p className="mt-2 text-meta text-ink-3">
             {t("Total download: {size}", { size: formatBytes(downloadBytes) })}
           </p>
         )}

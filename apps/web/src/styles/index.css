@@ -47,16 +47,10 @@
   --font-mono: var(--font-code);
 
   /*
-   * Type scale (#237). The desktop app had 27 arbitrary sizes and eight half
-   * pixel values; this is the replacement, one step per semantic role. Files
-   * migrate to `text-micro|meta|label|body|lead|title|display` as they are
-   * touched, so both vocabularies coexist for now.
-   *
-   * Migration state: 1931 arbitrary `text-[Npx]` at the audit, 1768 after the
-   * console pass (all 110 console occurrences replaced) and the first desktop
-   * screens (shell, game nav, onboarding, dialog, page furniture). The
-   * remainder is 122 files of admin panels and game sub-panels; `styles/
-   * type-scale.test.ts` fails if a console surface reintroduces one.
+   * Type scale (#237, #333). One step per semantic role (`text-micro|meta|
+   * label|body|lead|title|display|hero`). Migration is complete across the
+   * entire app; `styles/type-scale.test.ts` fails if any screen or component
+   * reintroduces an arbitrary `text-[Npx]` or `text-[clamp(...)]`.
    */
   --text-micro: 10px;
   --text-meta: 11.5px;

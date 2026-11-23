@@ -93,8 +93,8 @@ export function LanguagePanel() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border border-line bg-surface-2 px-3 py-2.5">
         <div className="min-w-0">
-          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Effective language")}</p>
-          <p className="mt-0.5 truncate text-[13px] text-ink">
+          <p className="text-micro uppercase tracking-[0.12em] text-ink-3">{t("Effective language")}</p>
+          <p className="mt-0.5 truncate text-body text-ink">
             <span lang={activeLocale}>{entries.find((entry) => entry.selected)?.meta.label ?? activeLocale}</span>
           </p>
         </div>
@@ -115,9 +115,9 @@ export function LanguagePanel() {
       )}
 
       <div className="mt-4 flex items-center justify-between gap-3">
-        <p className="text-[11.5px] leading-relaxed text-ink-3">{t("Changes apply immediately.")}</p>
+        <p className="text-meta leading-relaxed text-ink-3">{t("Changes apply immediately.")}</p>
         {user && (
-          <div className="flex shrink-0 items-center gap-2 text-[11.5px] text-ink-2">
+          <div className="flex shrink-0 items-center gap-2 text-meta text-ink-2">
             <Switch
               checked={deviceOnly}
               onCheckedChange={setDeviceOnly}
@@ -130,7 +130,7 @@ export function LanguagePanel() {
 
       {groups.map((group) => (
         <div key={group.key} className="mt-4 first:mt-0">
-          <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{group.title}</p>
+          <p className="mb-2 text-micro uppercase tracking-[0.12em] text-ink-3">{group.title}</p>
           <div className="grid gap-1.5 sm:grid-cols-2">
             {group.entries.map((entry) => (
               <LocaleButton
@@ -148,11 +148,11 @@ export function LanguagePanel() {
       ))}
 
       {error && (
-        <p role="alert" className="mt-3 text-[11.5px] leading-relaxed text-danger">
+        <p role="alert" className="mt-3 text-meta leading-relaxed text-danger">
           {t("Could not save the language")}: {error}
         </p>
       )}
-      <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-3 text-meta leading-relaxed text-ink-3">
         {t("Community locales are contributed as JSON files. See docs/I18N.md for the contribution flow; Arabic is machine-seeded and unreviewed.")}
       </p>
     </div>
@@ -192,15 +192,15 @@ function LocaleButton({
       )}
     >
       <span className="min-w-0">
-        <span className="block truncate text-[13px] text-ink">{entry.label}</span>
-        <span className="block truncate font-mono text-[10px] text-ink-3">
+        <span className="block truncate text-body text-ink">{entry.label}</span>
+        <span className="block truncate font-mono text-micro text-ink-3">
           {entry.englishLabel}
           {entry.dir === "rtl" ? " · RTL" : ""}
         </span>
-        {reason && <span className="mt-0.5 block text-[10.5px] leading-snug text-ink-3">{reason}</span>}
+        {reason && <span className="mt-0.5 block text-micro leading-snug text-ink-3">{reason}</span>}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        {entry.code !== "en" && coverage && <span className="num text-[10px] text-ink-3">{coverage.percent}%</span>}
+        {entry.code !== "en" && coverage && <span className="num text-micro text-ink-3">{coverage.percent}%</span>}
         <Badge tone={selected ? "signal" : "outline"}>{statusLabel(entry)}</Badge>
       </span>
     </button>

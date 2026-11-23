@@ -42,15 +42,15 @@ export function ControllerDiagnostics() {
 
   return (
     <section
-      className="mt-4 rounded-[3px] border border-line bg-bg-2/40 p-4 sm:p-5"
+      className="mt-4 rounded-[var(--r-sm)] border border-line bg-bg-2/40 p-4 sm:p-5"
       aria-label={t("Launch-time controllers")}
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h4 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
+          <h4 className="flex items-center gap-2 text-meta uppercase tracking-[0.12em] text-ink-2">
             <Gamepad2 className="size-3.5" aria-hidden="true" /> {t("Launch-time controllers")}
           </h4>
-          <p className="mt-1 max-w-[68ch] text-[12.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[68ch] text-label leading-relaxed text-ink-3">
             {t(
               "The joysticks a game launched by Ludex will see, in the order this machine enumerates them. Pick a preferred controller per game in its launch options.",
             )}
@@ -69,7 +69,7 @@ export function ControllerDiagnostics() {
       {padStatus ? (
         <div className="mt-3 border-t border-line pt-3">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-ink-2">{t("Virtual gamepad")}</span>
+            <span className="text-label text-ink-2">{t("Virtual gamepad")}</span>
             <Badge
               tone={
                 padStatus.status === "available"
@@ -82,10 +82,10 @@ export function ControllerDiagnostics() {
               {virtualPadStatusLabel(padStatus.status)}
             </Badge>
             {padStatus.path ? (
-              <span className="font-mono text-[10.5px] text-ink-3">{padStatus.path}</span>
+              <span className="font-mono text-micro text-ink-3">{padStatus.path}</span>
             ) : null}
           </span>
-          <p className="mt-1 max-w-[68ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[68ch] text-meta leading-relaxed text-ink-3">
             {padStatus.status === "available"
               ? t("Ludex can create one virtual pad per game that asks for it.")
               : padStatus.detail}
@@ -94,17 +94,17 @@ export function ControllerDiagnostics() {
       ) : null}
 
       {query.isError ? (
-        <p className="mt-3 border-l-2 border-danger/60 pl-3 text-[12px] leading-relaxed text-ink-2">
+        <p className="mt-3 border-l-2 border-danger/60 pl-3 text-label leading-relaxed text-ink-2">
           {errorMessage(query.error)}
         </p>
       ) : !inventory ? (
-        <p className="mt-3 text-[12px] text-ink-3">{t("Reading the input devices…")}</p>
+        <p className="mt-3 text-label text-ink-3">{t("Reading the input devices…")}</p>
       ) : !inventory.available ? (
-        <p className="mt-3 border-l-2 border-line pl-3 text-[12px] leading-relaxed text-ink-3">
+        <p className="mt-3 border-l-2 border-line pl-3 text-label leading-relaxed text-ink-3">
           {inventory.note ?? t("The input device list is unavailable on this system.")}
         </p>
       ) : joysticks.length === 0 ? (
-        <p className="mt-3 text-[12px] text-ink-3">{t("No joystick detected.")}</p>
+        <p className="mt-3 text-label text-ink-3">{t("No joystick detected.")}</p>
       ) : (
         <ul className="mt-3 divide-y divide-line border-t border-line">
           {joysticks.map((device) => (
@@ -115,12 +115,12 @@ export function ControllerDiagnostics() {
               <Badge tone={device.role === "wheel" ? "signal" : "outline"}>
                 {roleLabel(device.role)}
               </Badge>
-              <span className="min-w-0 truncate text-[12.5px] text-ink">{device.name}</span>
-              <span className="font-mono text-[11px] text-ink-3">
+              <span className="min-w-0 truncate text-label text-ink">{device.name}</span>
+              <span className="font-mono text-meta text-ink-3">
                 {device.deviceId ?? t("no vendor:product")}
               </span>
               <span className="flex items-center justify-end gap-2">
-                <span className="font-mono text-[11px] text-ink-3">
+                <span className="font-mono text-meta text-ink-3">
                   {device.jsIndex !== null ? `js${device.jsIndex}` : device.eventIndex !== null ? `event${device.eventIndex}` : "—"}
                 </span>
                 <Badge tone={device.connected ? "ok" : "danger"}>

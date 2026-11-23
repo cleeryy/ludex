@@ -36,7 +36,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 function RecoveryCodeList({ codes }: { codes: string[] }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[12.5px] text-ink sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-label text-ink sm:grid-cols-3">
         {codes.map((code) => (
           <span key={code}>{code}</span>
         ))}
@@ -162,7 +162,7 @@ export function SecurityBody() {
       >
         <div className="flex max-w-[560px] flex-col gap-4">
           {mfa.isPending && (
-            <p className="flex items-center gap-2 text-[12.5px] text-ink-3" role="status">
+            <p className="flex items-center gap-2 text-label text-ink-3" role="status">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("Loading…")}
             </p>
@@ -170,7 +170,7 @@ export function SecurityBody() {
 
           {active && !recoveryCodes && (
             <>
-              <p className="text-[13px] leading-relaxed text-ink-2">
+              <p className="text-body leading-relaxed text-ink-2">
                 {tr("Enabled on {date}. {count} recovery codes left.", {
                   date: <span className="num">{status?.enabledAt ? formatDate(status.enabledAt) : "—"}</span>,
                   count: <span className="num">{status?.recoveryCodesRemaining ?? 0}</span>,
@@ -208,7 +208,7 @@ export function SecurityBody() {
                     {t("Disable")}
                   </Button>
                 </div>
-                <p className="text-[11.5px] leading-relaxed text-ink-3">
+                <p className="text-meta leading-relaxed text-ink-3">
                   {t("Generating new recovery codes invalidates the previous set. Disabling signs out your other devices.")}
                 </p>
               </div>
@@ -217,7 +217,7 @@ export function SecurityBody() {
 
           {!active && !enrollment && (
             <>
-              <p className="text-[13px] leading-relaxed text-ink-2">
+              <p className="text-body leading-relaxed text-ink-2">
                 {t("Use any TOTP app: 1Password, Bitwarden, Aegis, Google Authenticator. Ludex shows the secret once.")}
               </p>
               <Button
@@ -236,16 +236,16 @@ export function SecurityBody() {
 
           {enrollment && (
             <div className="flex flex-col gap-3">
-              <p className="text-[12.5px] leading-relaxed text-ink-3">
+              <p className="text-label leading-relaxed text-ink-3">
                 {t("Add this key to your authenticator app, then enter the code it shows. The key is not shown again.")}
               </p>
               <div className="flex flex-wrap items-center gap-3">
-                <code className="break-all border border-line-2 bg-surface px-3 py-2 font-mono text-[13px] tracking-[0.12em] text-ink">
+                <code className="break-all border border-line-2 bg-surface px-3 py-2 font-mono text-body tracking-[0.12em] text-ink">
                   {enrollment.secret}
                 </code>
                 <CopyButton value={enrollment.secret} label={t("Secret copied")} />
               </div>
-              <p className="break-all font-mono text-[11px] leading-relaxed text-ink-3">
+              <p className="break-all font-mono text-meta leading-relaxed text-ink-3">
                 {enrollment.otpauthUri}
               </p>
               <Field label={t("Six-digit code")} htmlFor="mfa-activate-code">
@@ -280,8 +280,8 @@ export function SecurityBody() {
 
           {recoveryCodes && (
             <div className="flex flex-col gap-3 border border-line-2 p-4">
-              <p className="text-[13px] font-medium text-ink">{t("Save your recovery codes now")}</p>
-              <p className="text-[12px] leading-relaxed text-ink-3">
+              <p className="text-body font-medium text-ink">{t("Save your recovery codes now")}</p>
+              <p className="text-label leading-relaxed text-ink-3">
                 {t("Each code signs you in once if you lose the authenticator. They are hashed on the server and cannot be shown again.")}
               </p>
               <RecoveryCodeList codes={recoveryCodes} />
@@ -292,7 +292,7 @@ export function SecurityBody() {
           )}
 
           {error && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
               {error}
             </p>
           )}
@@ -312,7 +312,7 @@ export function SecurityBody() {
       >
         <div className="flex flex-col divide-y divide-line border-y border-line">
           {sessions.isPending && (
-            <p className="flex items-center gap-2 py-3 text-[12.5px] text-ink-3" role="status">
+            <p className="flex items-center gap-2 py-3 text-label text-ink-3" role="status">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("Loading…")}
             </p>
@@ -322,12 +322,12 @@ export function SecurityBody() {
               <div className="flex min-w-0 items-start gap-3">
                 <Monitor className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden="true" />
                 <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+                  <p className="flex flex-wrap items-center gap-2 text-body text-ink">
                     {session.device ?? session.userAgent ?? t("Unknown device")}
                     {session.current && <Badge tone="signal">{t("This session")}</Badge>}
                     {session.revokedAt && <Badge tone="danger">{t("Revoked")}</Badge>}
                   </p>
-                  <p className="mt-0.5 text-[11.5px] text-ink-3">
+                  <p className="mt-0.5 text-meta text-ink-3">
                     <span className="num">{session.ip ?? "—"}</span>
                     <span className="px-1.5">·</span>
                     {tr("last seen {date}", {
@@ -349,7 +349,7 @@ export function SecurityBody() {
             </div>
           ))}
           {sessions.isSuccess && (sessions.data ?? []).length === 0 && (
-            <p className="py-3 text-[12.5px] text-ink-3">{t("No sessions recorded.")}</p>
+            <p className="py-3 text-label text-ink-3">{t("No sessions recorded.")}</p>
           )}
         </div>
       </SettingsGroup>

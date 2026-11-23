@@ -63,24 +63,24 @@ export function MissingArchiveNotice({ game }: { game: GameDetail }) {
   return (
     <section
       aria-labelledby="missing-archive-title"
-      className="mt-6 max-w-[640px] rounded-[3px] border border-danger/45 bg-danger/10 p-4"
+      className="mt-6 max-w-[640px] rounded-[var(--r-sm)] border border-danger/45 bg-danger/10 p-4"
     >
-      <p className="flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-danger">
+      <p className="flex items-center gap-2 text-micro uppercase tracking-[0.12em] text-danger">
         <AlertTriangle className="size-4" aria-hidden="true" />
         {t("No archive available")}
       </p>
-      <h2 id="missing-archive-title" className="mt-2 text-[16px] font-semibold">
+      <h2 id="missing-archive-title" className="mt-2 text-lead font-semibold">
         {t("Ludex kept the metadata, but there is nothing to download or install.")}
       </h2>
-      <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">
+      <p className="mt-1.5 text-label leading-relaxed text-ink-2">
         {t("The archive was deleted outside Ludex, or the library root that holds it is offline. Progress, saves, achievements and collections are untouched; a scan never deletes a game.")}
       </p>
 
       {versions.length > 0 && (
         <ul className="mt-3 space-y-1.5 border-t border-danger/25 pt-3">
           {versions.map((version) => (
-            <li key={version.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px]">
-              <span className="font-mono text-[11.5px] text-ink">{version.fileName}</span>
+            <li key={version.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-label">
+              <span className="font-mono text-meta text-ink">{version.fileName}</span>
               <span className="text-danger">
                 {version.rootUnavailable ? t("library root offline") : t("file missing")}
               </span>
@@ -116,7 +116,7 @@ export function MissingArchiveNotice({ game }: { game: GameDetail }) {
             {t("Remove from library")}
           </Button>
         )}
-        <span className="text-[11.5px] text-ink-3">
+        <span className="text-meta text-ink-3">
           {t("Files are never deleted from this page.")}
         </span>
       </div>

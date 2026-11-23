@@ -134,7 +134,7 @@ export function RemoteScreen() {
       <section className="mt-6 border border-line bg-surface/40 p-4 sm:p-5">
         <div className="flex items-start gap-3">
           <Smartphone className="mt-0.5 size-4 shrink-0 text-signal" aria-hidden="true" />
-          <div className="min-w-0 text-[13px] leading-relaxed text-ink-2">
+          <div className="min-w-0 text-body leading-relaxed text-ink-2">
             <p className="font-medium text-ink">{t("The desktop does the install")}</p>
             <p className="mt-1">
               {t("A request waits until the desktop app is open and signed in. Nothing launches or streams from this phone; installs land on the PC.")}
@@ -167,19 +167,19 @@ export function RemoteScreen() {
               value={deviceList.some((device) => device.id === defaultTarget) ? defaultTarget : null}
               onChange={chooseDefaultTarget}
             />
-            <span className="text-[11px] text-ink-3">
+            <span className="text-meta text-ink-3">
               {t("Default target for new installs. Pick it on a game to install there.")}
             </span>
           </div>
         )}
         {devices.isError ? (
-          <p className="border border-danger/40 bg-danger/5 px-4 py-3 text-[12.5px] text-ink-2">
+          <p className="border border-danger/40 bg-danger/5 px-4 py-3 text-label text-ink-2">
             {errorMessage(devices.error)}
           </p>
         ) : devices.isPending ? (
           <div className="h-20 animate-pulse border border-line bg-surface/40" />
         ) : deviceList.length === 0 ? (
-          <div className="border border-line bg-surface/30 px-4 py-5 text-[12.5px] leading-relaxed text-ink-2">
+          <div className="border border-line bg-surface/30 px-4 py-5 text-label leading-relaxed text-ink-2">
             <p className="font-medium text-ink">{t("No PC is registered yet")}</p>
             <p className="mt-1">{t("To install on a PC, all three are required:")}</p>
             <ol className="mt-2 list-decimal space-y-1 ps-5">
@@ -206,7 +206,7 @@ export function RemoteScreen() {
       </section>
 
       {isError ? (
-        <div className="mt-6 flex flex-wrap items-center gap-3 border border-danger/40 bg-danger/5 p-4 text-[13px] text-ink-2">
+        <div className="mt-6 flex flex-wrap items-center gap-3 border border-danger/40 bg-danger/5 p-4 text-body text-ink-2">
           <AlertTriangle className="size-4 text-danger" aria-hidden="true" />
           <span>{errorMessage(error)}</span>
           <Button variant="ghost" size="sm" onClick={() => void refetch()}>
@@ -242,7 +242,7 @@ export function RemoteScreen() {
               description={t("These requests wait for a desktop or are downloading on it.")}
             />
             {active.length === 0 ? (
-              <p className="border border-line px-4 py-6 text-[13px] text-ink-3">
+              <p className="border border-line px-4 py-6 text-body text-ink-3">
                 {t("No install is running right now.")}
               </p>
             ) : (
@@ -284,8 +284,8 @@ export function RemoteScreen() {
         </>
       )}
 
-      <details className="mt-10 border border-line bg-surface/30 p-4 text-[12.5px] leading-relaxed text-ink-3">
-        <summary className="cursor-pointer select-none text-[13px] font-medium text-ink-2">
+      <details className="mt-10 border border-line bg-surface/30 p-4 text-label leading-relaxed text-ink-3">
+        <summary className="cursor-pointer select-none text-body font-medium text-ink-2">
           {t("Reaching the server from outside your network")}
         </summary>
         <div className="mt-3 space-y-2">
@@ -308,13 +308,13 @@ function DeviceCard({ device }: { device: Device }) {
       <Monitor className="mt-0.5 size-4 shrink-0 text-signal" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="truncate text-[14px] font-medium text-ink">{device.name}</p>
+          <p className="truncate text-body font-medium text-ink">{device.name}</p>
           <Badge tone={device.online ? "ok" : "outline"}>
             {device.online ? t("Online") : t("Offline")}
           </Badge>
         </div>
-        <p className="mt-0.5 text-[11.5px] text-ink-3">{deviceSummary(device)}</p>
-        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-ink-3">
+        <p className="mt-0.5 text-meta text-ink-3">{deviceSummary(device)}</p>
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-3">
           <span className="inline-flex items-center gap-1">
             {device.online ? (
               <Wifi className="size-3 text-ok" aria-hidden="true" />
@@ -360,11 +360,11 @@ function RemoteInstallCard({
           <div className="min-w-0">
             <Link
               to={`/games/${install.gameId}`}
-              className="block truncate text-[15px] font-medium leading-tight text-ink hover:text-signal-text"
+              className="block truncate text-lead font-medium leading-tight text-ink hover:text-signal-text"
             >
               {install.gameTitle}
             </Link>
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3">
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-3">
               {install.version && <span className="num">v{install.version}</span>}
               {install.sizeBytes !== null && <span className="num">{formatBytes(install.sizeBytes)}</span>}
               <span>{formatRelative(year)}</span>
@@ -383,7 +383,7 @@ function RemoteInstallCard({
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11.5px] text-ink-3">
+          <p className="text-meta text-ink-3">
             {install.status === "queued" && install.targetDeviceName
               ? targetDevice && !targetDevice.online
                 ? t("Will start when {device} is online.", { device: install.targetDeviceName })

@@ -118,7 +118,7 @@ export function HomeScreen() {
     return (
       <div className="page page-in pt-6">
         <Skeleton className="h-[380px] w-full" />
-        <div className="mt-12 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="mt-12 grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {Array.from({ length: 5 }).map((_, index) => (
             <div key={index}>
               <Skeleton className="aspect-[3/4] w-full" />
@@ -199,14 +199,14 @@ export function HomeScreen() {
 
   return (
     <div className="page page-in pt-6">
-      <div className="mb-3 flex items-baseline justify-end gap-4 font-mono text-[10.5px] text-ink-3">
+      <div className="mb-3 flex items-baseline justify-end gap-4 text-meta text-ink-3">
         <span>{tn(games.length, "1 game", "{count} games")}</span>
         {installsAvailable() && <span>{t("{count} installed", { count: installed.size })}</span>}
       </div>
 
       <GettingStartedCard className="mb-6" />
 
-      <ThemeScope as="section" className="relative overflow-hidden rounded-[2px] border border-line-2">
+      <ThemeScope as="section" className="relative overflow-hidden rounded-[var(--r-md)] border border-line-2">
         <ArtPlate
           title={hero.title}
           artUrl={heroDetail.data?.backgroundUrl ?? hero.backgroundUrl}
@@ -215,33 +215,33 @@ export function HomeScreen() {
         <div className="absolute inset-0 hero-shade" />
 
         <div className="relative flex min-h-[360px] flex-col justify-end gap-3.5 p-6 sm:min-h-[400px] sm:p-8">
-          <span className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-signal">
-            <span className="h-px w-7 bg-signal" aria-hidden="true" />
+          <span className="flex items-center gap-2.5 text-micro font-semibold uppercase tracking-[0.12em] text-signal">
+            <span className="h-[2px] w-7 bg-signal" aria-hidden="true" />
             {hero.lastPlayedAt ? t("Continue playing") : t("Start here")}
           </span>
-          <h1 className="max-w-[20ch] text-[clamp(2.1rem,4vw,3.6rem)] font-semibold leading-[0.95] tracking-[-0.035em] text-stage-ink">
+          <h1 className="max-w-[20ch] text-display font-semibold leading-[0.98] tracking-[-0.03em] text-stage-ink sm:text-hero">
             {hero.title}
           </h1>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] text-stage-ink-2">
-            <span>{formatYear(hero.releaseDate)}</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-meta text-stage-ink-2">
+            <span className="num">{formatYear(hero.releaseDate)}</span>
             <span>{stateLabel(hero.state)}</span>
-            {rating && <span>{rating} / 100</span>}
-            {playtime && <span>{t("{duration} played", { duration: playtime })}</span>}
+            {rating && <span className="num">{rating} / 100</span>}
+            {playtime && <span className="num">{t("{duration} played", { duration: playtime })}</span>}
             {hero.lastPlayedAt && <span>{t("Last played {when}", { when: formatRelative(hero.lastPlayedAt) })}</span>}
-            {heroInstalled && <span className="text-stage-ok">{t("Installed")}</span>}
+            {heroInstalled && <span className="font-medium text-stage-ok">{t("Installed")}</span>}
           </div>
           {heroDetail.data?.description && (
-            <p className="line-clamp-2 max-w-[58ch] text-[13.5px] leading-relaxed text-stage-ink-2">
+            <p className="line-clamp-2 max-w-[58ch] text-body leading-relaxed text-stage-ink-2">
               {heroDetail.data.description}
             </p>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {primary}
-            <Button variant="default" onClick={() => navigate(`/game/${hero.id}`)}>
+            <Button variant="outline" onClick={() => navigate(`/game/${hero.id}`)}>
               {t("Game page")}
             </Button>
             {heroJob && (
-              <span className="text-[11.5px] text-stage-ink-2">
+              <span className="num text-meta text-stage-ink-2">
                 {heroJob.bytesTotal ? `${formatBytes(heroJob.bytesDone)} of ${formatBytes(heroJob.bytesTotal)}` : t("Preparing")}
               </span>
             )}
@@ -255,7 +255,7 @@ export function HomeScreen() {
             title={t("On this device")}
             description={t("Installed here, newest launch first.")}
             actions={
-              <Link to="/downloads" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+              <Link to="/downloads" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
                 {t("Manage installs")}
               </Link>
             }
@@ -268,17 +268,17 @@ export function HomeScreen() {
                 <li key={entry.gameId} className="flex items-center gap-4 border-b border-line py-3">
                   <div className="min-w-0 flex-1">
                     {game ? (
-                      <Link to={`/game/${entry.gameId}`} className="truncate text-[13.5px] font-medium text-ink hover:underline">
+                      <Link to={`/game/${entry.gameId}`} className="truncate text-body font-medium text-ink hover:underline">
                         {entry.title}
                       </Link>
                     ) : (
-                      <span className="truncate text-[13.5px] font-medium text-ink">{entry.title}</span>
+                      <span className="truncate text-body font-medium text-ink">{entry.title}</span>
                     )}
-                    <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
+                    <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-micro text-ink-3">
                       {entry.version && <span>{`v${entry.version}`}</span>}
                       <span>{formatBytes(entry.sizeBytes)}</span>
                       {entry.source === "adopted" && (
-                        <span className="border border-signal/40 px-1.5 py-[1px] text-[9.5px] uppercase tracking-[0.08em] text-signal-text">
+                        <span className="border border-signal/40 px-1.5 py-[1px] text-micro uppercase tracking-[0.08em] text-signal-text">
                           {t("Adopted")}
                         </span>
                       )}
@@ -308,7 +308,7 @@ export function HomeScreen() {
                     {t("Play")}
                   </Button>
                   {!game && (
-                    <span className="font-mono text-[10px] text-ink-3">
+                    <span className="font-mono text-micro text-ink-3">
                       {entry.source ? sourceLabel(entry.source) : t("Not in this library")}
                     </span>
                   )}
@@ -324,7 +324,7 @@ export function HomeScreen() {
           <SectionHeader
             title={t("Recently played")}
             actions={
-              <Link to="/recent" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+              <Link to="/recent" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
                 {t("See all")}
               </Link>
             }
@@ -354,7 +354,7 @@ export function HomeScreen() {
           <SectionHeader
             title={t("Collections")}
             actions={
-              <Link to="/collections" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+              <Link to="/collections" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
                 {t("All collections")}
               </Link>
             }
@@ -367,14 +367,14 @@ export function HomeScreen() {
                 className="flex flex-col justify-between gap-4 border border-line bg-surface/40 p-3 transition-colors hover:border-line-2 hover:bg-surface"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
+                  <span className="text-micro uppercase tracking-[0.12em] text-ink-3">
                     {collection.kind === "smart" ? t("Smart") : t("Manual")}
                   </span>
-                  <span className="num text-[10.5px] text-ink-3">{collection.gameCount}</span>
+                  <span className="num text-micro text-ink-3">{collection.gameCount}</span>
                 </div>
                 <div>
-                  <p className="truncate text-[14px] font-medium text-ink">{collection.name}</p>
-                  <p className="mt-1 truncate font-mono text-[10px] text-ink-3">
+                  <p className="truncate text-body font-medium text-ink">{collection.name}</p>
+                  <p className="mt-1 truncate font-mono text-micro text-ink-3">
                     {collection.owned ? t("Yours") : collection.owner.displayName ?? collection.owner.username}
                   </p>
                 </div>
@@ -389,14 +389,14 @@ export function HomeScreen() {
           title={t("All games")}
           count={games.length}
           actions={
-            <Link to="/library" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+            <Link to="/library" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
               {t("Open the library")}
             </Link>
           }
         />
         <div
           id="home-all"
-          className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+          className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
         >
           {games.slice(0, 10).map((game) => (
             <GameCard

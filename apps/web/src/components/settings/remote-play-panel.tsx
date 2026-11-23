@@ -370,12 +370,12 @@ export function RemotePlayPanel() {
         <div>
           <div className="flex items-center gap-2">
             <Globe2 className="size-4 text-ink-3" aria-hidden="true" />
-            <h4 className="text-[13.5px] font-semibold text-ink">{t("Play away from home")}</h4>
+            <h4 className="text-body font-semibold text-ink">{t("Play away from home")}</h4>
             <Badge tone={directMapped ? "ok" : "outline"}>
               {directMapped ? t("direct mode on") : t("off")}
             </Badge>
           </div>
-          <p className="mt-1 max-w-[76ch] text-[12px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[76ch] text-label leading-relaxed text-ink-3">
             {t(
               "Play Moonlight on your phone from outside the house. A VPN or mesh network is the recommended path; direct mode forwards only the Sunshine ports, with a short lease and an automatic cleanup.",
             )}
@@ -388,12 +388,12 @@ export function RemotePlayPanel() {
 
       <dl className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
         <div className="flex items-baseline justify-between gap-3 border-b border-line py-1.5">
-          <dt className="text-[11.5px] text-ink-3">{t("LAN address")}</dt>
-          <dd className="font-mono text-[10.5px] text-ink-2">{status?.lanIp ?? t("detecting…")}</dd>
+          <dt className="text-meta text-ink-3">{t("LAN address")}</dt>
+          <dd className="font-mono text-micro text-ink-2">{status?.lanIp ?? t("detecting…")}</dd>
         </div>
         <div className="flex items-baseline justify-between gap-3 border-b border-line py-1.5">
-          <dt className="text-[11.5px] text-ink-3">{t("VPN")}</dt>
-          <dd className="truncate text-[11.5px] text-ink-2">
+          <dt className="text-meta text-ink-3">{t("VPN")}</dt>
+          <dd className="truncate text-meta text-ink-2">
             {status?.vpn.detected
               ? [status.vpn.services.join(", ") || t("detected"), status.vpn.address]
                   .filter(Boolean)
@@ -402,8 +402,8 @@ export function RemotePlayPanel() {
           </dd>
         </div>
         <div className="flex items-baseline justify-between gap-3 border-b border-line py-1.5">
-          <dt className="text-[11.5px] text-ink-3">{t("Router UPnP")}</dt>
-          <dd className="truncate text-[11.5px] text-ink-2">
+          <dt className="text-meta text-ink-3">{t("Router UPnP")}</dt>
+          <dd className="truncate text-meta text-ink-2">
             {status?.upnp.available
               ? status.upnp.friendlyName || status.upnp.model || t("available")
               : t("not available")}
@@ -425,7 +425,7 @@ export function RemotePlayPanel() {
         <WizardProgress step={wizard.step} />
 
         {actionError && (
-          <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12.5px] leading-relaxed text-danger">
+          <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label leading-relaxed text-danger">
             {actionError}
           </p>
         )}
@@ -461,12 +461,12 @@ export function RemotePlayPanel() {
         {wizard.step === "map" && (
           <div className="mt-6 flex flex-col items-center gap-3 py-8 text-center">
             <Loader2 className={busy ? "size-6 animate-spin text-signal" : "size-6 text-ink-3"} aria-hidden="true" />
-            <p className="max-w-[46ch] text-[12.5px] leading-relaxed text-ink-2">
+            <p className="max-w-[46ch] text-label leading-relaxed text-ink-2">
               {busy
                 ? t("Asking the router for the mappings and verifying each port…")
                 : t("The mapping did not complete. Nothing is left behind: retry, or cancel and clean up.")}
             </p>
-            {wizard.error && <p className="max-w-[60ch] text-[12px] leading-relaxed text-danger">{wizard.error}</p>}
+            {wizard.error && <p className="max-w-[60ch] text-label leading-relaxed text-danger">{wizard.error}</p>}
           </div>
         )}
 
@@ -508,7 +508,7 @@ function WizardProgress({ step }: { step: RemotePlayStep }) {
   ];
   const current = steps.findIndex((item) => item.id === step);
   return (
-    <ol className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-3 text-[10.5px] uppercase tracking-[0.08em]">
+    <ol className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-3 text-micro uppercase tracking-[0.08em]">
       {steps.map((item, index) => (
         <li
           key={item.id}
@@ -548,7 +548,7 @@ function DetectStep({
   }
   if (error || !status) {
     return (
-      <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-[12.5px] leading-relaxed text-danger">
+      <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-label leading-relaxed text-danger">
         {t("The network detection failed. Check the connection and detect again.")}
       </p>
     );
@@ -604,9 +604,9 @@ function DetectStep({
       )}
       {status.warnings.length > 0 && <WarningList title={t("Detection notes")} items={status.warnings} />}
 
-      <p className="text-[12px] leading-relaxed text-ink-2">{status.message}</p>
+      <p className="text-label leading-relaxed text-ink-2">{status.message}</p>
       {!status.direct.allowed && (
-        <p className="border-l-2 border-warn pl-3 text-[12px] leading-relaxed text-ink-2">
+        <p className="border-l-2 border-warn pl-3 text-label leading-relaxed text-ink-2">
           <span className="font-medium text-ink">{t("Direct mode is unavailable:")} </span>
           {status.direct.message}
         </p>
@@ -618,8 +618,8 @@ function DetectStep({
 function StatusRow({ label, value, ok }: { label: string; value: string; ok: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-line py-1.5">
-      <span className="text-[11.5px] text-ink-3">{label}</span>
-      <span className={`truncate font-mono text-[10.5px] ${ok ? "text-ink-2" : "text-warn"}`}>{value}</span>
+      <span className="text-meta text-ink-3">{label}</span>
+      <span className={`truncate font-mono text-micro ${ok ? "text-ink-2" : "text-warn"}`}>{value}</span>
     </div>
   );
 }
@@ -638,18 +638,18 @@ function ModeStep({
         onClick={() => onChoose("vpn")}
         className="border border-line p-3 text-left transition-colors hover:border-signal/60 hover:bg-surface-2"
       >
-        <span className="flex items-center gap-2 text-[12.5px] font-medium text-ink">
+        <span className="flex items-center gap-2 text-label font-medium text-ink">
           <Wifi className="size-3.5 text-ok" aria-hidden="true" />
           {t("VPN or mesh (recommended)")}
           <Badge tone="ok">{t("recommended")}</Badge>
         </span>
-        <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-3">
+        <span className="mt-1 block text-meta leading-relaxed text-ink-3">
           {t(
             "Tailscale, WireGuard, ZeroTier, Netbird or Headscale reaches this machine without opening a port. Nothing is exposed to the internet.",
           )}
         </span>
         {status.vpn.detected && (
-          <span className="mt-1 block font-mono text-[10.5px] text-ok">
+          <span className="mt-1 block font-mono text-micro text-ok">
             {t("Detected:")} {status.vpn.services.join(", ") || t("detected")}
             {status.vpn.address
               ? ` · ${status.vpn.address}`
@@ -665,11 +665,11 @@ function ModeStep({
         onClick={() => onChoose("lan")}
         className="border border-line p-3 text-left transition-colors hover:border-signal/60 hover:bg-surface-2"
       >
-        <span className="flex items-center gap-2 text-[12.5px] font-medium text-ink">
+        <span className="flex items-center gap-2 text-label font-medium text-ink">
           <Smartphone className="size-3.5 text-ink-3" aria-hidden="true" />
           {t("Same Wi-Fi (LAN)")}
         </span>
-        <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-3">
+        <span className="mt-1 block text-meta leading-relaxed text-ink-3">
           {t("Enter the LAN address in Moonlight. This works at home only and opens no port.")}
         </span>
       </button>
@@ -680,18 +680,18 @@ function ModeStep({
         disabled={!status.direct.allowed}
         className="border border-line p-3 text-left transition-colors hover:border-warn/60 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <span className="flex items-center gap-2 text-[12.5px] font-medium text-ink">
+        <span className="flex items-center gap-2 text-label font-medium text-ink">
           <Globe2 className="size-3.5 text-warn" aria-hidden="true" />
           {t("Direct mode with UPnP (advanced)")}
         </span>
-        <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-3">
+        <span className="mt-1 block text-meta leading-relaxed text-ink-3">
           {status.direct.allowed
             ? t("Forward the exact Moonlight ports through the router with a short lease. The host is exposed to the internet while it is on.")
             : status.direct.message}
         </span>
       </button>
 
-      <p className="text-[11.5px] leading-relaxed text-ink-3">{status.vpn.message}</p>
+      <p className="text-meta leading-relaxed text-ink-3">{status.vpn.message}</p>
     </div>
   );
 }
@@ -720,7 +720,7 @@ function ConsentStep({
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="border border-warn/50 bg-warn/5 p-3">
-        <p className="flex items-start gap-2 text-[12px] leading-relaxed text-ink-2">
+        <p className="flex items-start gap-2 text-label leading-relaxed text-ink-2">
           <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-warn" aria-hidden="true" />
           <span>
             {t(
@@ -735,8 +735,8 @@ function ConsentStep({
       {plan && (
         <>
           <div className="overflow-x-auto border border-line">
-            <table className="w-full text-left text-[11.5px]">
-              <thead className="bg-surface-2 text-[10px] uppercase tracking-[0.08em] text-ink-3">
+            <table className="w-full text-left text-meta">
+              <thead className="bg-surface-2 text-micro uppercase tracking-[0.08em] text-ink-3">
                 <tr>
                   <th className="px-2 py-1.5 font-medium">{t("Protocol")}</th>
                   <th className="px-2 py-1.5 font-medium">{t("Port")}</th>
@@ -747,7 +747,7 @@ function ConsentStep({
                 {[...plan.tcp.map((port) => ["tcp", port] as const), ...plan.udp.map((port) => ["udp", port] as const)].map(
                   ([protocol, port]) => (
                     <tr key={`${protocol}-${port}`} className="border-t border-line">
-                      <td className="px-2 py-1 font-mono uppercase text-ink-3">{protocol}</td>
+                      <td className="px-2 py-1 uppercase text-ink-3">{protocol}</td>
                       <td className="px-2 py-1 font-mono text-ink">{port}</td>
                       <td className="px-2 py-1 text-ink-3">{portPurpose(protocol, port)}</td>
                     </tr>
@@ -759,11 +759,11 @@ function ConsentStep({
 
           <div className="flex flex-wrap items-end justify-between gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-[11.5px] font-medium text-ink">{t("Lease")}</span>
+              <span className="text-meta font-medium text-ink">{t("Lease")}</span>
               <select
                 value={leaseSecs}
                 onChange={(event) => onLease(Number(event.target.value))}
-                className="h-8 border border-line-2 bg-surface px-2 text-[12px] text-ink outline-none focus:border-signal"
+                className="h-8 border border-line-2 bg-surface px-2 text-label text-ink outline-none focus:border-signal"
               >
                 {LEASE_OPTIONS.filter(
                   (value) => value >= (status?.leaseMinSecs ?? 600) && value <= (status?.leaseMaxSecs ?? 7200),
@@ -774,7 +774,7 @@ function ConsentStep({
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-2 text-[11.5px] text-ink-2">
+            <label className="flex items-center gap-2 text-meta text-ink-2">
               <Checkbox
                 checked={microphone}
                 onCheckedChange={onMicrophone}
@@ -790,14 +790,14 @@ function ConsentStep({
               onCheckedChange={onConsent}
               label={t("I understand the host is exposed to the internet")}
             />
-            <span className="text-[11.5px] leading-relaxed text-ink-2">
+            <span className="text-meta leading-relaxed text-ink-2">
               {t(
                 "I understand the exact ports above are exposed to the internet until I disable direct mode, and that the mapping is removed automatically when this wizard closes.",
               )}
             </span>
           </div>
 
-          <p className="font-mono text-[10.5px] text-ink-3">{portSummary(plan)}</p>
+          <p className="font-mono text-micro text-ink-3">{portSummary(plan)}</p>
 
           <WarningList title={t("Exposure and caveats")} items={plan.warnings} />
           <WarningList
@@ -807,7 +807,7 @@ function ConsentStep({
               t("UDP 5353 (mDNS) stays on the LAN."),
             ]}
           />
-          {error && <p className="text-[12px] leading-relaxed text-danger">{error}</p>}
+          {error && <p className="text-label leading-relaxed text-danger">{error}</p>}
         </>
       )}
     </div>
@@ -825,14 +825,14 @@ function VerifyStep({
 }) {
   return (
     <div className="mt-4 flex flex-col gap-3">
-      <p className="text-[12px] leading-relaxed text-ink-2">
+      <p className="text-label leading-relaxed text-ink-2">
         {busy ? t("Checking every mapped port…") : verification?.message ?? t("No verification ran yet.")}
       </p>
       {verification && (
         <>
           <div className="overflow-x-auto border border-line">
-            <table className="w-full text-left text-[11.5px]">
-              <thead className="bg-surface-2 text-[10px] uppercase tracking-[0.08em] text-ink-3">
+            <table className="w-full text-left text-meta">
+              <thead className="bg-surface-2 text-micro uppercase tracking-[0.08em] text-ink-3">
                 <tr>
                   <th className="px-2 py-1.5 font-medium">{t("Port")}</th>
                   <th className="px-2 py-1.5 font-medium">{t("Mapping")}</th>
@@ -851,16 +851,16 @@ function VerifyStep({
           {report && (
             <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
               <div className="flex justify-between gap-3 border-b border-line py-1.5">
-                <dt className="text-[11.5px] text-ink-3">{t("Public address")}</dt>
-                <dd className="font-mono text-[10.5px] text-ink-2">{report.publicIp ?? t("unknown")}</dd>
+                <dt className="text-meta text-ink-3">{t("Public address")}</dt>
+                <dd className="font-mono text-micro text-ink-2">{report.publicIp ?? t("unknown")}</dd>
               </div>
               <div className="flex justify-between gap-3 border-b border-line py-1.5">
-                <dt className="text-[11.5px] text-ink-3">{t("Lease")}</dt>
-                <dd className="text-[11.5px] text-ink-2">{t("{count} minutes", { count: Math.round(report.leaseSecs / 60) })}</dd>
+                <dt className="text-meta text-ink-3">{t("Lease")}</dt>
+                <dd className="text-meta text-ink-2">{t("{count} minutes", { count: Math.round(report.leaseSecs / 60) })}</dd>
               </div>
             </dl>
           )}
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {t(
               "A mapped port that this machine cannot reach is not necessarily closed: most routers block NAT loopback. The real test is Moonlight on mobile data.",
             )}
@@ -927,9 +927,9 @@ function TestStep({
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="border border-line p-3">
-        <span className="text-[10px] uppercase tracking-[0.08em] text-ink-3">{t("Moonlight address")}</span>
+        <span className="text-micro uppercase tracking-[0.08em] text-ink-3">{t("Moonlight address")}</span>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-          <code className="font-mono text-[13px] text-ink">{address ?? t("not available")}</code>
+          <code className="font-mono text-body text-ink">{address ?? t("not available")}</code>
           <Button
             variant="default"
             size="sm"
@@ -941,24 +941,24 @@ function TestStep({
           </Button>
         </div>
         {chosen && (
-          <p className="mt-1 flex flex-wrap items-baseline gap-1 text-[11px] text-ink-3">
+          <p className="mt-1 flex flex-wrap items-baseline gap-1 text-meta text-ink-3">
             <span className="font-medium text-ink-2">{addressLabel(chosen)}</span>
             <span aria-hidden="true">·</span>
             <span className="font-mono">{chosen.interface}</span>
           </p>
         )}
         {address && address === advertised.address && (
-          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">{advertised.reason}</p>
+          <p className="mt-1 text-meta leading-relaxed text-ink-3">{advertised.reason}</p>
         )}
         {direct && minutes !== null && (
-          <p className="mt-2 text-[11.5px] text-ink-3">
+          <p className="mt-2 text-meta text-ink-3">
             {t("The mapping expires in about {count} minutes; it is refreshed while this wizard is open.", { count: minutes })}
           </p>
         )}
       </div>
 
       {status.vpn.detected && !status.vpn.address && (
-        <p className="border-l-2 border-warn pl-3 text-[11.5px] leading-relaxed text-ink-2">
+        <p className="border-l-2 border-warn pl-3 text-meta leading-relaxed text-ink-2">
           {t(
             "The VPN is detected on {interfaces} but has no address. Copy the address from the VPN service; the LAN address above only works at home.",
             {
@@ -973,7 +973,7 @@ function TestStep({
 
       {choices.length > 1 && (
         <div className="border border-line p-3">
-          <span className="text-[10px] uppercase tracking-[0.08em] text-ink-3">{t("Other addresses")}</span>
+          <span className="text-micro uppercase tracking-[0.08em] text-ink-3">{t("Other addresses")}</span>
           <ul className="mt-2 flex flex-col gap-1">
             {choices.map((entry) => (
               <li key={`${entry.interface}-${entry.address}`}>
@@ -987,8 +987,8 @@ function TestStep({
                       : "border-transparent hover:border-line hover:bg-surface-2"
                   }`}
                 >
-                  <span className="font-mono text-[11.5px] text-ink">{entry.address}</span>
-                  <span className="text-[10.5px] text-ink-3">
+                  <span className="font-mono text-meta text-ink">{entry.address}</span>
+                  <span className="text-micro text-ink-3">
                     {addressLabel(entry)} · {entry.interface}
                   </span>
                 </button>
@@ -998,7 +998,7 @@ function TestStep({
         </div>
       )}
 
-      <ol className="flex flex-col gap-2 text-[12px] leading-relaxed text-ink-2">
+      <ol className="flex flex-col gap-2 text-label leading-relaxed text-ink-2">
         <li className="flex gap-2">
           <span className="font-mono text-ink-3">1.</span>
           {t("Install Moonlight on the phone or tablet you will play on.")}
@@ -1018,13 +1018,13 @@ function TestStep({
       </ol>
 
       {direct ? (
-        <p className="border-l-2 border-warn pl-3 text-[11.5px] leading-relaxed text-ink-2">
+        <p className="border-l-2 border-warn pl-3 text-meta leading-relaxed text-ink-2">
           {t(
             "Direct mode is on. Closing this wizard or clicking Disable removes every mapping; the lease is the fallback if Ludex crashes.",
           )}
         </p>
       ) : (
-        <p className="border-l-2 border-ok/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+        <p className="border-l-2 border-ok/60 pl-3 text-meta leading-relaxed text-ink-2">
           {status.vpn.detected
             ? status.vpn.message
             : t("No port is forwarded in this mode. The address above only works on the network it belongs to.")}
@@ -1033,7 +1033,7 @@ function TestStep({
 
       {cleanup && (
         <div className="border border-line p-3">
-          <p className="flex items-center gap-2 text-[12px] font-medium text-ink">
+          <p className="flex items-center gap-2 text-label font-medium text-ink">
             {cleanup.complete ? (
               <CheckCircle2 className="size-3.5 text-ok" aria-hidden="true" />
             ) : (
@@ -1044,7 +1044,7 @@ function TestStep({
           {cleanup.ports.length > 0 && (
             <ul className="mt-2 grid gap-1 sm:grid-cols-2">
               {cleanup.ports.map((port) => (
-                <li key={`${port.protocol}-${port.port}`} className="font-mono text-[10.5px] text-ink-3">
+                <li key={`${port.protocol}-${port.port}`} className="font-mono text-micro text-ink-3">
                   {port.protocol.toUpperCase()} {port.port} — {port.status}
                 </li>
               ))}
@@ -1068,8 +1068,8 @@ function WarningList({
   if (items.length === 0) return null;
   return (
     <div className={tone === "danger" ? "border-l-2 border-danger pl-3" : "border-l-2 border-warn/60 pl-3"}>
-      <p className={`text-[11.5px] font-medium ${tone === "danger" ? "text-danger" : "text-ink-2"}`}>{title}</p>
-      <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4 text-[11.5px] leading-relaxed text-ink-3">
+      <p className={`text-meta font-medium ${tone === "danger" ? "text-danger" : "text-ink-2"}`}>{title}</p>
+      <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4 text-meta leading-relaxed text-ink-3">
         {items.map((item) => (
           <li key={item}>{item}</li>
         ))}

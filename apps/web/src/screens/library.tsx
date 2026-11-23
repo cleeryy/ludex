@@ -447,7 +447,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 value={filters.state || "any"}
                 onChange={(value) => update("state", value === "any" ? null : value)}
                 options={stateOptions()}
-                className="h-9 text-[12.5px]"
+                className="h-9 text-label"
               />
             </div>
             {(hiddenMissing > 0 || filters.missing) && (
@@ -472,7 +472,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
             >
               {t("Filters")}
               {chips.length > 0 && (
-                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[2px] bg-signal px-1 font-mono text-[9.5px] text-on-signal">
+                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[var(--r-sm)] bg-signal px-1 font-mono text-micro text-on-signal">
                   {chips.length}
                 </span>
               )}
@@ -483,7 +483,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 value={filters.sort}
                 onChange={(value) => update("sort", value)}
                 options={sortOptions()}
-                className="h-9 text-[12.5px]"
+                className="h-9 text-label"
               />
             </div>
             <div className="ml-auto flex items-center gap-3">
@@ -491,7 +491,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="flex h-9 items-center gap-1 text-[12.5px] text-ink-3 transition-colors hover:text-ink"
+                  className="flex h-9 items-center gap-1 text-label text-ink-3 transition-colors hover:text-ink"
                 >
                   <X className="size-3.5" aria-hidden="true" />
                   {t("Clear all")}
@@ -502,7 +502,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
           {shelves.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("Platform shelves")}>
-              <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Platforms")}</span>
+              <span className="mr-1 text-micro uppercase tracking-[0.12em] text-ink-3">{t("Platforms")}</span>
               {shelves.map((platform) => (
                 <button
                   key={platform.id}
@@ -510,14 +510,14 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   onClick={() => update("platform", filters.platform === platform.id ? null : platform.id)}
                   aria-pressed={filters.platform === platform.id}
                   className={cn(
-                    "inline-flex h-6 items-center gap-1.5 rounded-[2px] border px-1.5 font-mono text-[10.5px] uppercase tracking-[0.06em] transition-colors",
+                    "inline-flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] border px-1.5 text-micro uppercase tracking-[0.06em] transition-colors",
                     filters.platform === platform.id
                       ? "border-signal/60 bg-signal/12 text-signal-text"
                       : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
                   )}
                 >
                   {platform.id}
-                  <span className="num text-[9.5px] opacity-70">{platform.gameCount}</span>
+                  <span className="num text-micro opacity-70">{platform.gameCount}</span>
                 </button>
               ))}
             </div>
@@ -525,7 +525,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
           {importChips.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("Launcher imports")}>
-              <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Launchers")}</span>
+              <span className="mr-1 text-micro uppercase tracking-[0.12em] text-ink-3">{t("Launchers")}</span>
               {importChips.map((option) => (
                 <button
                   key={option.value}
@@ -533,14 +533,14 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   onClick={() => update("launcher", filters.launcher === option.value ? null : option.value)}
                   aria-pressed={filters.launcher === option.value}
                   className={cn(
-                    "inline-flex h-6 items-center gap-1.5 rounded-[2px] border px-1.5 font-mono text-[10.5px] uppercase tracking-[0.06em] transition-colors",
+                    "inline-flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] border px-1.5 text-micro uppercase tracking-[0.06em] transition-colors",
                     filters.launcher === option.value
                       ? "border-signal/60 bg-signal/12 text-signal-text"
                       : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
                   )}
                 >
                   {option.label}
-                  <span className="num text-[9.5px] opacity-70">{importCounts.get(option.value) ?? 0}</span>
+                  <span className="num text-micro opacity-70">{importCounts.get(option.value) ?? 0}</span>
                 </button>
               ))}
             </div>
@@ -552,7 +552,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 type="button"
                 onClick={() => update("genre", null)}
                 className={cn(
-                  "relative h-8 shrink-0 text-[13px] transition-colors",
+                  "relative h-8 shrink-0 text-body transition-colors",
                   !filters.genre ? "text-ink" : "text-ink-3 hover:text-ink-2",
                 )}
               >
@@ -566,7 +566,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   onClick={() => update("genre", item === filters.genre ? null : item)}
                   aria-pressed={filters.genre === item}
                   className={cn(
-                    "relative h-8 shrink-0 text-[13px] transition-colors",
+                    "relative h-8 shrink-0 text-body transition-colors",
                     filters.genre === item ? "text-ink" : "text-ink-3 hover:text-ink-2",
                   )}
                 >
@@ -585,7 +585,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   type="button"
                   onClick={() => removeChip(chip.key)}
                   aria-label={t("Remove filter: {label}", { label: chip.label })}
-                  className="inline-flex h-6 items-center gap-1.5 rounded-[2px] border border-line-2 bg-surface px-1.5 text-[11.5px] text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+                  className="inline-flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] border border-line-2 bg-surface px-1.5 text-meta text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
                 >
                   {chip.label}
                   <X className="size-3 text-ink-3" aria-hidden="true" />
@@ -594,7 +594,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="ml-1 h-6 text-[11.5px] text-ink-3 transition-colors hover:text-ink"
+                className="ml-1 h-6 text-meta text-ink-3 transition-colors hover:text-ink"
               >
                 {t("Clear all")}
               </button>
@@ -602,7 +602,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           )}
 
           {gamepad.connected && (
-            <p className="mt-2 hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 sm:flex">
+            <p className="mt-2 hidden items-center gap-2 text-micro uppercase tracking-[0.08em] text-ink-3 sm:flex">
               <Gamepad2 className="size-3" aria-hidden="true" />
               {t("D-pad move · A open · B back · X filters · Y downloads · LB/RB tabs")}
             </p>
@@ -633,7 +633,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         )}
 
         {!isPending && !isError && items.length > 0 && effectiveView === "grid" && (
-          <div className="stagger-in grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+          <div className="stagger-in grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {items.map((entry) => (
               <GameCard
                 key={entry.gameId}
@@ -663,7 +663,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 description={t("Indexed here, launched through their client.")}
               />
             </div>
-            <div className="stagger-in grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+            <div className="stagger-in grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
               {imports.map((entry) => (
                 <ExternalGameCard
                   key={entry.gameId}
@@ -679,7 +679,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
         {!isPending && !isError && items.length > 0 && effectiveView === "list" && mode !== "index" && (
           <div className="border-t border-line">
-            <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]">
+            <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-4 py-2 text-micro uppercase tracking-[0.08em] text-ink-3 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]">
               <span>{t("No.")}</span>
               <span>{t("Title")}</span>
               <span className="hidden text-right sm:block">{t("Year")}</span>
@@ -696,14 +696,14 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   data-gamepad-target="true"
                   className="row-hover group grid grid-cols-[2rem_1fr_auto] items-center gap-4 border-t border-line py-2.5 sm:grid-cols-[2rem_1fr_4rem_5rem_3rem] md:grid-cols-[2rem_1fr_4rem_5rem_3rem_6rem]"
                 >
-                  <span className="num text-[10.5px] text-ink-3">{String(game.id).padStart(3, "0")}</span>
+                  <span className="num text-micro text-ink-3">{String(game.id).padStart(3, "0")}</span>
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="w-9 shrink-0 overflow-hidden rounded-[1px]">
                       <GameCardCoverThumb game={game} />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-[14px] text-ink">{game.title}</p>
-                      <p className="truncate text-[11.5px] text-ink-3">{game.genres.join(", ")}</p>
+                      <p className="truncate text-body text-ink">{game.title}</p>
+                      <p className="truncate text-meta text-ink-3">{game.genres.join(", ")}</p>
                     </div>
                     <InstallStateBadges
                       gameId={game.id}
@@ -711,10 +711,10 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                       launcher={entry.launcher}
                     />
                   </div>
-                  <span className="num hidden text-right text-[11.5px] text-ink-3 sm:block">{formatYear(game.releaseDate)}</span>
-                  <span className="num text-right text-[11.5px] text-ink-3">{formatBytes(game.totalSize)}</span>
-                  <span className="num hidden text-right text-[11.5px] text-ink-2 md:block">{formatRating(game.rating) ?? "—"}</span>
-                  <span className="hidden justify-end text-[11.5px] sm:flex">
+                  <span className="num hidden text-right text-meta text-ink-3 sm:block">{formatYear(game.releaseDate)}</span>
+                  <span className="num text-right text-meta text-ink-3">{formatBytes(game.totalSize)}</span>
+                  <span className="num hidden text-right text-meta text-ink-2 md:block">{formatRating(game.rating) ?? "—"}</span>
+                  <span className="hidden justify-end text-meta sm:flex">
                     <span className={cn("inline-flex items-center gap-1.5", STATE_TONE[game.state].text)}>
                       <span className={cn("size-1.5 rounded-full", STATE_TONE[game.state].dot)} aria-hidden="true" />
                       {stateLabel(game.state)}
@@ -751,7 +751,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
         {!isPending && !isError && items.length > 0 && mode === "index" && (
           <div>
-            <div className="grid grid-cols-[1fr_auto] items-baseline gap-4 border-t border-line py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+            <div className="grid grid-cols-[1fr_auto] items-baseline gap-4 border-t border-line py-2 text-micro uppercase tracking-[0.08em] text-ink-3">
               <span className="pl-12">{t("Title")}</span>
               <div className="flex items-baseline gap-5">
                 <span className="hidden w-12 sm:inline">{t("Year")}</span>
@@ -761,7 +761,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
             </div>
             {groups.map(([letter, list]) => (
               <section key={letter} className="grid grid-cols-[2rem_1fr] gap-3 border-t border-line py-4 first:border-t-0 sm:grid-cols-[4rem_1fr] sm:gap-6">
-                <h2 className="sticky top-0 self-start font-display text-[26px] font-semibold leading-none text-ink-3">{letter}</h2>
+                <h2 className="sticky top-0 self-start font-display text-title font-semibold leading-none text-ink-3">{letter}</h2>
                 <div>
                   {list.map((game) => (
                     <Link
@@ -771,12 +771,12 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                       className="row-hover grid grid-cols-[1fr_auto] items-baseline gap-4 border-b border-line py-2.5 last:border-0"
                     >
                       <div className="flex min-w-0 items-baseline gap-3">
-                        <span className="num shrink-0 text-[10.5px] text-ink-3">{String(game.id).padStart(3, "0")}</span>
-                        <span className="truncate text-[15px] text-ink">{game.title}</span>
-                        <span className="hidden truncate text-[11.5px] text-ink-3 lg:inline">{game.genres.join(", ")}</span>
+                        <span className="num shrink-0 text-micro text-ink-3">{String(game.id).padStart(3, "0")}</span>
+                        <span className="truncate text-lead text-ink">{game.title}</span>
+                        <span className="hidden truncate text-meta text-ink-3 lg:inline">{game.genres.join(", ")}</span>
                         {installed.has(game.id) && <Badge tone="outline" className="hidden sm:inline-flex">{t("Installed")}</Badge>}
                       </div>
-                      <div className="flex shrink-0 items-baseline gap-5 num text-[11px] text-ink-3">
+                      <div className="flex shrink-0 items-baseline gap-5 num text-meta text-ink-3">
                         <span className="hidden w-12 sm:inline">{formatYear(game.releaseDate)}</span>
                         <span className="w-16 text-right">{formatBytes(game.totalSize)}</span>
                         <span className="hidden w-20 text-right md:inline">{stateLabel(game.state)}</span>
@@ -839,7 +839,7 @@ function LibrarySkeleton({ view }: { view: "grid" | "list" }) {
     );
   }
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
       {Array.from({ length: 10 }).map((_, i) => (
         <div key={i}>
           <Skeleton className="aspect-[3/4] w-full" />
@@ -932,7 +932,7 @@ function LibraryEmpty({
           {t("Add games")}
         </Button>
       ) : (
-        signedIn && <span className="text-[13px] text-ink-3">{t("Ask an administrator to add the first game.")}</span>
+        signedIn && <span className="text-body text-ink-3">{t("Ask an administrator to add the first game.")}</span>
       )}
     </EmptyState>
   );

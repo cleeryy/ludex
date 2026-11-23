@@ -87,15 +87,15 @@ export function DesktopAppPrompt() {
     >
       <Download className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium">{t("Get the desktop app")}</p>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-body font-medium">{t("Get the desktop app")}</p>
+        <p className="mt-1 text-meta leading-relaxed text-ink-3">
           {t("Install and launch games, sync cloud saves and play with a controller.")}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Link
             to="/download"
             onClick={() => setVisible(false)}
-            className="inline-flex h-8 select-none items-center justify-center gap-1.5 rounded-[2px] border border-signal bg-signal px-3 text-[13px] font-semibold text-on-signal transition-[filter] duration-[120ms] hover:brightness-[1.07]"
+            className="inline-flex h-8 select-none items-center justify-center gap-1.5 rounded-[var(--r-sm)] border border-signal bg-signal px-3 text-body font-semibold text-on-signal transition-[filter] duration-[120ms] hover:brightness-[1.07]"
           >
             {platform
               ? t("Download for {platform}", { platform: platformName(platform) })
@@ -108,7 +108,7 @@ export function DesktopAppPrompt() {
         <button
           type="button"
           onClick={() => dismiss(true)}
-          className="mt-2 text-[11px] text-ink-3 underline decoration-line-2 underline-offset-2 hover:text-ink-2"
+          className="mt-2 text-meta text-ink-3 underline decoration-line-2 underline-offset-2 hover:text-ink-2"
         >
           {t("Don't show again")}
         </button>

@@ -161,17 +161,17 @@ export function ControllerPanel({
   return (
     <section
       aria-labelledby={headingId}
-      className={cn(!plain && "rounded-[3px] border border-line bg-bg-2/40 p-4 sm:p-5")}
+      className={cn(!plain && "rounded-[var(--r-sm)] border border-line bg-bg-2/40 p-4 sm:p-5")}
     >
       {plain ? (
         <SectionHeader level={3} id={headingId} title={t("Controller profile")} description={description} actions={status} />
       ) : (
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 id={headingId} className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
+            <h3 id={headingId} className="flex items-center gap-2 text-meta uppercase tracking-[0.12em] text-ink-2">
               <Gamepad2 className="size-3.5" /> {t("Controller profile")}
             </h3>
-            <p className="mt-1 text-[12.5px] text-ink-3">{description}</p>
+            <p className="mt-1 text-label text-ink-3">{description}</p>
           </div>
           {status}
         </header>
@@ -241,7 +241,7 @@ export function ControllerPanel({
         <Switch checked={draft.vibration} onCheckedChange={(vibration) => update({ vibration })} label={t("Vibration")} />
       </div>
 
-      <div className="mt-4 rounded-[2px] border border-line/70 bg-bg/40 px-3 py-2 font-mono text-[11px] text-ink-3">
+      <div className="mt-4 rounded-[var(--r-sm)] border border-line/70 bg-bg/40 px-3 py-2 font-mono text-meta text-ink-3">
         {pad.id ? (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="truncate">{pad.id}</span>
@@ -259,7 +259,7 @@ export function ControllerPanel({
 
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h4 className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Button map")}</h4>
+          <h4 className="text-micro uppercase tracking-[0.12em] text-ink-3">{t("Button map")}</h4>
           <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setListening(true)}>
             {listening ? t("Press a button…") : t("Listen for a button")}
           </Button>
@@ -267,7 +267,7 @@ export function ControllerPanel({
         <ul className="divide-y divide-line/60 border-y border-line/60">
           {mappings.map(([input, action]) => (
             <li key={input} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 py-1.5">
-              <span className="truncate font-mono text-[11.5px] text-ink-2">{inputLabel(input)}</span>
+              <span className="truncate font-mono text-meta text-ink-2">{inputLabel(input)}</span>
               <Select
                 label={inputLabel(input)}
                 value={action}
@@ -279,7 +279,7 @@ export function ControllerPanel({
               />
               <button
                 type="button"
-                className="rounded-[2px] p-1.5 text-ink-3 transition-colors hover:text-danger"
+                className="rounded-[var(--r-sm)] p-1.5 text-ink-3 transition-colors hover:text-danger"
                 aria-label={t("Remove mapping for {input}", { input: inputLabel(input) })}
                 onClick={() => setMapping(input, "")}
               >
@@ -290,7 +290,7 @@ export function ControllerPanel({
         </ul>
       </div>
 
-      {error && <p className="mt-3 text-[12px] text-danger">{error}</p>}
+      {error && <p className="mt-3 text-label text-danger">{error}</p>}
 
       <footer className="mt-4 flex flex-wrap items-center gap-2">
         <Button variant="primary" onClick={save} disabled={Boolean(error) || saving || !profiles.data}>
@@ -336,10 +336,10 @@ function Range({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-[12.5px] text-ink-2">
+    <label className="flex flex-col gap-1.5 text-label text-ink-2">
       <span className="flex items-baseline justify-between">
         {label}
-        <span className="font-mono text-[11px] text-ink-3">{format(value)}</span>
+        <span className="font-mono text-meta text-ink-3">{format(value)}</span>
       </span>
       <input
         type="range"

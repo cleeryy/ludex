@@ -72,35 +72,35 @@ export function PortableBundlePanel({
         }
       />
       <div className="border-t border-line pt-4">
-        <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
+        <p className="max-w-[70ch] text-label leading-relaxed text-ink-3">
           {t("The folder gets run.sh, install.sh and ludex-game.json, so it starts from a different path or another computer. Native Linux games need nothing else; Windows games still need UMU, Proton or Wine on the machine that runs them.")}
         </p>
 
         {!installed && (
-          <p className="mt-2 max-w-[70ch] text-[12px] text-ink-2">
+          <p className="mt-2 max-w-[70ch] text-label text-ink-2">
             {t("Install the game on this machine first.")}
           </p>
         )}
 
         {estimate.isPending && installed && (
-          <p className="mt-2 font-mono text-[11px] text-ink-3">{t("Estimating the bundle size…")}</p>
+          <p className="mt-2 font-mono text-meta text-ink-3">{t("Estimating the bundle size…")}</p>
         )}
 
         {data?.reason && (
-          <p role="status" className="mt-2 max-w-[70ch] border-l-2 border-danger pl-3 text-[12px] text-danger">
+          <p role="status" className="mt-2 max-w-[70ch] border-l-2 border-danger pl-3 text-label text-danger">
             {data.reason}
           </p>
         )}
 
         {data && !data.reason && (
-          <dl className="mt-3 flex flex-col gap-1.5 text-[12.5px]">
+          <dl className="mt-3 flex flex-col gap-1.5 text-label">
             <div className="flex items-baseline justify-between gap-4">
               <dt className="text-ink-3">{t("Estimated size")}</dt>
-              <dd className="num text-[12px] text-ink-2">{formatBytes(data.bytes)}</dd>
+              <dd className="num text-label text-ink-2">{formatBytes(data.bytes)}</dd>
             </div>
             <div className="flex items-baseline justify-between gap-4">
               <dt className="text-ink-3">{t("Compatibility runtime")}</dt>
-              <dd className="text-[12px] text-ink-2">
+              <dd className="text-label text-ink-2">
                 {runtimeNote
                   ? t("Needed on the target machine (UMU, Proton or Wine)")
                   : t("None: native Linux build")}
@@ -110,7 +110,7 @@ export function PortableBundlePanel({
         )}
 
         {estimate.isError && (
-          <p role="alert" className="mt-2 text-[12px] text-danger">
+          <p role="alert" className="mt-2 text-label text-danger">
             {errorMessage(estimate.error)}
           </p>
         )}
@@ -252,14 +252,14 @@ function PortableBundleDialog({
       <div className="flex flex-col gap-4">
         {!result && (
           <>
-            <dl className="flex flex-col gap-2 text-[12.5px]">
+            <dl className="flex flex-col gap-2 text-label">
               <div className="flex items-baseline justify-between gap-4">
                 <dt className="text-ink-3">{t("Estimated size")}</dt>
-                <dd className="num text-[12px] text-ink-2">{formatBytes(estimateBytes)}</dd>
+                <dd className="num text-label text-ink-2">{formatBytes(estimateBytes)}</dd>
               </div>
               <div className="flex items-baseline justify-between gap-4">
                 <dt className="text-ink-3">{t("Compatibility runtime")}</dt>
-                <dd className="text-right text-[12px] text-ink-2">
+                <dd className="text-right text-label text-ink-2">
                   {runtimeRequired === "windows-compat"
                     ? t("Needed on the target machine (UMU, Proton or Wine)")
                     : t("None: native Linux build")}
@@ -280,7 +280,7 @@ function PortableBundleDialog({
                   placeholder={installed.installPath.replace(/[\\/][^\\/]+$/, "") || "/media/usb/Games"}
                   spellCheck={false}
                   disabled={busy}
-                  className="h-10 font-mono text-[11.5px]"
+                  className="h-10 font-mono text-meta"
                 />
                 <Button
                   variant="default"
@@ -296,19 +296,19 @@ function PortableBundleDialog({
             </Field>
 
             {destination.trim() && (
-              <p className="text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 {t("A folder named {name} is created inside the folder you pick; it is never overwritten.", { name: folderName })}
               </p>
             )}
 
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               {t("Existing run.sh, install.sh and ludex-game.json are replaced. The game files are not touched, and no runtime is copied: install UMU, Proton or Wine on the machine that runs a Windows game.")}
             </p>
 
             {busy && (
               <div>
                 <Progress value={percent} label={t("Bundle progress")} />
-                <p className="mt-1.5 font-mono text-[10.5px] text-ink-3">
+                <p className="mt-1.5 font-mono text-micro text-ink-3">
                   {progress?.message ?? t("Preparing the bundle…")}
                   {progress && progress.bytesTotal > 0 && (
                     <span>
@@ -322,7 +322,7 @@ function PortableBundleDialog({
             )}
 
             {error && (
-              <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+              <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
                 {error}
               </p>
             )}
@@ -332,19 +332,19 @@ function PortableBundleDialog({
         {result && (
           <div className="flex flex-col gap-3">
             <div className="border-l-2 border-ok pl-3">
-              <p className="text-[12.5px] text-ink">{t("Portable bundle ready")}</p>
-              <p className="mt-0.5 break-all font-mono text-[11px] text-ink-2">{result.path}</p>
+              <p className="text-label text-ink">{t("Portable bundle ready")}</p>
+              <p className="mt-0.5 break-all font-mono text-meta text-ink-2">{result.path}</p>
             </div>
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               {t("Start it on the target with ./install.sh once, then ./run.sh. Extra arguments are passed through.")}
             </p>
             {result.runtimeRequired === "windows-compat" && (
-              <p className="text-[11.5px] leading-relaxed text-ink-2">
+              <p className="text-meta leading-relaxed text-ink-2">
                 {t("This is a Windows game: the target machine still needs UMU, Proton or Wine. install.sh explains exactly what to install when none is found.")}
               </p>
             )}
             {result.replaced.length > 0 && (
-              <p className="text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 {t("Replaced files shipped with the archive: {files}", { files: result.replaced.join(", ") })}
               </p>
             )}

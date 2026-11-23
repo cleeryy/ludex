@@ -111,8 +111,8 @@ export function SettingsGroup({
     <div className={cn("mt-8 border-t border-line pt-5 first:mt-0 first:border-0 first:pt-0", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-3 pb-3">
         <div>
-          <h3 className="text-[13px] font-medium text-ink">{title}</h3>
-          {description && <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">{description}</p>}
+          <h3 className="text-body font-medium text-ink">{title}</h3>
+          {description && <p className="mt-1 max-w-[62ch] text-meta leading-relaxed text-ink-3">{description}</p>}
         </div>
         {actions}
       </div>
@@ -138,8 +138,8 @@ export function SettingsSwitchRow({
   return (
     <div className="flex items-start justify-between gap-6 border-b border-line py-4">
       <div className="min-w-0">
-        <p className="text-[13px] font-medium text-ink">{title}</p>
-        <p className="mt-1 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">{description}</p>
+        <p className="text-body font-medium text-ink">{title}</p>
+        <p className="mt-1 max-w-[54ch] text-meta leading-relaxed text-ink-3">{description}</p>
       </div>
       <Switch
         checked={checked}
@@ -171,7 +171,7 @@ export function DesktopSaveBar({
         {t("Save desktop settings")}
       </Button>
       {desktop.dirty && (
-        <span role="status" className="text-[11.5px] text-ink-3">
+        <span role="status" className="text-meta text-ink-3">
           {t("Unsaved changes")}
         </span>
       )}
@@ -193,12 +193,12 @@ export function DesktopSaveBar({
 /** Shown where a category only exists in the desktop app. */
 export function DesktopOnlyNote({ message }: { message?: string }) {
   return (
-    <p className="max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+    <p className="max-w-[70ch] text-meta leading-relaxed text-ink-3">
       {message ?? t("Install folders, stream installs and archive passwords are available in the Ludex desktop app.")}
     </p>
   );
 }
 
 export function SettingsLoading({ label }: { label: string }) {
-  return <p className="py-6 text-[13px] text-ink-3">{label}</p>;
+  return <p className="py-6 text-body text-ink-3">{label}</p>;
 }

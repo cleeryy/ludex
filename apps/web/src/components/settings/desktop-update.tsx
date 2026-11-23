@@ -41,10 +41,10 @@ export function DesktopUpdatePanel() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[13px] font-medium text-ink">{t("App updates")}</p>
+            <p className="text-body font-medium text-ink">{t("App updates")}</p>
             {badge}
           </div>
-          <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
             {desktop
               ? t("Version {version} on the {channel} channel. Release notes, the channel switch, skipping and installing live in the update center.", {
                   version: status?.currentVersion ?? "—",
@@ -53,14 +53,14 @@ export function DesktopUpdatePanel() {
               : t("App updates need the desktop build: the browser always runs the build your server serves. Release notes and downloads are on GitHub.")}
           </p>
           {desktop && (
-            <p className="mt-1 font-mono text-[10.5px] text-ink-3">
+            <p className="mt-1 font-mono text-micro text-ink-3">
               {status?.lastCheckedAt
                 ? t("Last check {when}", { when: formatRelativeTime(status.lastCheckedAt) })
                 : t("Not checked yet")}
               {available ? ` · ${available.version}` : ""}
             </p>
           )}
-          {error && <p className="mt-1 text-[11.5px] text-danger">{error}</p>}
+          {error && <p className="mt-1 text-meta text-danger">{error}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {desktop && (

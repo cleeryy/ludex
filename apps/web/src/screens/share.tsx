@@ -49,7 +49,7 @@ export function ShareScreen() {
           <GameBackdrop title={game.title} backgroundUrl={game.backgroundUrl} className="absolute inset-0 h-full" />
 
           <div className="page relative pb-14 pt-4">
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
+            <p className="text-micro uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
 
             <div className="mt-[8vh] grid gap-8 lg:grid-cols-[250px_1fr] lg:gap-12 xl:grid-cols-[280px_1fr]">
               <div className="w-[150px] sm:w-[190px] lg:w-full">
@@ -65,7 +65,7 @@ export function ShareScreen() {
               </div>
 
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-meta uppercase tracking-[0.08em] text-ink-3">
                   <span>{formatYear(game.releaseDate)}</span>
                   {game.ageRating && (
                     <>
@@ -82,15 +82,15 @@ export function ShareScreen() {
                   {version.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
                 </div>
 
-                <h1 className="mt-3 max-w-[18ch] text-[clamp(2.4rem,4.6vw,4.25rem)] font-semibold leading-[0.94] tracking-[-0.035em]">
+                <h1 className="mt-3 max-w-[18ch] text-display sm:text-hero font-semibold leading-[0.94] tracking-[-0.035em]">
                   {game.title}
                 </h1>
 
-                <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px] text-ink-2">
+                <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-label text-ink-2">
                   {formatRating(game.rating) && (
                     <span className="flex items-baseline gap-1.5">
-                      <span className="num text-[15px] text-ink">{formatRating(game.rating)}</span>
-                      <span className="text-[11px] text-ink-3">/ 100</span>
+                      <span className="num text-lead text-ink">{formatRating(game.rating)}</span>
+                      <span className="text-meta text-ink-3">/ 100</span>
                     </span>
                   )}
                   <span className="num">{formatBytes(version.size)}</span>
@@ -98,7 +98,7 @@ export function ShareScreen() {
                   {version.releaseDate && <span>{t("Released")} {formatDate(version.releaseDate)}</span>}
                 </div>
 
-                {game.description && <p className="measure mt-6 text-[14.5px] leading-relaxed text-ink-2">{game.description}</p>}
+                {game.description && <p className="measure mt-6 text-lead leading-relaxed text-ink-2">{game.description}</p>}
               </div>
             </div>
           </div>
@@ -119,8 +119,8 @@ export function ShareScreen() {
                     [t("Age rating"), game.ageRating ? `${game.ageRating}+` : t("Not rated")],
                   ].map(([label, value]) => (
                     <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-                      <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
-                      <dd className="text-right text-[12.5px] text-ink-2">{value}</dd>
+                      <dt className="shrink-0 text-label text-ink-3">{label}</dt>
+                      <dd className="text-right text-label text-ink-2">{value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -154,9 +154,9 @@ export function ShareScreen() {
         </div>
       </main>
 
-      <footer className="page mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-line pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 text-[11px] leading-relaxed text-ink-3">
+      <footer className="page mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-line pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 text-meta leading-relaxed text-ink-3">
         <span>{t("Served by Ludex. Anyone with this link can open this page; the library owner can revoke it at any time.")}</span>
-        <span className="font-mono uppercase tracking-[0.12em]">{t("No account needed")}</span>
+        <span className="uppercase tracking-[0.12em]">{t("No account needed")}</span>
       </footer>
     </PublicPage>
   );
@@ -215,8 +215,8 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
 
   return (
     <div className="border border-line-2 bg-surface p-5">
-      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">{t("Download")}</p>
-      <h2 className="mt-1 flex items-center gap-2 text-[22px] font-semibold leading-tight tracking-[-0.02em]">
+      <p className="text-micro uppercase tracking-[0.14em] text-ink-3">{t("Download")}</p>
+      <h2 className="mt-1 flex items-center gap-2 text-title font-semibold leading-tight tracking-[-0.02em]">
         {version.version ? `Version ${version.version}` : t("Latest version")}
         {version.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
       </h2>
@@ -229,8 +229,8 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
           [t("Downloads left"), remainingDownloads === null ? t("Unlimited") : String(remainingDownloads)],
         ].map(([label, value]) => (
           <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-            <dt className="text-[12px] text-ink-3">{label}</dt>
-            <dd className="num text-[12.5px] text-ink-2">{value}</dd>
+            <dt className="text-label text-ink-3">{label}</dt>
+            <dd className="num text-label text-ink-2">{value}</dd>
           </div>
         ))}
       </dl>
@@ -272,19 +272,19 @@ function ShareAccessPanel({ token, view }: { token: string; view: ShareView }) {
       </form>
 
       {started && (
-        <p role="status" className="mt-3 border-l-2 border-ok pl-3 text-[12px] leading-relaxed text-ink-2">
+        <p role="status" className="mt-3 border-l-2 border-ok pl-3 text-label leading-relaxed text-ink-2">
           {t("Your download should start. The download ticket is valid for 15 minutes; reopen this link if it expires.")}
         </p>
       )}
 
       {error && (
         <div role="alert" className="mt-3 border-l-2 border-danger pl-3">
-          <p className="text-[12.5px] text-danger">{accessErrorTitle(error.code) ?? t("The download did not start")}</p>
-          <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">{error.message}</p>
+          <p className="text-label text-danger">{accessErrorTitle(error.code) ?? t("The download did not start")}</p>
+          <p className="mt-0.5 text-meta leading-relaxed text-ink-3">{error.message}</p>
         </div>
       )}
 
-      <p className="mt-4 border-t border-line pt-3 text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-4 border-t border-line pt-3 text-meta leading-relaxed text-ink-3">
         {t("Anyone with this link can view this page and download the archive.")}
         {hasPassword && " The password gates downloads; it is verified by the server and never shown again."}
         {remainingDownloads !== null && remainingDownloads > 0 && ` This link allows ${remainingDownloads} more download${remainingDownloads === 1 ? "" : "s"}.`}
@@ -309,7 +309,7 @@ function ShareLoading() {
           <Skeleton className="h-3 w-full max-w-[460px]" />
         </div>
       </div>
-      <p className="page mt-10 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3" role="status">
+      <p className="page mt-10 flex items-center gap-2 text-meta uppercase tracking-[0.14em] text-ink-3" role="status">
         {t("Opening the shared link")}
       </p>
     </PublicPage>
@@ -327,12 +327,12 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
       <ShareHeader marker />
       <main className="page flex items-center pb-24">
         <div className="max-w-[520px]">
-          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
-          <h1 className="mt-3 text-[clamp(2.2rem,4.4vw,3.4rem)] font-semibold leading-[0.96] tracking-[-0.033em]">{title}</h1>
-          <p className="mt-4 border-l-2 border-danger pl-3 text-[14px] leading-relaxed text-ink-2" role="alert">
+          <p className="text-meta uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
+          <h1 className="mt-3 text-display sm:text-hero font-semibold leading-[0.96] tracking-[-0.033em]">{title}</h1>
+          <p className="mt-4 border-l-2 border-danger pl-3 text-body leading-relaxed text-ink-2" role="alert">
             {apiError?.message ?? errorMessage(error)}
           </p>
-          <p className="mt-4 max-w-[46ch] text-[12.5px] leading-relaxed text-ink-3">
+          <p className="mt-4 max-w-[46ch] text-label leading-relaxed text-ink-3">
             {t("Share links can be revoked by the library owner, and they may expire or reach a download limit. Ask the person who sent it for a new link.")}
           </p>
           {!notFound && (
@@ -340,7 +340,7 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
               {t("Try again")}
             </Button>
           )}
-          <p className="mt-10 flex items-center gap-1.5 text-[11px] text-ink-3">
+          <p className="mt-10 flex items-center gap-1.5 text-meta text-ink-3">
             <Lock className="size-3" aria-hidden="true" />
             {t("This page never exposes the rest of the library.")}
           </p>
@@ -365,7 +365,7 @@ function ShareHeader({ marker = false }: { marker?: boolean }) {
       <Wordmark height={18} />
       <div className="flex items-center gap-3">
         {marker && (
-          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
+          <span className="flex items-center gap-2 text-micro uppercase tracking-[0.16em] text-ink-3">
             <Link2 className="size-3.5" aria-hidden="true" />
             {t("Shared link")}
           </span>

@@ -55,17 +55,17 @@ export function HostPreflightPrompt() {
     >
       <Cpu className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium">
+        <p className="text-body font-medium">
           {tn(gaps.length, "1 runtime piece is missing", "{count} runtime pieces are missing")}
         </p>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-1 text-meta leading-relaxed text-ink-3">
           {t("Some games will not start until Vulkan, UMU or the other runtimes are installed.")}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Link
             to="/settings?section=host&install=1"
             onClick={dismiss}
-            className="inline-flex h-8 select-none items-center justify-center rounded-[2px] border border-signal bg-signal px-3 text-[13px] font-semibold text-on-signal transition-[filter] duration-[120ms] hover:brightness-[1.07]"
+            className="inline-flex h-8 select-none items-center justify-center rounded-[var(--r-sm)] border border-signal bg-signal px-3 text-body font-semibold text-on-signal transition-[filter] duration-[120ms] hover:brightness-[1.07]"
           >
             {t("Review host checks")}
           </Link>

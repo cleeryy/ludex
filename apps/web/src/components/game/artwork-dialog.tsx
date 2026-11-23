@@ -111,14 +111,14 @@ export function ArtworkDialog({
     return (
       <section className="flex flex-col gap-2 border-t border-line pt-4 first:border-t-0 first:pt-0">
         <div className="flex items-baseline justify-between gap-3">
-          <h3 className="text-[13px] font-medium text-ink">{kind === "cover" ? "Cover" : "Background"}</h3>
-          <span className="font-mono text-[10.5px] text-ink-3">PNG · JPEG · WebP · GIF · max 8 MiB</span>
+          <h3 className="text-body font-medium text-ink">{kind === "cover" ? "Cover" : "Background"}</h3>
+          <span className="font-mono text-micro text-ink-3">PNG · JPEG · WebP · GIF · max 8 MiB</span>
         </div>
         <div
           className={
             kind === "cover"
-              ? "flex aspect-[3/4] w-[132px] items-center justify-center overflow-hidden rounded-[2px] border border-line bg-bg-2"
-              : "flex aspect-[16/9] w-full max-w-[360px] items-center justify-center overflow-hidden rounded-[2px] border border-line bg-bg-2"
+              ? "flex aspect-[3/4] w-[132px] items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-line bg-bg-2"
+              : "flex aspect-[16/9] w-full max-w-[360px] items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-line bg-bg-2"
           }
         >
           {preview ? (
@@ -128,7 +128,7 @@ export function ArtworkDialog({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-[2px] border border-line px-3 text-[12px] text-ink-2 hover:border-line-2 hover:text-ink">
+          <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-[var(--r-sm)] border border-line px-3 text-label text-ink-2 hover:border-line-2 hover:text-ink">
             <ImagePlus className="size-3.5" aria-hidden="true" />
             Choose image
             <input
@@ -180,7 +180,7 @@ export function ArtworkDialog({
           {slot("cover")}
           {slot("background")}
           {error && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
               {error}
             </p>
           )}

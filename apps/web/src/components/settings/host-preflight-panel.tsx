@@ -120,20 +120,20 @@ export function HostPreflightPanel() {
       />
       <div className="border-t border-line pt-4">
         {!enabled && (
-          <p className="text-[12.5px] text-ink-3">
+          <p className="text-label text-ink-3">
             {t("Host checks need the Ludex desktop app on Linux.")}
           </p>
         )}
 
         {report.isError && (
-          <p role="alert" className="mb-3 text-[12.5px] text-danger">
+          <p role="alert" className="mb-3 text-label text-danger">
             {t("The host checks failed. The desktop app reports the reason in its log.")}
           </p>
         )}
 
         {data && (
           <>
-            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 font-mono text-[10.5px] text-ink-3">
+            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 font-mono text-micro text-ink-3">
               <span>{data.family.label}</span>
               <span>{data.family.detail}</span>
               <span>
@@ -147,16 +147,16 @@ export function HostPreflightPanel() {
             </div>
 
             {data.warnings.map((warning) => (
-              <p key={warning} className="mt-2 border-l-2 border-signal pl-2.5 text-[12px] text-ink-2">
+              <p key={warning} className="mt-2 border-l-2 border-signal pl-2.5 text-label text-ink-2">
                 {warning}
               </p>
             ))}
 
             {groups.map((group) => (
               <div key={group.status} className="mt-6">
-                <h3 className="mb-2 flex items-baseline gap-2 text-[12px] font-medium text-ink-2">
+                <h3 className="mb-2 flex items-baseline gap-2 text-label font-medium text-ink-2">
                   {statusLabel(group.status)}
-                  <span className="num text-[11px] text-ink-3">{group.findings.length}</span>
+                  <span className="num text-meta text-ink-3">{group.findings.length}</span>
                 </h3>
                 <ul className="border-t border-line">
                   {group.findings.map((finding) => (
@@ -166,7 +166,7 @@ export function HostPreflightPanel() {
               </div>
             ))}
 
-            <p className="mt-4 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-4 max-w-[80ch] text-meta leading-relaxed text-ink-3">
               {t(
                 "Ludex never installs GPU drivers: it detects them, explains what is missing and links to your distribution's instructions.",
               )}
@@ -198,7 +198,7 @@ export function HostPreflightPanel() {
           </div>
         }
       >
-        <div className="space-y-4 text-[12.5px] leading-relaxed text-ink-2">
+        <div className="space-y-4 text-label leading-relaxed text-ink-2">
           {dialogError && (
             <p role="alert" className="border-l-2 border-danger pl-2.5 text-danger">
               {dialogError}
@@ -218,7 +218,7 @@ export function HostPreflightPanel() {
                       className="flex items-baseline justify-between gap-4 border-b border-line py-1.5"
                     >
                       <span className="text-ink-2">{entry.label}</span>
-                      <span className="font-mono text-[11px] text-ink">{entry.package}</span>
+                      <span className="font-mono text-meta text-ink">{entry.package}</span>
                     </li>
                   ))}
                 </ul>
@@ -227,17 +227,17 @@ export function HostPreflightPanel() {
               )}
               {plan.command.length > 0 && (
                 <div>
-                  <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+                  <p className="mb-1 text-micro uppercase tracking-[0.08em] text-ink-3">
                     {t("Command")}
                   </p>
-                  <pre className="overflow-x-auto border border-line bg-surface p-2.5 font-mono text-[11px] text-ink">
+                  <pre className="overflow-x-auto border border-line bg-surface p-2.5 font-mono text-meta text-ink">
                     {plan.commandLabel}
                   </pre>
                 </div>
               )}
               {plan.manual.length > 0 && (
                 <div>
-                  <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+                  <p className="mb-1 text-micro uppercase tracking-[0.08em] text-ink-3">
                     {t("Manual steps")}
                   </p>
                   <ul className="space-y-1.5">
@@ -274,7 +274,7 @@ export function HostPreflightPanel() {
                   {note}
                 </p>
               ))}
-              <p className="text-[11.5px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 {t("Nothing is installed until you press Install packages.")}
               </p>
               {outcome && (
@@ -290,7 +290,7 @@ export function HostPreflightPanel() {
                         : t("The installation failed.")}
                   </p>
                   {outcome.output && (
-                    <pre className="mt-2 max-h-48 overflow-auto border border-line bg-surface p-2.5 font-mono text-[10.5px] text-ink-3">
+                    <pre className="mt-2 max-h-48 overflow-auto border border-line bg-surface p-2.5 font-mono text-micro text-ink-3">
                       {outcome.output}
                     </pre>
                   )}
@@ -344,19 +344,19 @@ function FindingRow({ finding }: { finding: HostCheck }) {
     <li className="border-b border-line py-2.5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <Badge tone={statusTone(finding.status)}>{statusLabel(finding.status)}</Badge>
-        <span className="text-[12.5px] font-medium text-ink">{finding.label}</span>
+        <span className="text-label font-medium text-ink">{finding.label}</span>
         {finding.installable && finding.packages.length > 0 && (
-          <span className="font-mono text-[10.5px] text-ink-3">{finding.packages.join(" ")}</span>
+          <span className="font-mono text-micro text-ink-3">{finding.packages.join(" ")}</span>
         )}
       </div>
-      <p className="mt-1 max-w-[80ch] text-[12px] leading-relaxed text-ink-2">{finding.detail}</p>
+      <p className="mt-1 max-w-[80ch] text-label leading-relaxed text-ink-2">{finding.detail}</p>
       {finding.hint && (
-        <p className="mt-0.5 max-w-[80ch] truncate font-mono text-[10.5px] text-ink-3" title={finding.hint}>
+        <p className="mt-0.5 max-w-[80ch] truncate font-mono text-micro text-ink-3" title={finding.hint}>
           {finding.hint}
         </p>
       )}
       {finding.manual && (
-        <p className="mt-1 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-1 max-w-[80ch] text-meta leading-relaxed text-ink-3">
           {finding.manual.instruction}
           {finding.manual.url && (
             <>

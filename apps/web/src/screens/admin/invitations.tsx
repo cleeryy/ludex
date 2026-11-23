@@ -133,7 +133,7 @@ export function InvitationsScreen() {
       {data && data.length === 0 && (
         <div className="mt-10 flex flex-col items-start gap-3 border border-line p-6">
           <MailPlus className="size-5 text-ink-3" aria-hidden="true" />
-          <p className="text-[13px] text-ink-2">
+          <p className="text-body text-ink-2">
             {t("No invitations yet. Create one and share the link by any channel you already trust.")}
           </p>
           <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
@@ -146,7 +146,7 @@ export function InvitationsScreen() {
         <div className="mt-6 overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-left">
             <thead>
-              <tr className="border-b border-line text-[11.5px] uppercase tracking-[0.08em] text-ink-3">
+              <tr className="border-b border-line text-meta uppercase tracking-[0.08em] text-ink-3">
                 <th className="py-2 pr-4 font-medium">{t("Invitation")}</th>
                 <th className="py-2 pr-4 font-medium">{t("Role")}</th>
                 <th className="py-2 pr-4 font-medium">{t("Uses")}</th>
@@ -160,28 +160,28 @@ export function InvitationsScreen() {
                 <tr key={invitation.id} className="border-b border-line align-middle">
                   <td className="py-3 pr-4">
                     <div className="flex flex-col gap-1">
-                      <span className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+                      <span className="flex flex-wrap items-center gap-2 text-body text-ink">
                         {invitation.email ?? invitation.note ?? `#${invitation.id}`}
                         {statusBadge(invitation)}
                       </span>
                       {invitation.email && invitation.note && (
-                        <span className="text-[11.5px] text-ink-3">{invitation.note}</span>
+                        <span className="text-meta text-ink-3">{invitation.note}</span>
                       )}
-                      <span className="text-[11.5px] text-ink-3">
+                      <span className="text-meta text-ink-3">
                         {invitation.createdByUsername
                           ? tr("by {user}", { user: invitation.createdByUsername })
                           : t("by a deleted account")}
                       </span>
                     </div>
                   </td>
-                  <td className="py-3 pr-4 text-[12.5px] text-ink-2">
+                  <td className="py-3 pr-4 text-label text-ink-2">
                     {invitation.role === "admin" ? t("Admin") : invitation.role === "editor" ? t("Editor") : t("Member")}
                   </td>
-                  <td className="num py-3 pr-4 text-[12.5px] text-ink-2">
+                  <td className="num py-3 pr-4 text-label text-ink-2">
                     {invitation.uses} / {invitation.maxUses}
                   </td>
-                  <td className="num py-3 pr-4 text-[12.5px] text-ink-2">{formatDate(invitation.expiresAt)}</td>
-                  <td className="num py-3 pr-4 text-[12.5px] text-ink-2">{formatDate(invitation.createdAt)}</td>
+                  <td className="num py-3 pr-4 text-label text-ink-2">{formatDate(invitation.expiresAt)}</td>
+                  <td className="num py-3 pr-4 text-label text-ink-2">{formatDate(invitation.createdAt)}</td>
                   <td className="py-3 text-right">
                     {invitation.status === "pending" && (
                       <IconButton
@@ -270,7 +270,7 @@ export function InvitationsScreen() {
             </Field>
           </div>
           {formError && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
               {formError}
             </p>
           )}
@@ -292,13 +292,13 @@ export function InvitationsScreen() {
       >
         {created && (
           <div className="flex flex-col gap-3">
-            <p className="text-[12.5px] leading-relaxed text-ink-3">
+            <p className="text-label leading-relaxed text-ink-3">
               {tr("Valid until {date}, up to {count} uses.", {
                 date: <span className="num">{formatDate(created.invitation.expiresAt)}</span>,
                 count: <span className="num">{created.invitation.maxUses}</span>,
               })}
             </p>
-            <code className="break-all border border-line-2 bg-surface px-3 py-2 font-mono text-[12px] text-ink">
+            <code className="break-all border border-line-2 bg-surface px-3 py-2 font-mono text-label text-ink">
               {inviteUrl(created.path)}
             </code>
             <div className="flex flex-wrap gap-2">

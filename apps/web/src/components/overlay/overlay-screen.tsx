@@ -283,7 +283,7 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
     >
       <div className="absolute inset-0 bg-bg-deep/70 backdrop-blur-[3px]" aria-hidden="true" />
       <div
-        className="relative flex max-h-[94vh] w-full flex-col overflow-hidden rounded-[3px] border border-line-2 shadow-2xl"
+        className="relative flex max-h-[94vh] w-full flex-col overflow-hidden rounded-[var(--r-sm)] border border-line-2 shadow-2xl"
         style={{ maxWidth: `${Math.round(1120 * scale)}px`, fontSize: `${Math.round(16 * scale)}px` }}
       >
         <div
@@ -294,23 +294,23 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
         <div className="relative flex min-h-0 flex-1 flex-col">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
             <div className="flex items-baseline gap-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-signal-text">
+              <span className="text-micro uppercase tracking-[0.2em] text-signal-text">
                 {t("Ludex overlay")}
               </span>
               {game ? (
-                <span className="max-w-[52ch] truncate text-[13.5px] text-ink">{game.title}</span>
+                <span className="max-w-[52ch] truncate text-body text-ink">{game.title}</span>
               ) : (
-                <span className="text-[13.5px] text-ink-3">{t("No game is running")}</span>
+                <span className="text-body text-ink-3">{t("No game is running")}</span>
               )}
             </div>
             <div className="flex items-center gap-4">
-              <span className="font-mono text-[12px] tabular-nums text-ink-2">{formatOverlayClock(elapsed)}</span>
+              <span className="font-mono text-label tabular-nums text-ink-2">{formatOverlayClock(elapsed)}</span>
               <button
                 type="button"
                 data-overlay-target
                 onClick={close}
                 aria-label={t("Close the overlay")}
-                className="grid size-8 place-items-center rounded-[2px] border border-line text-ink-2 hover:border-line-2 hover:text-ink"
+                className="grid size-8 place-items-center rounded-[var(--r-sm)] border border-line text-ink-2 hover:border-line-2 hover:text-ink"
               >
                 <X size={15} />
               </button>
@@ -330,8 +330,8 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
                 onClick={() => selectTab(entry)}
                 className={
                   entry === tab
-                    ? "rounded-[2px] bg-surface-2 px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink"
-                    : "rounded-[2px] px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-3 hover:text-ink-2"
+                    ? "rounded-[var(--r-sm)] bg-surface-2 px-3 py-1.5 text-micro uppercase tracking-[0.14em] text-ink"
+                    : "rounded-[var(--r-sm)] px-3 py-1.5 text-micro uppercase tracking-[0.14em] text-ink-3 hover:text-ink-2"
                 }
               >
                 {overlayTabLabel(entry)}
@@ -341,7 +341,7 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
             {error && (
-              <p className="mb-4 rounded-[2px] border border-danger/40 bg-danger/10 px-3 py-2 text-[12.5px] text-danger">
+              <p className="mb-4 rounded-[var(--r-sm)] border border-danger/40 bg-danger/10 px-3 py-2 text-label text-danger">
                 {error}
               </p>
             )}
@@ -365,7 +365,7 @@ export function OverlayScreen({ mode, onClose }: OverlayScreenProps) {
 
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3">
             <ControllerStatus status={status} />
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-micro uppercase tracking-[0.12em] text-ink-3">
               <span>{t("Esc or B closes")}</span>
               <span>{t("LB / RB switch tabs")}</span>
               <span>{status.keyboardShortcut}</span>
@@ -410,7 +410,7 @@ function GameTab({
   if (!game) {
     return (
       <div className="flex min-h-[240px] flex-col items-start justify-center gap-4">
-        <p className="max-w-[52ch] text-[15px] leading-relaxed text-ink-2">
+        <p className="max-w-[52ch] text-lead leading-relaxed text-ink-2">
           {t("Start a game from Ludex, or open Console mode to pick one from the couch.")}
         </p>
         <OverlayButton onClick={onBigPicture} variant="primary">
@@ -424,13 +424,13 @@ function GameTab({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-signal-text">
+        <p className="text-micro uppercase tracking-[0.18em] text-signal-text">
           {t("Now playing")}
         </p>
-        <h2 className="mt-2 max-w-[60ch] text-[clamp(22px,3vw,34px)] font-semibold leading-tight tracking-[-0.02em] text-ink">
+        <h2 className="mt-2 max-w-[60ch] text-title sm:text-display font-semibold leading-tight tracking-[-0.02em] text-ink">
           {game.title}
         </h2>
-        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-[11px] text-ink-3">
+        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-meta text-ink-3">
           <span>
             {t("This session")} {formatOverlayClock(elapsed)}
           </span>
@@ -463,7 +463,7 @@ function GameTab({
         </OverlayButton>
       </div>
 
-      <p className="max-w-[70ch] text-[12px] leading-relaxed text-ink-3">{status.platformNote}</p>
+      <p className="max-w-[70ch] text-label leading-relaxed text-ink-3">{status.platformNote}</p>
     </div>
   );
 }
@@ -503,7 +503,7 @@ function LibraryTab({
 
   return (
     <div className="flex flex-col gap-2">
-      {error && <p className="text-[12.5px] text-danger">{error}</p>}
+      {error && <p className="text-label text-danger">{error}</p>}
       {games.slice(0, 40).map((game) => {
         const running = game.gameId === runningGameId;
         return (
@@ -516,8 +516,8 @@ function LibraryTab({
             className="flex items-center justify-between gap-4 border-b border-line px-1 py-2.5 text-left hover:bg-surface-2/60 disabled:opacity-55"
           >
             <span className="min-w-0">
-              <span className="block truncate text-[13.5px] text-ink">{game.title}</span>
-              <span className="mt-0.5 block font-mono text-[10.5px] text-ink-3">
+              <span className="block truncate text-body text-ink">{game.title}</span>
+              <span className="mt-0.5 block font-mono text-micro text-ink-3">
                 {running ? t("Running") : (game.version ?? t("Installed"))}
                 {game.sizeBytes > 0 ? ` · ${formatBytes(game.sizeBytes)}` : ""}
               </span>
@@ -551,8 +551,8 @@ function DownloadsTab() {
         return (
           <div key={job.jobId} className="border-b border-line pb-3">
             <div className="flex items-baseline justify-between gap-4">
-              <span className="font-mono text-[11px] text-ink">{job.phase}</span>
-              <span className="font-mono text-[11px] tabular-nums text-ink-3">
+              <span className="font-mono text-meta text-ink">{job.phase}</span>
+              <span className="font-mono text-meta tabular-nums text-ink-3">
                 {percent === null ? t("estimating") : formatPercent(percent)}
                 {job.reconnecting
                   ? ` · ${t("Connection lost, resuming from {percent}", { percent: formatPercent(percent ?? 0) })}`
@@ -567,7 +567,7 @@ function DownloadsTab() {
                 style={{ width: `${percent ?? 33}%` }}
               />
             </div>
-            <p className="mt-1.5 truncate font-mono text-[10.5px] text-ink-3">
+            <p className="mt-1.5 truncate font-mono text-micro text-ink-3">
               {job.bytesDone > 0 ? formatBytes(job.bytesDone) : job.message ?? ""}
               {job.bytesTotal ? ` / ${formatBytes(job.bytesTotal)}` : ""}
             </p>
@@ -597,10 +597,10 @@ function AchievementsTab({ gameId }: { gameId: number | null }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-signal-text">
+        <span className="text-meta uppercase tracking-[0.14em] text-signal-text">
           {t("Completion")}
         </span>
-        <span className="font-mono text-[12px] tabular-nums text-ink-2">
+        <span className="font-mono text-label tabular-nums text-ink-2">
           {formatPercent(data.completion)} · {data.unlocked}/{data.total}
         </span>
       </div>
@@ -613,7 +613,7 @@ function AchievementsTab({ gameId }: { gameId: number | null }) {
             key={achievement.id}
             className="flex items-center justify-between gap-4 border-b border-line pb-1.5"
           >
-            <span className={achievement.unlocked ? "text-[13px] text-ink" : "text-[13px] text-ink-3"}>
+            <span className={achievement.unlocked ? "text-body text-ink" : "text-body text-ink-3"}>
               {achievement.name}
             </span>
             <Trophy
@@ -631,7 +631,7 @@ function ControllerStatus({ status }: { status: OverlayStatus }) {
   const listener = status.listener;
   if (!listener.available) {
     return (
-      <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+      <span className="flex items-center gap-2 text-micro uppercase tracking-[0.12em] text-ink-3">
         <Gamepad2 size={13} />
         {listener.reason ?? t("No global controller listener")}
       </span>
@@ -639,14 +639,14 @@ function ControllerStatus({ status }: { status: OverlayStatus }) {
   }
   if (listener.controllers.length === 0) {
     return (
-      <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+      <span className="flex items-center gap-2 text-micro uppercase tracking-[0.12em] text-ink-3">
         <Gamepad2 size={13} />
         {t("No controller detected")}
       </span>
     );
   }
   return (
-    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-micro uppercase tracking-[0.12em] text-ink-3">
       {listener.controllers.map((pad) => (
         <span key={pad.id} className={pad.active ? "flex items-center gap-1.5 text-ink" : "flex items-center gap-1.5"}>
           <Gamepad2 size={13} />
@@ -663,7 +663,7 @@ function ControllerStatus({ status }: { status: OverlayStatus }) {
 }
 
 function OverlayEmpty({ children }: { children: React.ReactNode }) {
-  return <p className="flex min-h-[200px] max-w-[60ch] items-center text-[13.5px] leading-relaxed text-ink-3">{children}</p>;
+  return <p className="flex min-h-[200px] max-w-[60ch] items-center text-body leading-relaxed text-ink-3">{children}</p>;
 }
 
 function OverlayButton({
@@ -689,7 +689,7 @@ function OverlayButton({
       data-overlay-target
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-9 items-center gap-2 rounded-[2px] border px-3.5 text-[12.5px] disabled:opacity-50 ${tone}`}
+      className={`inline-flex h-9 items-center gap-2 rounded-[var(--r-sm)] border px-3.5 text-label disabled:opacity-50 ${tone}`}
     >
       {children}
     </button>

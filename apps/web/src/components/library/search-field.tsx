@@ -127,7 +127,7 @@ export function LibrarySearch({
 
   return (
     <div className={cn("relative", className)}>
-      <div className="flex h-9 items-center gap-2 rounded-[2px] border border-line bg-surface px-2.5 transition-colors focus-within:border-line-2">
+      <div className="flex h-9 items-center gap-2 rounded-[var(--r-sm)] border border-line bg-surface px-2.5 transition-colors focus-within:border-line-2">
         <Search className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
         <input
           ref={inputRef}
@@ -148,7 +148,7 @@ export function LibrarySearch({
           aria-activedescendant={active >= 0 ? optionId(active) : undefined}
           autoComplete="off"
           spellCheck={false}
-          className="h-full w-full min-w-0 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-3"
+          className="h-full w-full min-w-0 bg-transparent text-body text-ink outline-none placeholder:text-ink-3"
         />
         {isFetching && showDropdown ? (
           <Loader2 className="size-3.5 shrink-0 animate-spin text-ink-3" aria-hidden="true" />
@@ -161,7 +161,7 @@ export function LibrarySearch({
               inputRef.current?.focus();
             }}
             aria-label={t("Clear search")}
-            className="grid size-5 shrink-0 place-items-center rounded-[2px] text-ink-3 transition-colors hover:text-ink"
+            className="grid size-5 shrink-0 place-items-center rounded-[var(--r-sm)] text-ink-3 transition-colors hover:text-ink"
           >
             <X className="size-3.5" aria-hidden="true" />
           </button>
@@ -171,7 +171,7 @@ export function LibrarySearch({
       </div>
 
       {showDropdown && (
-        <div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 overflow-hidden rounded-[2px] border border-line-2 bg-surface shadow-pop">
+        <div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 overflow-hidden rounded-[var(--r-sm)] border border-line-2 bg-surface shadow-pop">
           <div id={listId} role="listbox" aria-label={t("Search suggestions")} className="max-h-[320px] overflow-y-auto py-1">
             {suggestions.map((suggestion, index) => (
               <button
@@ -192,23 +192,23 @@ export function LibrarySearch({
                   <GameCover title={suggestion.title} coverUrl={suggestion.coverUrl} showType={false} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px]">
+                  <span className="block truncate text-body">
                     <Highlight text={suggestion.title} query={text} />
                   </span>
-                  <span className="block truncate font-mono text-[10px] text-ink-3">
+                  <span className="block truncate font-mono text-micro text-ink-3">
                     {suggestion.year ?? "—"}
                     {suggestion.matchedField === "altTitle" ? ` / alias: ${suggestion.matchedTitle}` : ""}
                   </span>
                 </span>
                 {suggestion.matchedField !== "title" && (
-                  <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">
+                  <span className="shrink-0 text-micro uppercase tracking-[0.08em] text-ink-3">
                     {suggestion.matchedField === "altTitle" ? "alias" : "sort"}
                   </span>
                 )}
               </button>
             ))}
             {showEmpty && (
-              <p className="px-3 py-6 text-center text-[12.5px] text-ink-3">
+              <p className="px-3 py-6 text-center text-label text-ink-3">
                 {t("No suggestion for “{query}”. Press Enter to search anyway.", { query: text.trim() })}
               </p>
             )}
@@ -217,7 +217,7 @@ export function LibrarySearch({
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => commit(text)}
-                className="mt-1 flex w-full items-center gap-2 border-t border-line px-3 py-2 text-left text-[11.5px] text-ink-3 transition-colors hover:text-ink"
+                className="mt-1 flex w-full items-center gap-2 border-t border-line px-3 py-2 text-left text-meta text-ink-3 transition-colors hover:text-ink"
               >
                 <Search className="size-3" aria-hidden="true" />
                 {t("Search all titles for “{query}”", { query: text.trim() })}

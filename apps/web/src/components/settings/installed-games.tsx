@@ -60,13 +60,13 @@ function InstalledList() {
 
   return (
     <div>
-      <p className="text-[13px] font-medium text-ink">{t("On this device")}</p>
-      <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="text-body font-medium text-ink">{t("On this device")}</p>
+      <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
         {t("Installs made by Ludex, folders you linked, and games imported from another launcher. Adopted folders keep their files where they are.")}
       </p>
       <div className="mt-3 border-t border-line">
         {games.length === 0 ? (
-          <p className="py-3 text-[12.5px] text-ink-3">{t("Nothing is installed on this machine yet.")}</p>
+          <p className="py-3 text-label text-ink-3">{t("Nothing is installed on this machine yet.")}</p>
         ) : (
           <ul>
             {games.map((entry) => (
@@ -74,16 +74,16 @@ function InstalledList() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     {entry.gameId > 0 ? (
-                      <Link to={`/game/${entry.gameId}`} className="truncate text-[13px] text-ink hover:underline">
+                      <Link to={`/game/${entry.gameId}`} className="truncate text-body text-ink hover:underline">
                         {entry.title}
                       </Link>
                     ) : (
-                      <span className="truncate text-[13px] text-ink">{entry.title}</span>
+                      <span className="truncate text-body text-ink">{entry.title}</span>
                     )}
                     <SourceBadge source={entry.source} />
-                    {entry.version && <span className="font-mono text-[10.5px] text-ink-3">v{entry.version}</span>}
+                    {entry.version && <span className="font-mono text-micro text-ink-3">v{entry.version}</span>}
                   </div>
-                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
                     <span className="num">{formatBytes(entry.sizeBytes)}</span>
                     <span className="max-w-[60ch] truncate" title={entry.installPath}>
                       {entry.installPath || t("No folder")}
@@ -331,8 +331,8 @@ function GameVaultImportPanel() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("GameVault folders")}</p>
-          <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("GameVault folders")}</p>
+          <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
             {t("Add every folder that contains one subfolder per game, for example C:\\Games\\GameVault and D:\\Games\\GameVault. Ludex scans them together, matches folders to your library and links the ones you select. GameVault metadata is only read; nothing is written, copied or moved.")}
           </p>
         </div>
@@ -377,7 +377,7 @@ function GameVaultImportPanel() {
               placeholder="D:\\Games\\GameVault"
               spellCheck={false}
               disabled={!isNative()}
-              className="h-10 font-mono text-[11.5px]"
+              className="h-10 font-mono text-meta"
             />
           </Field>
           <Button
@@ -419,12 +419,12 @@ function GameVaultImportPanel() {
               const status = rootStatus(root);
               return (
                 <li key={root} className="flex flex-wrap items-center gap-3 border-b border-line py-2.5">
-                  <span className="num w-5 shrink-0 text-[11px] text-ink-3">{index + 1}</span>
+                  <span className="num w-5 shrink-0 text-meta text-ink-3">{index + 1}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-[11.5px] text-ink-2" title={root}>
+                    <p className="truncate font-mono text-meta text-ink-2" title={root}>
                       {root}
                     </p>
-                    <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-ink-3">
+                    <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-meta text-ink-3">
                       {status?.error ? (
                         <span className="text-danger">{status.error}</span>
                       ) : status ? (
@@ -496,18 +496,18 @@ function GameVaultImportPanel() {
 
         {proposals.length > 0 && (
           <div className="mt-4 border border-line bg-surface/50 p-3">
-            <p className="text-[12.5px] text-ink">{t("GameVault folders found on this machine")}</p>
-            <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-label text-ink">{t("GameVault folders found on this machine")}</p>
+            <p className="mt-0.5 text-meta leading-relaxed text-ink-3">
               {t("Detection is read-only: Ludex only looked at the usual locations and GameVault's own config files. Add the ones you want; nothing was changed.")}
             </p>
             <ul className="mt-2 flex flex-col gap-2">
               {proposals.map((proposal) => (
                 <li key={proposal.path} className="flex flex-wrap items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-[11.5px] text-ink-2" title={proposal.path}>
+                    <p className="truncate font-mono text-meta text-ink-2" title={proposal.path}>
                       {proposal.path}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-ink-3">
+                    <p className="mt-0.5 text-meta text-ink-3">
                       {proposal.reason}{" "}
                       {proposal.gameFolders > 0 &&
                         tn(proposal.gameFolders, "1 game folder", "{count} game folders")}
@@ -529,18 +529,18 @@ function GameVaultImportPanel() {
       </div>
 
       {!isNative() && (
-        <p className="mt-2 text-[11.5px] text-ink-3">{t("Linking a folder needs the desktop app.")}</p>
+        <p className="mt-2 text-meta text-ink-3">{t("Linking a folder needs the desktop app.")}</p>
       )}
 
       {error && (
-        <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+        <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
           {error}
         </p>
       )}
 
       {scan && (
         <div className="mt-4 flex flex-col gap-3">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-[10.5px] text-ink-3">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-micro text-ink-3">
             <span>
               {tn(scan.candidates.length, "1 folder", "{count} folders")} ·{" "}
               {tn(scan.candidates.length - selectable.length, "1 already linked or unmatched", "{count} already linked or unmatched")}
@@ -550,7 +550,7 @@ function GameVaultImportPanel() {
           </div>
 
           {scan.warnings.length > 0 && (
-            <details className="text-[11.5px] text-ink-3">
+            <details className="text-meta text-ink-3">
               <summary className="cursor-pointer select-none">
                 {tn(scan.warnings.length, "1 warning", "{count} warnings")}
               </summary>
@@ -563,7 +563,7 @@ function GameVaultImportPanel() {
           )}
 
           {scan.candidates.length === 0 ? (
-            <p className="flex items-start gap-2 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
+            <p className="flex items-start gap-2 border-t border-line pt-3 text-label leading-relaxed text-ink-3">
               <ScanSearch className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               {t("No subfolder here contains a game executable. Pick the folder that holds the downloaded games, not the app's own folder.")}
             </p>
@@ -588,34 +588,34 @@ function GameVaultImportPanel() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <span className="truncate text-[13px] text-ink">{candidate.name}</span>
+                        <span className="truncate text-body text-ink">{candidate.name}</span>
                         <Badge tone={status.tone}>{status.label}</Badge>
                         <Badge tone={candidate.executable ? "outline" : "signal"}>
                           {candidate.executable ? t("Executable found") : t("No executable")}
                         </Badge>
                         {candidate.matchedTitle && (
-                          <span className="text-[11px] text-ink-3">
+                          <span className="text-meta text-ink-3">
                             {t("Ludex: {title}", { title: candidate.matchedTitle })}
                           </span>
                         )}
-                        <span className="num ml-auto text-[10.5px] text-ink-3">
+                        <span className="num ml-auto text-micro text-ink-3">
                           {formatBytes(candidate.sizeBytes)} ·{" "}
                           {tn(candidate.fileCount, "1 file", "{count} files")}
                         </span>
                       </div>
-                      <p className="mt-0.5 truncate font-mono text-[10.5px] text-ink-3" title={candidate.folder}>
+                      <p className="mt-0.5 truncate font-mono text-micro text-ink-3" title={candidate.folder}>
                         {candidate.folder}
                       </p>
-                      <p className="mt-0.5 truncate text-[10.5px] text-ink-3" title={candidate.sourceRoot}>
+                      <p className="mt-0.5 truncate text-micro text-ink-3" title={candidate.sourceRoot}>
                         {t("From {root}", { root: candidate.sourceRoot })}
                       </p>
                       {candidate.executable && (
-                        <p className="mt-0.5 truncate font-mono text-[10px] text-ink-3" title={candidate.executable}>
+                        <p className="mt-0.5 truncate font-mono text-micro text-ink-3" title={candidate.executable}>
                           {candidate.executable}
                         </p>
                       )}
                       {candidate.executableCandidates.length > 1 && (
-                        <details className="mt-1 text-[11px] text-ink-3">
+                        <details className="mt-1 text-meta text-ink-3">
                           <summary className="cursor-pointer select-none">
                             {tn(
                               candidate.executableCandidates.length,
@@ -623,7 +623,7 @@ function GameVaultImportPanel() {
                               "{count} executables found",
                             )}
                           </summary>
-                          <ul className="mt-1 flex flex-col gap-0.5 border-l border-line pl-3 font-mono text-[10px]">
+                          <ul className="mt-1 flex flex-col gap-0.5 border-l border-line pl-3 font-mono text-micro">
                             {candidate.executableCandidates.slice(0, 6).map((path) => (
                               <li key={path} className="truncate" title={path}>
                                 {path}
@@ -633,12 +633,12 @@ function GameVaultImportPanel() {
                         </details>
                       )}
                       {candidate.notes.map((note) => (
-                        <p key={note} className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+                        <p key={note} className="mt-1 text-meta leading-relaxed text-ink-3">
                           {note}
                         </p>
                       ))}
                       {candidate.warnings.map((warning) => (
-                        <p key={warning} className="mt-1 text-[11.5px] leading-relaxed text-danger">
+                        <p key={warning} className="mt-1 text-meta leading-relaxed text-danger">
                           {warning}
                         </p>
                       ))}
@@ -653,7 +653,7 @@ function GameVaultImportPanel() {
                         </Button>
                       )}
                       {!selectableRow && candidate.matchStatus === "ambiguous" && (
-                        <p className="mt-1 text-[11.5px] leading-relaxed text-signal-text">
+                        <p className="mt-1 text-meta leading-relaxed text-signal-text">
                           {t("Open the game page and link this folder there to choose the game and version yourself.")}
                         </p>
                       )}

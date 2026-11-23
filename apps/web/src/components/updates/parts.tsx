@@ -61,7 +61,7 @@ export function ReleaseNotes({
   if (blocks.length === 0) {
     const build = edgeBuildNumber(version);
     return (
-      <p className={cn("measure text-[13.5px] leading-relaxed text-ink-3", className)}>
+      <p className={cn("measure text-body leading-relaxed text-ink-3", className)}>
         {build
           ? t(
               "This is edge build {build}. Automatic builds do not ship written notes; the release page lists the commits in it.",
@@ -79,7 +79,7 @@ export function ReleaseNotes({
           return (
             <h3
               key={`${block.kind}-${index}`}
-              className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-3 first:mt-0"
+              className="mt-2 text-micro uppercase tracking-[0.14em] text-ink-3 first:mt-0"
             >
               {block.text}
             </h3>
@@ -87,14 +87,14 @@ export function ReleaseNotes({
         }
         if (block.kind === "bullet") {
           return (
-            <p key={`${block.kind}-${index}`} className="flex gap-2.5 text-[13.5px] leading-relaxed text-ink-2">
+            <p key={`${block.kind}-${index}`} className="flex gap-2.5 text-body leading-relaxed text-ink-2">
               <span aria-hidden="true" className="mt-[0.62em] h-px w-3 shrink-0 bg-signal" />
               <span className="min-w-0">{block.text}</span>
             </p>
           );
         }
         return (
-          <p key={`${block.kind}-${index}`} className="measure text-[13.5px] leading-relaxed text-ink-2">
+          <p key={`${block.kind}-${index}`} className="measure text-body leading-relaxed text-ink-2">
             {block.text}
           </p>
         );

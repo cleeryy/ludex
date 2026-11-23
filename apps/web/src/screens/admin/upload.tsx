@@ -109,14 +109,14 @@ export function UploadScreen() {
           onChange={(event) => void choose(event.target.files?.[0] ?? null)}
         />
         {!ready ? (
-          <p className="text-[13px] text-ink-3">{t("Checking for unfinished uploads…")}</p>
+          <p className="text-body text-ink-3">{t("Checking for unfinished uploads…")}</p>
         ) : result ? (
           <div className="border border-line bg-surface p-6">
             <div className="flex items-start gap-3">
               <CheckCircle2 className="mt-0.5 size-5 text-ok" aria-hidden="true" />
               <div className="min-w-0">
-                <h3 className="text-[15px] font-medium text-ink">{t("Upload complete")}</h3>
-                <p className="mt-1 text-[13px] text-ink-2">
+                <h3 className="text-lead font-medium text-ink">{t("Upload complete")}</h3>
+                <p className="mt-1 text-body text-ink-2">
                   {t("{file} · {size} · indexed as game #{id}", { file: result.fileName, size: formatBytes(result.size), id: result.gameId })}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -135,9 +135,9 @@ export function UploadScreen() {
             <div className="flex items-start gap-3">
               <FileArchive className="mt-0.5 size-5 text-ink-3" aria-hidden="true" />
               <div className="min-w-0">
-                <h3 className="text-[15px] font-medium text-ink">{t("Upload did not finish")}</h3>
-                <p className="mt-1 truncate text-[13px] text-ink-2">{session.fileName}</p>
-                <p className="num mt-1 text-[11.5px] text-ink-3">
+                <h3 className="text-lead font-medium text-ink">{t("Upload did not finish")}</h3>
+                <p className="mt-1 truncate text-body text-ink-2">{session.fileName}</p>
+                <p className="num mt-1 text-meta text-ink-3">
                   {t("The server still has {received} of {size}. Pick the same archive to continue.", {
                     received: formatBytes(session.receivedBytes),
                     size: formatBytes(session.size),
@@ -178,10 +178,10 @@ export function UploadScreen() {
               data-dragging={dragging}
             >
               <UploadCloud className="size-6 text-ink-3" aria-hidden="true" />
-              <p className="text-[14px] text-ink">
+              <p className="text-body text-ink">
                 {active ? t("Uploading") : session ? t("Resume upload") : t("Drop an archive here, or click to browse")}
               </p>
-              <p className="text-[12.5px] text-ink-3">
+              <p className="text-label text-ink-3">
                 {active
                   ? t("You can leave this page; the upload keeps running.")
                   : session
@@ -194,8 +194,8 @@ export function UploadScreen() {
               <div className="mt-4 flex flex-wrap items-center gap-3 border border-line bg-surface px-4 py-3">
                 <FileArchive className="size-4 text-ink-3" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] text-ink">{file.name}</p>
-                  <p className="num text-[11.5px] text-ink-3">
+                  <p className="truncate text-body text-ink">{file.name}</p>
+                  <p className="num text-meta text-ink-3">
                     {formatBytes(file.size)}
                     {session &&
                       ` · ${t("{stored} of {total} chunks stored", {
@@ -224,7 +224,7 @@ export function UploadScreen() {
                   value={percent}
                   label={phase === "verifying" ? t("Verifying and indexing…") : t("Uploading")}
                 />
-                <p className="num mt-1 text-[11.5px] text-ink-3">
+                <p className="num mt-1 text-meta text-ink-3">
                   {formatBytes(uploaded)} / {formatBytes(total)} · {formatPercent(percent, 1)}
                 </p>
               </div>
@@ -241,8 +241,8 @@ export function UploadScreen() {
 
             {blocked && active && phase !== "verifying" && (
               <div className="mt-4 border border-line-2 bg-surface-2 px-4 py-3">
-                <p className="text-[13px] text-ink">{t("An upload is already running.")}</p>
-                <p className="mt-1 text-[12.5px] text-ink-2">
+                <p className="text-body text-ink">{t("An upload is already running.")}</p>
+                <p className="mt-1 text-label text-ink-2">
                   {t("Cancel it to send {file} instead, or keep the current transfer.", { file: blocked.name })}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -291,7 +291,7 @@ export function UploadScreen() {
 
       <section className="mt-12">
         <SectionHeader title={t("How it works")} description={t("What the server does with the archive")} />
-        <ol className="space-y-3 text-[13px] leading-relaxed text-ink-2">
+        <ol className="space-y-3 text-body leading-relaxed text-ink-2">
           <li>
             <span className="text-ink">{t("1. Initiate.")}</span>  {t("The server reserves an upload id and a 16 MiB chunk size.")}
           </li>

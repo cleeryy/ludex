@@ -224,8 +224,8 @@ export function LauncherImportPanel({
     <div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Launchers on this machine")}</p>
-          <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("Launchers on this machine")}</p>
+          <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
             {t(
               "Reads the metadata Steam, Epic, GOG, EA, Ubisoft, Xbox, itch, Heroic and Lutris already keep on disk. Selected games are added as entries that launch through their own client; nothing is downloaded, copied or moved, and uninstalling the Ludex entry never touches the game files.",
             )}
@@ -256,15 +256,15 @@ export function LauncherImportPanel({
       </div>
 
       {error && (
-        <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+        <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
           {error}
         </p>
       )}
 
       <div className="mt-4 border-t border-line pt-4">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <p className="text-[12.5px] font-medium text-ink">{t("Sources")}</p>
-          <div className="flex items-center gap-3 font-mono text-[10.5px] text-ink-3">
+          <p className="text-label font-medium text-ink">{t("Sources")}</p>
+          <div className="flex items-center gap-3 font-mono text-micro text-ink-3">
             <button
               type="button"
               className="underline-offset-4 hover:text-ink hover:underline disabled:opacity-40"
@@ -285,7 +285,7 @@ export function LauncherImportPanel({
             </button>
           </div>
         </div>
-        <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
           {t(
             "Only checked sources are read. Disabling one leaves the games already imported from it on the shelf, and checking it again brings its scan back without a restart.",
           )}
@@ -305,7 +305,7 @@ export function LauncherImportPanel({
                   />
                   <span
                     className={cn(
-                      "truncate text-[12.5px]",
+                      "truncate text-label",
                       state === "disabled" ? "text-ink-3" : "text-ink-2",
                     )}
                   >
@@ -316,7 +316,7 @@ export function LauncherImportPanel({
                   <span
                     title={info?.detail}
                     className={cn(
-                      "shrink-0 text-right font-mono text-[10px] uppercase tracking-[0.08em]",
+                      "shrink-0 text-right text-micro uppercase tracking-[0.08em]",
                       state === "disabled" && "text-ink-3/70",
                       state === "detected" ? "text-ink-2" : state !== "disabled" && "text-ink-3",
                     )}
@@ -338,7 +338,7 @@ export function LauncherImportPanel({
 
       {preview && (
         <div className="mt-4 flex flex-col gap-3">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-[10.5px] text-ink-3">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-micro text-ink-3">
             <span>
               {tn(visibleGames.length, "1 game", "{count} games")} ·{" "}
               {tn(preview.roots.length, "1 source read", "{count} sources read")}
@@ -360,7 +360,7 @@ export function LauncherImportPanel({
           </div>
 
           {preview.warnings.length > 0 && (
-            <details className="text-[11.5px] text-ink-3">
+            <details className="text-meta text-ink-3">
               <summary className="cursor-pointer select-none">
                 {tn(preview.warnings.length, "1 warning", "{count} warnings")}
               </summary>
@@ -373,7 +373,7 @@ export function LauncherImportPanel({
           )}
 
           {visibleGames.length === 0 ? (
-            <p className="flex items-start gap-2 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
+            <p className="flex items-start gap-2 border-t border-line pt-3 text-label leading-relaxed text-ink-3">
               <Gamepad2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               {enabledIds.length === 0
                 ? t("Every launcher source is disabled. Enable one to scan it.")
@@ -458,7 +458,7 @@ function LauncherRow({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="truncate text-[13px] text-ink">{game.name}</span>
+            <span className="truncate text-body text-ink">{game.name}</span>
             <Badge tone="outline">{game.source}</Badge>
             {game.imported ? (
               <Badge tone="ok">{t("Imported")}</Badge>
@@ -470,19 +470,19 @@ function LauncherRow({
               <Badge tone="outline">{t("Not in the library")}</Badge>
             )}
             {game.sizeBytes > 0 && (
-              <span className="num ml-auto text-[10.5px] text-ink-3">{formatBytes(game.sizeBytes)}</span>
+              <span className="num ml-auto text-micro text-ink-3">{formatBytes(game.sizeBytes)}</span>
             )}
           </div>
 
-          <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-[10.5px] text-ink-3">
+          <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-micro text-ink-3">
             {game.detail && <span>{game.detail}</span>}
             {game.installDir && <span className="max-w-[52ch] truncate">{game.installDir}</span>}
           </p>
 
           {mappedTitle && mappedTitle !== game.name && (
-            <p className="mt-0.5 text-[11px] text-ink-3">{t("Ludex: {title}", { title: mappedTitle })}</p>
+            <p className="mt-0.5 text-meta text-ink-3">{t("Ludex: {title}", { title: mappedTitle })}</p>
           )}
-          {game.issue && <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">{game.issue}</p>}
+          {game.issue && <p className="mt-1 text-meta leading-relaxed text-ink-3">{game.issue}</p>}
 
           {!game.imported && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -501,13 +501,13 @@ function LauncherRow({
                   placeholder="origin://launchgame/Origin.OFR.50.0000557"
                   spellCheck={false}
                   aria-label={t("Launch URI for {title}", { title: game.name })}
-                  className="h-8 min-w-[260px] flex-1 font-mono text-[11px]"
+                  className="h-8 min-w-[260px] flex-1 font-mono text-meta"
                 />
               )}
             </div>
           )}
           {!game.imported && !needsUri && uri.trim() && (
-            <p className="mt-1 break-all font-mono text-[10px] text-ink-3">
+            <p className="mt-1 break-all font-mono text-micro text-ink-3">
               {tr("uses {uri}", { uri: <span className="font-mono">{uri.trim()}</span> })}
             </p>
           )}
@@ -552,7 +552,7 @@ function GamePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="h-8 border border-line bg-surface px-2.5 text-[11px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+        className="h-8 border border-line bg-surface px-2.5 text-meta text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
       >
         {manual
           ? t("Mapped: {title}", { title: mappedTitle ?? "?" })
@@ -576,14 +576,14 @@ function GamePicker({
             placeholder={t("Search the library")}
             aria-label={t("Search the library")}
             spellCheck={false}
-            className="h-8 w-full bg-transparent text-[12px] text-ink outline-none placeholder:text-ink-3"
+            className="h-8 w-full bg-transparent text-label text-ink outline-none placeholder:text-ink-3"
           />
         </div>
         <div className="mt-1.5 max-h-[240px] overflow-y-auto">
           {titlesPending ? (
-            <p className="px-2 py-3 text-[11.5px] text-ink-3">{t("Loading the library…")}</p>
+            <p className="px-2 py-3 text-meta text-ink-3">{t("Loading the library…")}</p>
           ) : matches.length === 0 ? (
-            <p className="px-2 py-3 text-[11.5px] text-ink-3">{t("No game matches that search.")}</p>
+            <p className="px-2 py-3 text-meta text-ink-3">{t("No game matches that search.")}</p>
           ) : (
             matches.map((entry) => (
               <button
@@ -593,10 +593,10 @@ function GamePicker({
                   onMap(entry.id);
                   setOpen(false);
                 }}
-                className="flex w-full items-baseline justify-between gap-2 px-2 py-1.5 text-left text-[12px] text-ink-2 hover:bg-surface-2 hover:text-ink"
+                className="flex w-full items-baseline justify-between gap-2 px-2 py-1.5 text-left text-label text-ink-2 hover:bg-surface-2 hover:text-ink"
               >
                 <span className="truncate">{entry.title}</span>
-                <span className="num shrink-0 text-[10.5px] text-ink-3">
+                <span className="num shrink-0 text-micro text-ink-3">
                   {entry.releaseDate ? entry.releaseDate.slice(0, 4) : ""}
                 </span>
               </button>
@@ -610,7 +610,7 @@ function GamePicker({
               onMap(null);
               setOpen(false);
             }}
-            className="mt-1 w-full border-t border-line px-2 pt-1.5 text-left text-[11px] text-ink-3 hover:text-ink"
+            className="mt-1 w-full border-t border-line px-2 pt-1.5 text-left text-meta text-ink-3 hover:text-ink"
           >
             {t("Use the automatic match")}
           </button>

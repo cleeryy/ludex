@@ -253,7 +253,7 @@ export function MatchMetadataDialog({
           </div>
         )}
 
-        <p className="text-[12px] text-ink-3" aria-live="polite">
+        <p className="text-label text-ink-3" aria-live="polite">
           {status}
           {selectedYear !== null && search.data && (
             <> · {t("Year filter: {year}", { year: selectedYear })}</>
@@ -262,11 +262,11 @@ export function MatchMetadataDialog({
 
         {providerErrors.length > 0 && (
           <div className="border-l-2 border-danger pl-3" role="status">
-            <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-danger">
+            <p className="flex items-center gap-1.5 text-label font-medium text-danger">
               <CircleAlert className="size-3.5" aria-hidden="true" />
               {t("Some providers did not answer")}
             </p>
-            <ul className="mt-1 flex flex-col gap-0.5 text-[12px] text-ink-2">
+            <ul className="mt-1 flex flex-col gap-0.5 text-label text-ink-2">
               {providerErrors.map((status) => (
                 <li key={status.slug}>
                   <span className="font-medium">{status.name}</span>
@@ -279,7 +279,7 @@ export function MatchMetadataDialog({
 
         {search.isError && (
           <div className="flex flex-col gap-2 border border-line p-3">
-            <p className="text-[12.5px] text-danger">{errorMessage(search.error)}</p>
+            <p className="text-label text-danger">{errorMessage(search.error)}</p>
             <div>
               <Button size="sm" onClick={() => void search.refetch()}>
                 {t("Try again")}
@@ -296,7 +296,7 @@ export function MatchMetadataDialog({
         )}
 
         {!search.isPending && !search.isError && candidates.length === 0 && (
-          <p className="border border-line p-4 text-center text-[13px] text-ink-2">
+          <p className="border border-line p-4 text-center text-body text-ink-2">
             {t("No candidate matches this search. Try a shorter title or another year.")}
           </p>
         )}
@@ -332,11 +332,11 @@ export function MatchMetadataDialog({
                   }}
                   className={
                     active
-                      ? "flex cursor-pointer gap-3 rounded-[2px] border border-signal/60 bg-surface-2 p-2.5 outline-none ring-1 ring-signal/30"
-                      : "flex cursor-pointer gap-3 rounded-[2px] border border-line bg-surface p-2.5 hover:border-line-2"
+                      ? "flex cursor-pointer gap-3 rounded-[var(--r-sm)] border border-signal/60 bg-surface-2 p-2.5 outline-none ring-1 ring-signal/30"
+                      : "flex cursor-pointer gap-3 rounded-[var(--r-sm)] border border-line bg-surface p-2.5 hover:border-line-2"
                   }
                 >
-                  <div className="flex h-[64px] w-[48px] shrink-0 items-center justify-center overflow-hidden rounded-[2px] border border-line bg-bg-2">
+                  <div className="flex h-[64px] w-[48px] shrink-0 items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-line bg-bg-2">
                     {assetUrl(candidate.coverUrl) ? (
                       <img
                         src={assetUrl(candidate.coverUrl) ?? undefined}
@@ -345,19 +345,19 @@ export function MatchMetadataDialog({
                         className="size-full object-cover"
                       />
                     ) : (
-                      <span className="text-[10px] text-ink-3">—</span>
+                      <span className="text-micro text-ink-3">—</span>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[13px] font-medium text-ink">{candidate.title}</span>
+                      <span className="text-body font-medium text-ink">{candidate.title}</span>
                       {candidate.year !== null && (
-                        <span className="font-mono text-[11px] text-ink-3">{candidate.year}</span>
+                        <span className="font-mono text-meta text-ink-3">{candidate.year}</span>
                       )}
                       <Badge tone="outline">{candidate.providerName}</Badge>
                       {candidate.selected && <Badge tone="ok">{t("Current match")}</Badge>}
                     </div>
-                    <p className="mt-0.5 truncate text-[12px] text-ink-2">
+                    <p className="mt-0.5 truncate text-label text-ink-2">
                       {candidate.developers.length > 0
                         ? candidate.developers.join(", ")
                         : t("Developer unknown")}
@@ -365,12 +365,12 @@ export function MatchMetadataDialog({
                         <span className="text-ink-3"> · {candidate.platforms.join(", ")}</span>
                       )}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-ink-3">
+                    <p className="mt-1 line-clamp-2 text-meta leading-relaxed text-ink-3">
                       {candidate.summary ?? t("No description.")}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="font-mono text-[11px] text-ink-3">
+                    <span className="font-mono text-meta text-ink-3">
                       {t("{percent}% match", { percent: confidencePercent(candidate) })}
                     </span>
                     {candidate.providerUrl && (
@@ -395,21 +395,21 @@ export function MatchMetadataDialog({
         {selected && (
           <section className="flex flex-col gap-2 border-t border-line pt-3" aria-live="polite">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-[13px] font-medium text-ink">{t("Changes on apply")}</h3>
-              <span className="font-mono text-[11px] text-ink-3">
+              <h3 className="text-body font-medium text-ink">{t("Changes on apply")}</h3>
+              <span className="font-mono text-meta text-ink-3">
                 {selected.provider} · {selected.providerId}
               </span>
             </div>
             {preview.length === 0 ? (
-              <p className="text-[12.5px] text-ink-2">
+              <p className="text-label text-ink-2">
                 {t("This record already matches the game. Applying refreshes the provider id and artwork.")}
               </p>
             ) : (
               <ul className="flex flex-col divide-y divide-line border border-line">
                 {preview.map((row) => (
                   <li key={row.field} className="grid grid-cols-[110px_minmax(0,1fr)] gap-3 p-2.5">
-                    <span className="text-[12px] font-medium text-ink-2">{matchLabel(row.field)}</span>
-                    <div className="min-w-0 text-[12.5px]">
+                    <span className="text-label font-medium text-ink-2">{matchLabel(row.field)}</span>
+                    <div className="min-w-0 text-label">
                       <p className="truncate text-ink-3 line-through">{row.current || t("Empty")}</p>
                       <p className="truncate text-ink">{row.next}</p>
                       {row.manual && !replaceManual && (
@@ -422,7 +422,7 @@ export function MatchMetadataDialog({
                 ))}
               </ul>
             )}
-            <p className="text-[12px] leading-relaxed text-ink-3">
+            <p className="text-label leading-relaxed text-ink-3">
               {t("Genres, publishers, rating, age rating, player count and alternative titles also follow the selected record. Its cover, background, screenshots and trailers are cached on apply.")}
             </p>
             {manualFields.length > 0 && (
@@ -432,7 +432,7 @@ export function MatchMetadataDialog({
                   onCheckedChange={setReplaceManual}
                   label={t("Replace fields I edited by hand")}
                 />
-                <div className="text-[12.5px]">
+                <div className="text-label">
                   <p className="text-ink">{t("Replace fields I edited by hand")}</p>
                   <p className="text-ink-3">
                     {replaceManual
@@ -447,7 +447,7 @@ export function MatchMetadataDialog({
               </div>
             )}
             {applyError && (
-              <p className="border-l-2 border-danger pl-3 text-[12.5px] text-danger" role="alert">
+              <p className="border-l-2 border-danger pl-3 text-label text-danger" role="alert">
                 {applyError}
               </p>
             )}
@@ -476,10 +476,10 @@ function ProviderChip({
       onClick={onClick}
       className={
         active
-          ? "inline-flex h-6 items-center rounded-[2px] border border-signal/60 bg-signal/12 px-2 text-[11.5px] font-medium text-signal-text"
+          ? "inline-flex h-6 items-center rounded-[var(--r-sm)] border border-signal/60 bg-signal/12 px-2 text-meta font-medium text-signal-text"
           : tone === "danger"
-            ? "inline-flex h-6 items-center rounded-[2px] border border-danger/40 px-2 text-[11.5px] text-danger hover:border-danger/70"
-            : "inline-flex h-6 items-center rounded-[2px] border border-line-2 px-2 text-[11.5px] text-ink-2 hover:border-ink-3"
+            ? "inline-flex h-6 items-center rounded-[var(--r-sm)] border border-danger/40 px-2 text-meta text-danger hover:border-danger/70"
+            : "inline-flex h-6 items-center rounded-[var(--r-sm)] border border-line-2 px-2 text-meta text-ink-2 hover:border-ink-3"
       }
     >
       {label}

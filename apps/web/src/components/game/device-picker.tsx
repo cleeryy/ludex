@@ -80,11 +80,11 @@ export function DevicePicker({
 }) {
   if (devices.length === 0) return null;
   return (
-    <label className="flex min-w-0 items-center gap-2 text-[12px] text-ink-3">
+    <label className="flex min-w-0 items-center gap-2 text-label text-ink-3">
       <Monitor className="size-3.5 shrink-0 text-signal" aria-hidden="true" />
       <span className="shrink-0">{t("Install on")}</span>
       <select
-        className="h-8 min-w-0 max-w-52 border border-line bg-surface px-2 text-[12.5px] text-ink outline-none focus:border-signal disabled:opacity-60"
+        className="h-8 min-w-0 max-w-52 border border-line bg-surface px-2 text-label text-ink outline-none focus:border-signal disabled:opacity-60"
         value={value ?? ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}

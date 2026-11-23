@@ -70,20 +70,20 @@ export function ActivityRow({ activity, showActor = true }: { activity: Activity
   return (
     <div className="flex gap-3 border-b border-line py-3 last:border-0">
       <span
-        className={cn("mt-0.5 grid size-8 shrink-0 place-items-center rounded-[2px] border", TONES[activity.kind])}
+        className={cn("mt-0.5 grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] border", TONES[activity.kind])}
         aria-hidden="true"
       >
         {ICONS[activity.kind]}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] leading-relaxed text-ink-2">
+        <p className="text-body leading-relaxed text-ink-2">
           {showActor ? (
             sentence(activity)
           ) : (
             sentence({ ...activity, user: { ...activity.user, displayName: null, username: t("You") } })
           )}
         </p>
-        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 font-mono text-[10px] text-ink-3">
+        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 font-mono text-micro text-ink-3">
           <span>{formatRelative(activity.createdAt)}</span>
           {activity.game?.releaseYear ? <span>{activity.game.releaseYear}</span> : null}
           {showActor && (
@@ -135,7 +135,7 @@ export function ActivityList({
             type="button"
             onClick={onLoadMore}
             disabled={loadingMore}
-            className="h-9 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink disabled:opacity-40"
+            className="h-9 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink disabled:opacity-40"
           >
             {loadingMore ? t("Loading…") : t("Load more")}
           </button>

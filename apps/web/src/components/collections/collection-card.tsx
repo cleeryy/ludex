@@ -49,21 +49,21 @@ export function CollectionCard({ collection, className }: { collection: Collecti
             </Badge>
           )}
         </div>
-        <span className="num shrink-0 text-[11px] text-ink-3">
+        <span className="num shrink-0 text-meta text-ink-3">
           {collection.gameCount} {collection.gameCount === 1 ? "game" : "games"}
         </span>
       </div>
 
       <div>
-        <h3 className="text-[18px] font-semibold leading-tight tracking-[-0.015em] text-ink group-hover:text-ink">
+        <h3 className="text-title font-semibold leading-tight tracking-[-0.015em] text-ink group-hover:text-ink">
           {collection.name}
         </h3>
         {collection.description ? (
-          <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-ink-3">{collection.description}</p>
+          <p className="mt-1 line-clamp-2 text-label leading-relaxed text-ink-3">{collection.description}</p>
         ) : (
-          <p className="mt-1 text-[12.5px] text-ink-3">{collection.kind === "smart" ? t("Built from rules.") : t("An empty shelf.")}</p>
+          <p className="mt-1 text-label text-ink-3">{collection.kind === "smart" ? t("Built from rules.") : t("An empty shelf.")}</p>
         )}
-        <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
+        <p className="mt-3 text-micro uppercase tracking-[0.1em] text-ink-3">
           {collection.owned ? t("Yours") : `By ${collection.owner.displayName ?? collection.owner.username}`}
         </p>
       </div>

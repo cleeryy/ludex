@@ -176,8 +176,8 @@ export function ExecutableField({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-[12px] text-ink-2">{title}</span>
-        <span className="font-mono text-[10.5px] text-ink-3">
+        <span className="text-label text-ink-2">{title}</span>
+        <span className="font-mono text-micro text-ink-3">
           {value ? value : t("Nothing selected")}
         </span>
       </div>
@@ -196,7 +196,7 @@ export function ExecutableField({
           aria-activedescendant={activeId}
           placeholder={t("Search in the install folder")}
           spellCheck={false}
-          className="h-10 flex-1 font-mono text-[12px]"
+          className="h-10 flex-1 font-mono text-label"
         />
         <Button
           variant="ghost"
@@ -223,15 +223,15 @@ export function ExecutableField({
       </div>
 
       {state === "loading" && (
-        <p className="text-[11.5px] text-ink-3">{t("Scanning the install folder…")}</p>
+        <p className="text-meta text-ink-3">{t("Scanning the install folder…")}</p>
       )}
       {state === "error" && (
-        <p role="alert" className="border-l-2 border-danger pl-3 text-[11.5px] leading-relaxed text-danger">
+        <p role="alert" className="border-l-2 border-danger pl-3 text-meta leading-relaxed text-danger">
           {errorMessage(query.error)}
         </p>
       )}
       {state === "empty" && (
-        <p className="border-l-2 border-signal/60 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="border-l-2 border-signal/60 pl-3 text-meta leading-relaxed text-ink-3">
           {kind === "launch"
             ? t("No executable found — choose one. Enter a relative path or browse the install folder.")
             : t("No matching program found in the install folder.")}
@@ -269,14 +269,14 @@ export function ExecutableField({
               />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
-                  <span className="truncate text-[12.5px] text-ink">{entry.name}</span>
+                  <span className="truncate text-label text-ink">{entry.name}</span>
                   {entry.recommended && <Badge tone="signal">{t("Detected")}</Badge>}
                 </span>
-                <span className="block truncate font-mono text-[10.5px] text-ink-3">
+                <span className="block truncate font-mono text-micro text-ink-3">
                   {entry.path}
                 </span>
               </span>
-              <span className="num shrink-0 text-[10.5px] text-ink-3">
+              <span className="num shrink-0 text-micro text-ink-3">
                 {formatBytes(entry.sizeBytes)}
               </span>
             </li>
@@ -284,14 +284,14 @@ export function ExecutableField({
         </ul>
       )}
 
-      {hint && <span className="text-[11px] text-ink-3">{hint}</span>}
+      {hint && <span className="text-meta text-ink-3">{hint}</span>}
 
       <div>
         <button
           type="button"
           onClick={() => setManualOpen((open) => !open)}
           aria-expanded={manualOpen}
-          className="text-[11.5px] text-ink-3 underline-offset-4 transition-colors hover:text-ink hover:underline"
+          className="text-meta text-ink-3 underline-offset-4 transition-colors hover:text-ink hover:underline"
         >
           {manualOpen ? t("Hide manual entry") : t("Enter a path manually")}
         </button>
@@ -303,10 +303,10 @@ export function ExecutableField({
               disabled={disabled}
               placeholder={t("Game/Game.exe")}
               spellCheck={false}
-              className="h-10 font-mono text-[12px]"
+              className="h-10 font-mono text-label"
               aria-label={t("Executable path")}
             />
-            <span className="text-[11px] leading-relaxed text-ink-3">
+            <span className="text-meta leading-relaxed text-ink-3">
               {t("Relative to the install folder. Paths outside it are refused when saving.")}
             </span>
           </div>

@@ -254,7 +254,7 @@ export function AuthenticationScreen() {
               href={DOCS_URL}
               target="_blank"
               rel="noreferrer"
-              className="flex h-9 items-center gap-1.5 text-[12.5px] text-ink-2 hover:text-ink"
+              className="flex h-9 items-center gap-1.5 text-label text-ink-2 hover:text-ink"
             >
               
               {t("OIDC guide")}
@@ -292,7 +292,7 @@ export function AuthenticationScreen() {
         >
           <div className="flex flex-col gap-9">
             {locked.size > 0 && (
-              <p className="border-l-2 border-signal pl-3 text-[12.5px] leading-relaxed text-ink-2">
+              <p className="border-l-2 border-signal pl-3 text-label leading-relaxed text-ink-2">
                 
                 {tr("Some fields are set by {vars} environment variables and are locked here. Unset those variables and restart the server to manage the values from the UI.", {
                   vars: <span className="font-mono text-ink">LUDEX_OIDC_*</span>,
@@ -313,12 +313,12 @@ export function AuthenticationScreen() {
               <div className="mt-5 flex flex-col gap-5">
                 <div className="flex items-start justify-between gap-6 border-b border-line pb-4">
                   <div>
-                    <p className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                    <p className="flex items-center gap-2 text-body font-medium text-ink">
                       
                       {t("Enable SSO")}
                       {isLocked("enabled") && <Badge tone="outline">{t("Environment")}</Badge>}
                     </p>
-                    <p className="mt-0.5 text-[12.5px] text-ink-3">
+                    <p className="mt-0.5 text-label text-ink-3">
                       
                       {t("Shows “Sign in with {provider}” on the login page. Password sign-in is never disabled.", {
                         provider: displayName,
@@ -351,7 +351,7 @@ export function AuthenticationScreen() {
                 </Field>
 
                 {issuerChanged && data.linkedAccounts > 0 && (
-                  <p className="border-l-2 border-danger pl-3 text-[12.5px] leading-relaxed text-danger">
+                  <p className="border-l-2 border-danger pl-3 text-label leading-relaxed text-danger">
                     
                     {tn(
                       data.linkedAccounts,
@@ -385,7 +385,7 @@ export function AuthenticationScreen() {
                 >
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="flex h-9 flex-1 items-center gap-2 border-b border-line text-[13px] text-ink-2">
+                      <span className="flex h-9 flex-1 items-center gap-2 border-b border-line text-body text-ink-2">
                         <KeyRound className="size-3.5 text-ink-3" aria-hidden="true" />
                         {data.settings.secretConfigured ? t("A secret is stored") : t("No secret stored (public client)")}
                       </span>
@@ -431,7 +431,7 @@ export function AuthenticationScreen() {
                       />
                     )}
                     {clearSecret && (
-                      <p className="text-[12px] text-danger">
+                      <p className="text-label text-danger">
                         
                         {t("The stored secret will be removed when you save. Use this only for a public PKCE client.")}
                       </p>
@@ -466,7 +466,7 @@ export function AuthenticationScreen() {
                     <Input id="oidc-redirect" value={form.redirectUrl} onChange={(event) => set("redirectUrl", event.target.value)} placeholder="/api/auth/oidc/callback" disabled={isLocked("redirectUrl")} spellCheck={false} autoComplete="off" />
                   </div>
                   <div className="mt-1 flex items-center gap-2">
-                    <code className="truncate font-mono text-[11px] text-ink-2">{redirectUri}</code>
+                    <code className="truncate font-mono text-meta text-ink-2">{redirectUri}</code>
                     <button
                       type="button"
                       onClick={() => void copy(redirectUri, "Redirect URI")}
@@ -513,12 +513,12 @@ export function AuthenticationScreen() {
               <div className="mt-4 flex flex-col gap-5">
                 <div className="flex items-start justify-between gap-6 border-b border-line pb-4">
                   <div>
-                    <p className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                    <p className="flex items-center gap-2 text-body font-medium text-ink">
                       
                       {t("Create accounts automatically")}
                       {isLocked("autoCreate") && <Badge tone="outline">{t("Environment")}</Badge>}
                     </p>
-                    <p className="mt-0.5 text-[12.5px] text-ink-3">
+                    <p className="mt-0.5 text-label text-ink-3">
                       
                       {t("Unknown identities get a local account on first sign-in. Existing accounts are linked by verified email.")}
                     </p>
@@ -575,7 +575,7 @@ export function AuthenticationScreen() {
                     disabled={isLocked("adminGroups")}
                     rows={3}
                     spellCheck={false}
-                    className="w-full resize-y rounded-[2px] border border-line bg-surface px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-ink placeholder:text-ink-3 disabled:opacity-40"
+                    className="w-full resize-y rounded-[var(--r-sm)] border border-line bg-surface px-3 py-2.5 font-mono text-label leading-relaxed text-ink placeholder:text-ink-3 disabled:opacity-40"
                     placeholder={"ludex-admins\noperators"}
                   />
                 </Field>
@@ -601,7 +601,7 @@ export function AuthenticationScreen() {
                 
                 {t("Test discovery")}
               </Button>
-              <span className="text-[12px] text-ink-3">
+              <span className="text-label text-ink-3">
                 
                 {t("A failing test or save keeps the current configuration active.")}
               </span>
@@ -611,17 +611,17 @@ export function AuthenticationScreen() {
           <aside className="flex flex-col gap-5">
             <section className="border border-line bg-surface/50 p-4">
               <div className="flex items-center justify-between gap-2">
-                <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">{t("Status")}</p>
+                <p className="text-micro uppercase tracking-[0.08em] text-ink-3">{t("Status")}</p>
                 <Badge tone={statusTone}>{statusLabel}</Badge>
               </div>
-              <dl className="mt-3 flex flex-col gap-2 text-[12.5px]">
+              <dl className="mt-3 flex flex-col gap-2 text-label">
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-ink-3">{t("Last check")}</dt>
                   <dd className="text-ink-2">{formatCheckedAt(status?.checkedAt ?? null)}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-ink-3">{t("Issuer")}</dt>
-                  <dd className="truncate font-mono text-[11px] text-ink-2" title={status?.issuer ?? undefined}>
+                  <dd className="truncate font-mono text-meta text-ink-2" title={status?.issuer ?? undefined}>
                     {status?.issuer ?? "—"}
                   </dd>
                 </div>
@@ -631,7 +631,7 @@ export function AuthenticationScreen() {
                 </div>
               </dl>
               {status?.error && (
-                <p className="mt-3 border-l-2 border-danger pl-2 text-[11.5px] leading-relaxed text-danger">
+                <p className="mt-3 border-l-2 border-danger pl-2 text-meta leading-relaxed text-danger">
                   {status.error}
                 </p>
               )}
@@ -639,11 +639,11 @@ export function AuthenticationScreen() {
 
             {(testResult || testError) && (
               <section className="border border-line bg-surface/50 p-4" aria-live="polite">
-                <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">{t("Discovery test")}</p>
-                {testError && <p className="mt-2 text-[12.5px] leading-relaxed text-danger">{testError}</p>}
+                <p className="text-micro uppercase tracking-[0.08em] text-ink-3">{t("Discovery test")}</p>
+                {testError && <p className="mt-2 text-label leading-relaxed text-danger">{testError}</p>}
                 {testResult && (
                   <div className="mt-2 flex flex-col gap-2">
-                    <p className="flex items-center gap-1.5 text-[12.5px] text-ok">
+                    <p className="flex items-center gap-1.5 text-label text-ok">
                       <Check className="size-3.5" aria-hidden="true" />
                       {testResult.discovery.issuer}
                     </p>
@@ -655,8 +655,8 @@ export function AuthenticationScreen() {
                       ] as const
                     ).map(([label, value]) => (
                       <div key={label}>
-                        <p className="text-[11px] text-ink-3">{label}</p>
-                        <code className="block break-all font-mono text-[10.5px] text-ink-2">{value}</code>
+                        <p className="text-meta text-ink-3">{label}</p>
+                        <code className="block break-all font-mono text-micro text-ink-2">{value}</code>
                       </div>
                     ))}
                   </div>
@@ -664,7 +664,7 @@ export function AuthenticationScreen() {
               </section>
             )}
 
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               
               {t("The client secret is encrypted at rest and never returned by the API. Saving runs discovery first: if the provider is unreachable, the previous configuration stays active. See the")}{" "}
               <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-ink-2 underline decoration-line-2 underline-offset-2">

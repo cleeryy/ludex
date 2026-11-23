@@ -95,7 +95,7 @@ export function CollectionScreen() {
         <Skeleton className="h-3 w-20" />
         <Skeleton className="mt-6 h-12 w-2/3" />
         <Skeleton className="mt-3 h-3 w-1/3" />
-        <div className="mt-10 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="mt-10 grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {Array.from({ length: 5 }).map((_, index) => (
             <Skeleton key={index} className="aspect-[3/4] w-full" />
           ))}
@@ -135,7 +135,7 @@ export function CollectionScreen() {
     <div className="page page-in">
       <Link
         to="/collections"
-        className="inline-flex h-8 items-center gap-2 text-[12.5px] text-ink-2 transition-colors hover:text-ink"
+        className="inline-flex h-8 items-center gap-2 text-label text-ink-2 transition-colors hover:text-ink"
       >
         <ArrowLeft className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
         {t("Collections")}
@@ -186,7 +186,7 @@ export function CollectionScreen() {
               </Button>
               <Link
                 to={`/community/u/${data.owner.id}`}
-                className="text-[12.5px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+                className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline"
               >
                 {t("{name}’s profile", { name: data.owner.displayName ?? data.owner.username })}
               </Link>
@@ -202,10 +202,10 @@ export function CollectionScreen() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Sparkles className="size-3.5 text-signal-text" aria-hidden="true" />
-              <h2 id="rules-heading" className="text-[13px] font-medium text-ink">
+              <h2 id="rules-heading" className="text-body font-medium text-ink">
                 {t("Rules")}
               </h2>
-              <span className="text-[11.5px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 {data.rules.match === "all" ? t("All must match") : t("Any can match")}
               </span>
             </div>
@@ -215,17 +215,17 @@ export function CollectionScreen() {
               </Button>
             )}
           </div>
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-2">{rulesSummary(data.rules)}</p>
+          <p className="mt-2 text-body leading-relaxed text-ink-2">{rulesSummary(data.rules)}</p>
           {data.rules.rules.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {data.rules.rules.map((rule, index) => (
-                <span key={`${rule.field}-${index}`} className="border border-line px-2 py-1 font-mono text-[10.5px] text-ink-3">
+                <span key={`${rule.field}-${index}`} className="border border-line px-2 py-1 font-mono text-micro text-ink-3">
                   {ruleLabel(rule)}
                 </span>
               ))}
             </div>
           )}
-          <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             {t("Playtime and availability are evaluated for the account viewing the shelf. Empty rules match nothing.")}
           </p>
         </section>
@@ -239,7 +239,7 @@ export function CollectionScreen() {
         />
 
         {games.isPending && (
-          <div id="collection-games" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div id="collection-games" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {Array.from({ length: 5 }).map((_, index) => (
               <Skeleton key={index} className="aspect-[3/4] w-full" />
             ))}
@@ -276,7 +276,7 @@ export function CollectionScreen() {
         )}
 
         {items.length > 0 && (
-          <div id="collection-games" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div id="collection-games" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {items.map((game) => (
               <div key={game.id} className="relative">
                 <GameCard
@@ -295,7 +295,7 @@ export function CollectionScreen() {
                     type="button"
                     onClick={() => void remove(game.id, game.title)}
                     aria-label={t("Remove {title} from this collection", { title: game.title })}
-                    className="absolute right-0 top-0 z-[6] grid size-8 place-items-center rounded-[2px] border border-line bg-bg/85 text-ink-3 backdrop-blur-sm transition-colors hover:border-danger/60 hover:text-danger"
+                    className="absolute right-0 top-0 z-[6] grid size-8 place-items-center rounded-[var(--r-sm)] border border-line bg-bg/85 text-ink-3 backdrop-blur-sm transition-colors hover:border-danger/60 hover:text-danger"
                   >
                     <X className="size-3.5" />
                   </button>
@@ -326,23 +326,23 @@ export function CollectionScreen() {
       >
         <div className="border border-line">
           <div className="border-b border-line px-3 py-2.5">
-            <p className="text-[13px] text-ink">{data.name}</p>
-            <p className="mt-0.5 text-[11.5px] text-ink-3">
+            <p className="text-body text-ink">{data.name}</p>
+            <p className="mt-0.5 text-meta text-ink-3">
               {t("By {name}", { name: data.owner.displayName ?? data.owner.username })}
             </p>
           </div>
           <dl className="divide-y divide-line">
             <div className="flex items-baseline justify-between gap-4 px-3 py-2">
-              <dt className="text-[12px] text-ink-3">{t("Games")}</dt>
-              <dd className="num text-[12.5px] text-ink-2">{data.kind === "smart" ? items.length : data.gameCount}</dd>
+              <dt className="text-label text-ink-3">{t("Games")}</dt>
+              <dd className="num text-label text-ink-2">{data.kind === "smart" ? items.length : data.gameCount}</dd>
             </div>
             <div className="flex items-baseline justify-between gap-4 px-3 py-2">
-              <dt className="text-[12px] text-ink-3">{t("Kind")}</dt>
-              <dd className="text-[12.5px] text-ink-2">{data.kind === "smart" ? t("Smart list, rules copied as rules") : t("Manual shelf")}</dd>
+              <dt className="text-label text-ink-3">{t("Kind")}</dt>
+              <dd className="text-label text-ink-2">{data.kind === "smart" ? t("Smart list, rules copied as rules") : t("Manual shelf")}</dd>
             </div>
           </dl>
         </div>
-        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-3 text-meta leading-relaxed text-ink-3">
           {t("Importing the same collection twice merges missing games into the existing copy instead of creating a duplicate.")}
         </p>
       </Dialog>
@@ -440,10 +440,10 @@ function AddGamesDialog({
           onChange={(event) => setSearch(event.target.value)}
           placeholder={t("Filter the library")}
           aria-label={t("Filter games")}
-          className="h-9 text-[13px]"
+          className="h-9 text-body"
         />
         <div className="max-h-[360px] overflow-y-auto border border-line">
-          {candidates.length === 0 && <p className="p-4 text-[12.5px] text-ink-3">{t("Nothing left to add.")}</p>}
+          {candidates.length === 0 && <p className="p-4 text-label text-ink-3">{t("Nothing left to add.")}</p>}
           {candidates.map((game) => {
             const checked = selected.includes(game.id);
             return (
@@ -460,8 +460,8 @@ function AddGamesDialog({
               >
                 <Checkbox checked={checked} onCheckedChange={() => undefined} label={t("Select {title}", { title: game.title })} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">{game.title}</span>
-                  <span className="font-mono text-[10px] text-ink-3">
+                  <span className="block truncate text-body text-ink">{game.title}</span>
+                  <span className="font-mono text-micro text-ink-3">
                     {formatYear(game.releaseDate)} · {game.genres.slice(0, 2).join(" / ") || t("Unfiled")}
                   </span>
                 </span>

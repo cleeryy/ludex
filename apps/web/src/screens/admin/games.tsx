@@ -104,7 +104,7 @@ function SortButton({
       value={filters.sort}
       onChange={(value) => onChange({ sort: value })}
       options={ADMIN_SORT_VALUES.map((value) => ({ value, label: sortLabelFor(value) }))}
-      className="h-9 text-[12.5px]"
+      className="h-9 text-label"
     />
   );
 }
@@ -173,7 +173,7 @@ function Drawer({
       }
     >
       <div className="flex flex-col gap-5">
-        <dl className="grid gap-x-6 gap-y-2 text-[12.5px] sm:grid-cols-2">
+        <dl className="grid gap-x-6 gap-y-2 text-label sm:grid-cols-2">
           <div className="flex items-baseline justify-between gap-3 border-b border-line pb-2">
             <dt className="text-ink-3">{t("Status")}</dt>
             <dd>{statusBadge(row.status)}</dd>
@@ -212,16 +212,16 @@ function Drawer({
         </dl>
 
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Archive files")}</p>
+          <p className="text-micro uppercase tracking-[0.12em] text-ink-3">{t("Archive files")}</p>
           {detail.isPending ? (
             <Skeleton className="mt-2 h-16" />
           ) : detail.isError ? (
-            <p className="mt-2 text-[12.5px] text-danger">{errorMessage(detail.error)}</p>
+            <p className="mt-2 text-label text-danger">{errorMessage(detail.error)}</p>
           ) : (
             <div className="mt-2 flex flex-col divide-y divide-line border-y border-line">
               {[...(detail.data?.versions ?? []), ...(detail.data?.missingVersions ?? [])].map((version) => (
-                <div key={version.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2 text-[12px]">
-                  <span className="min-w-0 break-all font-mono text-[11.5px]">{version.fileName}</span>
+                <div key={version.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2 text-label">
+                  <span className="min-w-0 break-all font-mono text-meta">{version.fileName}</span>
                   <span className="flex flex-wrap items-center justify-end gap-2">
                     {version.missing ? (
                       <Badge tone="danger">{t("Missing")}</Badge>
@@ -249,7 +249,7 @@ function Drawer({
                 </div>
               ))}
               {(detail.data?.versions.length ?? 0) + (detail.data?.missingVersions?.length ?? 0) === 0 && (
-                <p className="py-3 text-[12.5px] text-ink-3">{t("No version rows.")}</p>
+                <p className="py-3 text-label text-ink-3">{t("No version rows.")}</p>
               )}
             </div>
           )}
@@ -539,14 +539,14 @@ export function AdminGamesScreen() {
             aria-pressed={filters.status === tab.value}
             onClick={() => update({ status: tab.value })}
             className={cn(
-              "inline-flex h-8 items-center gap-2 rounded-[2px] border px-2.5 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-colors",
+              "inline-flex h-8 items-center gap-2 rounded-[var(--r-sm)] border px-2.5 text-micro uppercase tracking-[0.08em] transition-colors",
               filters.status === tab.value
                 ? "border-signal/60 bg-signal/12 text-signal-text"
                 : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
             )}
           >
             {tab.label}
-            {tab.count !== undefined && <span className="num text-[10px] opacity-70">{tab.count}</span>}
+            {tab.count !== undefined && <span className="num text-micro opacity-70">{tab.count}</span>}
           </button>
         ))}
         <form
@@ -566,7 +566,7 @@ export function AdminGamesScreen() {
               }}
               placeholder={t("Search titles")}
               aria-label={t("Search titles")}
-              className="h-9 ps-8 text-[12.5px]"
+              className="h-9 ps-8 text-label"
             />
           </div>
         </form>
@@ -580,7 +580,7 @@ export function AdminGamesScreen() {
               { value: "game", label: t("Games") },
               { value: "rom", label: t("ROMs") },
             ]}
-            className="h-9 text-[12.5px]"
+            className="h-9 text-label"
           />
         </div>
         <SortButton filters={filters} onChange={update} />
@@ -596,7 +596,7 @@ export function AdminGamesScreen() {
 
       {selected.size > 0 && (
         <div className="sticky top-0 z-20 mt-3 flex flex-wrap items-center gap-2 border border-signal/40 bg-signal/8 px-3 py-2">
-          <span className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-signal-text">
+          <span className="text-micro uppercase tracking-[0.1em] text-signal-text">
             {rowSelectionLabel(rows, selected)}
           </span>
           <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
@@ -691,9 +691,9 @@ export function AdminGamesScreen() {
         </EmptyState>
       ) : (
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[880px] border-collapse text-left text-[12.5px]">
+          <table className="w-full min-w-[880px] border-collapse text-left text-label">
             <thead className="sticky top-0 z-10 bg-bg">
-              <tr className="border-b border-line-2 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
+              <tr className="border-b border-line-2 text-micro uppercase tracking-[0.1em] text-ink-3">
                 <th className="w-8 py-2 pe-2">
                   <Checkbox
                     checked={allSelected}
@@ -731,13 +731,13 @@ export function AdminGamesScreen() {
                       onClick={() => setDrawer(row)}
                     >
                       <span className="truncate font-medium text-ink hover:underline">{row.title}</span>
-                      <span className="flex items-center gap-2 text-[11px] text-ink-3">
+                      <span className="flex items-center gap-2 text-meta text-ink-3">
                         {formatYear(row.releaseDate) ?? "—"}
                         {statusBadge(row.status)}
                       </span>
                     </button>
                   </td>
-                  <td className="py-1.5 pe-3 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-2">
+                  <td className="py-1.5 pe-3 text-micro uppercase tracking-[0.06em] text-ink-2">
                     {row.kind === "rom" ? row.platform ?? "rom" : t("Game")}
                   </td>
                   <td className="py-1.5 pe-3 text-ink-2">{row.providerSlug ?? "—"}</td>
@@ -751,7 +751,7 @@ export function AdminGamesScreen() {
                   <td className="num py-1.5 pe-3 text-end text-ink-2">{row.installedReports}</td>
                   <td className="py-1.5 pe-3">
                     {row.kind === "rom" || row.availableVersionCount === 0 ? (
-                      <span className="text-[11px] text-ink-3">—</span>
+                      <span className="text-meta text-ink-3">—</span>
                     ) : (
                       <VirusTotalCell
                         reports={vtByGame.get(row.id)}
@@ -782,7 +782,7 @@ export function AdminGamesScreen() {
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[12px] text-ink-3">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-label text-ink-3">
         <span className="num">
           {t("Page {page} of {pages}", { page: filters.page, pages })}
         </span>
@@ -840,7 +840,7 @@ export function AdminGamesScreen() {
         {pending && (
           <div className="flex flex-col gap-4">
             {pending.action === "delete_archives" && (
-              <p className="flex items-start gap-2 border border-danger/40 bg-danger/10 p-3 text-[12.5px] text-danger">
+              <p className="flex items-start gap-2 border border-danger/40 bg-danger/10 p-3 text-label text-danger">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 {t("Only files that resolve below a library root are deleted. Symlinks and paths outside the root are refused, and a file that is already gone is not an error.")}
               </p>
@@ -851,20 +851,20 @@ export function AdminGamesScreen() {
               <>
                 <dl className="grid grid-cols-3 gap-3">
                   <div className="border border-line p-3">
-                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">{t("Games")}</dt>
-                    <dd className="num mt-1 text-[22px]">{pending.preview.games}</dd>
+                    <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">{t("Games")}</dt>
+                    <dd className="num mt-1 text-title">{pending.preview.games}</dd>
                   </div>
                   <div className="border border-line p-3">
-                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">{t("Files")}</dt>
-                    <dd className="num mt-1 text-[22px]">{pending.preview.files}</dd>
+                    <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">{t("Files")}</dt>
+                    <dd className="num mt-1 text-title">{pending.preview.files}</dd>
                   </div>
                   <div className="border border-line p-3">
-                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">{t("Size")}</dt>
-                    <dd className="num mt-1 text-[22px]">{formatBytes(pending.preview.bytes)}</dd>
+                    <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">{t("Size")}</dt>
+                    <dd className="num mt-1 text-title">{formatBytes(pending.preview.bytes)}</dd>
                   </div>
                 </dl>
                 {pending.preview.items.some((item) => !item.title) && (
-                  <p className="text-[12px] text-danger">
+                  <p className="text-label text-danger">
                     {t("{count} selected games no longer exist and will be reported as failures.", {
                       count: pending.preview.items.filter((item) => !item.title).length,
                     })}
@@ -872,7 +872,7 @@ export function AdminGamesScreen() {
                 )}
                 <div className="max-h-44 overflow-y-auto border-y border-line">
                   {pending.preview.items.map((item) => (
-                    <div key={item.gameId} className="flex items-baseline justify-between gap-3 border-b border-line py-1.5 text-[12px] last:border-0">
+                    <div key={item.gameId} className="flex items-baseline justify-between gap-3 border-b border-line py-1.5 text-label last:border-0">
                       <span className="min-w-0 truncate">{item.title || `#${item.gameId}`}</span>
                       <span className="num shrink-0 text-ink-3">
                         {t("{files} files · {size}", { files: item.files, size: formatBytes(item.bytes) })}
@@ -900,7 +900,7 @@ export function AdminGamesScreen() {
 
       {job.data && job.data.status === "running" && (
         <div className="fixed inset-x-4 bottom-4 z-30 mx-auto max-w-[560px] border border-line-2 bg-surface p-3 shadow-plate">
-          <p className="flex items-center justify-between gap-3 font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-2">
+          <p className="flex items-center justify-between gap-3 text-micro uppercase tracking-[0.1em] text-ink-2">
             <span>{t("Deleting archives")}</span>
             <span className="num">
               {job.data.done} / {job.data.total}

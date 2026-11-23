@@ -76,11 +76,11 @@ export function FilterPanel({
       <div className="flex flex-col gap-7">
         <section aria-label={t("Release year")}>
           <div className="mb-2 flex items-baseline justify-between">
-            <h3 className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Release year")}</h3>
-            <span className="text-[11.5px] text-ink-3">{t("Inclusive")}</span>
+            <h3 className="text-micro uppercase tracking-[0.12em] text-ink-3">{t("Release year")}</h3>
+            <span className="text-meta text-ink-3">{t("Inclusive")}</span>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1.5 text-[12.5px] text-ink-2">
+            <label className="flex flex-col gap-1.5 text-label text-ink-2">
               {t("From")}
               <Input
                 type="number"
@@ -90,10 +90,10 @@ export function FilterPanel({
                 value={yearFrom}
                 placeholder="1950"
                 onChange={(event) => commitNumber("yearFrom", event.target.value, setYearFrom)}
-                className="h-9 text-[13px]"
+                className="h-9 text-body"
               />
             </label>
-            <label className="flex flex-col gap-1.5 text-[12.5px] text-ink-2">
+            <label className="flex flex-col gap-1.5 text-label text-ink-2">
               {t("To")}
               <Input
                 type="number"
@@ -103,7 +103,7 @@ export function FilterPanel({
                 value={yearTo}
                 placeholder="2026"
                 onChange={(event) => commitNumber("yearTo", event.target.value, setYearTo)}
-                className="h-9 text-[13px]"
+                className="h-9 text-body"
               />
             </label>
           </div>
@@ -111,11 +111,11 @@ export function FilterPanel({
 
         <section aria-label={t("Playtime")}>
           <div className="mb-2 flex items-baseline justify-between">
-            <h3 className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{t("Time played")}</h3>
-            <span className="text-[11.5px] text-ink-3">{t("Minutes, for this account")}</span>
+            <h3 className="text-micro uppercase tracking-[0.12em] text-ink-3">{t("Time played")}</h3>
+            <span className="text-meta text-ink-3">{t("Minutes, for this account")}</span>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1.5 text-[12.5px] text-ink-2">
+            <label className="flex flex-col gap-1.5 text-label text-ink-2">
               {t("At least")}
               <Input
                 type="number"
@@ -124,10 +124,10 @@ export function FilterPanel({
                 value={playtimeMin}
                 placeholder="0"
                 onChange={(event) => commitNumber("playtimeMin", event.target.value, setPlaytimeMin)}
-                className="h-9 text-[13px]"
+                className="h-9 text-body"
               />
             </label>
-            <label className="flex flex-col gap-1.5 text-[12.5px] text-ink-2">
+            <label className="flex flex-col gap-1.5 text-label text-ink-2">
               {t("At most")}
               <Input
                 type="number"
@@ -136,7 +136,7 @@ export function FilterPanel({
                 value={playtimeMax}
                 placeholder={t("Any")}
                 onChange={(event) => commitNumber("playtimeMax", event.target.value, setPlaytimeMax)}
-                className="h-9 text-[13px]"
+                className="h-9 text-body"
               />
             </label>
           </div>
@@ -144,37 +144,37 @@ export function FilterPanel({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Players")}</span>
+            <span className="text-label text-ink-2">{t("Players")}</span>
             <Select
               label={t("Minimum player count")}
               value={filters.players || "any"}
               onChange={(value) => onChange("players", value)}
               options={playerOptions()}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Rating")}</span>
+            <span className="text-label text-ink-2">{t("Rating")}</span>
             <Select
               label={t("Minimum rating")}
               value={filters.minRating || "any"}
               onChange={(value) => onChange("minRating", value)}
               options={ratingOptions()}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Progress")}</span>
+            <span className="text-label text-ink-2">{t("Progress")}</span>
             <Select
               label={t("Filter by progress state")}
               value={filters.state || "any"}
               onChange={(value) => onChange("state", value)}
               options={stateOptions()}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Platform")}</span>
+            <span className="text-label text-ink-2">{t("Platform")}</span>
             <Select
               label={t("Filter by platform")}
               value={filters.platform || "any"}
@@ -189,11 +189,11 @@ export function FilterPanel({
                     hint: String(platform.gameCount),
                   })),
               ]}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Entry kind")}</span>
+            <span className="text-label text-ink-2">{t("Entry kind")}</span>
             <Select
               label={t("Filter by entry kind")}
               value={filters.kind || "any"}
@@ -203,11 +203,11 @@ export function FilterPanel({
                 { value: "game", label: t("Games") },
                 { value: "rom", label: t("ROMs") },
               ]}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Launcher")}</span>
+            <span className="text-label text-ink-2">{t("Launcher")}</span>
             <Select
               label={t("Filter by launcher")}
               value={filters.launcher || "any"}
@@ -219,31 +219,31 @@ export function FilterPanel({
                   label: option.label,
                 })),
               ]}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Metadata source")}</span>
+            <span className="text-label text-ink-2">{t("Metadata source")}</span>
             <Select
               label={t("Filter by metadata provider")}
               value={filters.provider || "any"}
               onChange={(value) => onChange("provider", value)}
               options={providerOptions()}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Sort by")}</span>
+            <span className="text-label text-ink-2">{t("Sort by")}</span>
             <Select
               label={t("Sort games")}
               value={filters.sort}
               onChange={(value) => onChange("sort", value)}
               options={sortOptions()}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12.5px] text-ink-2">{t("Direction")}</span>
+            <span className="text-label text-ink-2">{t("Direction")}</span>
             <Segmented
               label={t("Sort direction")}
               value={filters.order}
@@ -258,7 +258,7 @@ export function FilterPanel({
         </div>
 
         <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-line pt-4" aria-label={t("Flags")}>
-          <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-2">
+          <label className="flex cursor-pointer items-center gap-2 text-label text-ink-2">
             <Checkbox
               checked={filters.earlyAccess}
               onCheckedChange={(next) => onChange("earlyAccess", next)}
@@ -267,7 +267,7 @@ export function FilterPanel({
             {t("Early access")}
           </label>
           {installsAvailable() && (
-            <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-2">
+            <label className="flex cursor-pointer items-center gap-2 text-label text-ink-2">
               <Checkbox
                 checked={filters.installed}
                 onCheckedChange={(next) => onChange("installed", next)}

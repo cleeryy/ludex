@@ -94,7 +94,7 @@ export function DiagnosticsPrivacyPanel() {
 
   if (!isNative()) {
     return (
-      <p className="text-[12.5px] leading-relaxed text-ink-3">
+      <p className="text-label leading-relaxed text-ink-3">
         {t("Crash reports are captured by the Ludex desktop app. The browser build has no local crash store and never sends diagnostics.")}
       </p>
     );
@@ -114,8 +114,8 @@ export function DiagnosticsPrivacyPanel() {
       <div className="flex items-start gap-3 border-b border-line py-4">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-ok" aria-hidden="true" />
         <div className="min-w-0">
-          <p className="text-[13px] font-medium text-ink">{t("Off by default. Nothing is sent automatically.")}</p>
-          <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("Off by default. Nothing is sent automatically.")}</p>
+          <p className="mt-1 max-w-[64ch] text-meta leading-relaxed text-ink-3">
             {t("Ludex keeps a short local history of crashes and failed commands so a bug can be reported without copying logs by hand. Reports leave this device only when you press Send, and only while the toggle below is on.")}
           </p>
         </div>
@@ -128,14 +128,14 @@ export function DiagnosticsPrivacyPanel() {
         onCheckedChange={(checked) => void toggle(checked)}
       />
 
-      <dl className="border-b border-line py-3 text-[12px]">
+      <dl className="border-b border-line py-3 text-label">
         <div className="flex flex-wrap items-baseline justify-between gap-2 py-1">
           <dt className="text-ink-3">{t("App version")}</dt>
           <dd className="num text-ink">v{status.appVersion} · {status.platform} · {status.os}</dd>
         </div>
         <div className="flex flex-wrap items-baseline justify-between gap-2 py-1">
           <dt className="text-ink-3">{t("Random install id")}</dt>
-          <dd className="break-all font-mono text-[11px] text-ink-2">{status.installId || t("generated locally")}</dd>
+          <dd className="break-all font-mono text-meta text-ink-2">{status.installId || t("generated locally")}</dd>
         </div>
         <div className="flex flex-wrap items-baseline justify-between gap-2 py-1">
           <dt className="text-ink-3">{t("Stored locally")}</dt>
@@ -144,8 +144,8 @@ export function DiagnosticsPrivacyPanel() {
       </dl>
 
       <div className="pb-2 pt-4">
-        <h4 className="text-[12.5px] font-medium text-ink">{t("What is collected")}</h4>
-        <ul className="mt-2 list-disc space-y-1 ps-5 text-[11.5px] leading-relaxed text-ink-3">
+        <h4 className="text-label font-medium text-ink">{t("What is collected")}</h4>
+        <ul className="mt-2 list-disc space-y-1 ps-5 text-meta leading-relaxed text-ink-3">
           <li>{t("App version, operating system, CPU architecture, UI locale and release channel.")}</li>
           <li>{t("Error kind, a one-line summary, an optional stack trace, the last log lines and the command name.")}</li>
           <li>{t("A game id and title only when the failure happened in that game's install, launch or update.")}</li>
@@ -157,7 +157,7 @@ export function DiagnosticsPrivacyPanel() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
-        <p className="text-[11.5px] text-ink-3">{t("Reports are kept on this device (last 20) and, once sent, on the server for 90 days.")}</p>
+        <p className="text-meta text-ink-3">{t("Reports are kept on this device (last 20) and, once sent, on the server for 90 days.")}</p>
         <Button
           variant="ghost"
           size="sm"
@@ -176,10 +176,10 @@ export function DiagnosticsPrivacyPanel() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={report.kind === "panic" ? "danger" : "outline"}>{report.kind}</Badge>
-                  <span className="text-[11px] text-ink-3">{formatDate(report.createdAt)}</span>
+                  <span className="text-meta text-ink-3">{formatDate(report.createdAt)}</span>
                   {report.sent && <Badge tone="ok">{t("Sent")}</Badge>}
                 </div>
-                <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-ink-2">{report.summary}</p>
+                <p className="mt-1 line-clamp-2 text-label leading-relaxed text-ink-2">{report.summary}</p>
               </div>
               <Button
                 variant="default"
@@ -193,7 +193,7 @@ export function DiagnosticsPrivacyPanel() {
           ))}
         </ul>
       ) : (
-        <p className="mt-3 border-t border-line pt-3 text-[12px] text-ink-3">
+        <p className="mt-3 border-t border-line pt-3 text-label text-ink-3">
           {t("No local report yet. Crashes and failed commands will appear here.")}
         </p>
       )}
@@ -227,7 +227,7 @@ export function DiagnosticsPrivacyPanel() {
           </>
         }
       >
-        <pre className="max-h-[46vh] overflow-auto whitespace-pre-wrap break-all rounded-[3px] border border-line bg-surface p-3 font-mono text-[11px] leading-relaxed text-ink-2">
+        <pre className="max-h-[46vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--r-sm)] border border-line bg-surface p-3 font-mono text-meta leading-relaxed text-ink-2">
           {preview ? JSON.stringify(preview.payload, null, 2) : ""}
         </pre>
       </Dialog>
@@ -267,17 +267,17 @@ export function AdminDiagnosticsPanel() {
   if (!admin) return null;
   if (pageQuery.isLoading) return <Skeleton className="h-16 w-full" />;
   if (pageQuery.isError) {
-    return <p className="text-[12.5px] text-danger">{errorMessage(pageQuery.error)}</p>;
+    return <p className="text-label text-danger">{errorMessage(pageQuery.error)}</p>;
   }
   const page = pageQuery.data;
   if (!page) return null;
 
   return (
     <div>
-      <p className="max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="max-w-[64ch] text-meta leading-relaxed text-ink-3">
         {t("Reports are anonymous: the server stores a random install id, never an account, IP address or server log. Counts show which version and error kind to fix first. Retention is {days} days.", { days: page.retentionDays })}
       </p>
-      <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-[3px] border border-line bg-line sm:grid-cols-4">
+      <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-[var(--r-sm)] border border-line bg-line sm:grid-cols-4">
         {[
           [t("Stored"), page.total],
           [t("Versions"), page.byVersion.length],
@@ -285,8 +285,8 @@ export function AdminDiagnosticsPanel() {
           [t("Platforms"), page.byPlatform.length],
         ].map(([label, value]) => (
           <div key={String(label)} className="bg-surface px-3 py-2.5">
-            <dt className="text-[10.5px] uppercase tracking-[0.1em] text-ink-3">{label}</dt>
-            <dd className="num mt-1 text-[18px] text-ink">{value}</dd>
+            <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">{label}</dt>
+            <dd className="num mt-1 text-title text-ink">{value}</dd>
           </div>
         ))}
       </dl>
@@ -297,7 +297,7 @@ export function AdminDiagnosticsPanel() {
       </div>
 
       {page.items.length === 0 ? (
-        <p className="mt-4 border-t border-line pt-3 text-[12px] text-ink-3">
+        <p className="mt-4 border-t border-line pt-3 text-label text-ink-3">
           {t("No report has been sent to this server yet.")}
         </p>
       ) : (
@@ -307,12 +307,12 @@ export function AdminDiagnosticsPanel() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={report.errorKind === "panic" ? "danger" : "outline"}>{report.errorKind}</Badge>
-                  <span className="num text-[11px] text-ink-3">v{report.appVersion}</span>
-                  <span className="text-[11px] text-ink-3">{report.platform} · {report.os}</span>
-                  <span className="text-[11px] text-ink-3">{formatDate(report.createdAt)}</span>
+                  <span className="num text-meta text-ink-3">v{report.appVersion}</span>
+                  <span className="text-meta text-ink-3">{report.platform} · {report.os}</span>
+                  <span className="text-meta text-ink-3">{formatDate(report.createdAt)}</span>
                 </div>
-                <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-ink-2">{report.summary}</p>
-                <p className="mt-1 font-mono text-[10.5px] text-ink-3">install {report.installId.slice(0, 8)}…</p>
+                <p className="mt-1 line-clamp-2 text-label leading-relaxed text-ink-2">{report.summary}</p>
+                <p className="mt-1 font-mono text-micro text-ink-3">install {report.installId.slice(0, 8)}…</p>
               </div>
               <Button
                 variant="ghost"
@@ -337,19 +337,19 @@ export function AdminDiagnosticsPanel() {
 function Distribution({ title, rows }: { title: string; rows: { value: string; count: number }[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-[3px] border border-line p-3">
-        <p className="text-[11px] uppercase tracking-[0.1em] text-ink-3">{title}</p>
-        <p className="mt-1 text-[12px] text-ink-3">{t("Nothing yet")}</p>
+      <div className="rounded-[var(--r-sm)] border border-line p-3">
+        <p className="text-meta uppercase tracking-[0.1em] text-ink-3">{title}</p>
+        <p className="mt-1 text-label text-ink-3">{t("Nothing yet")}</p>
       </div>
     );
   }
   const max = Math.max(...rows.map((row) => row.count), 1);
   return (
-    <div className="rounded-[3px] border border-line p-3">
-      <p className="text-[11px] uppercase tracking-[0.1em] text-ink-3">{title}</p>
+    <div className="rounded-[var(--r-sm)] border border-line p-3">
+      <p className="text-meta uppercase tracking-[0.1em] text-ink-3">{title}</p>
       <ul className="mt-2 space-y-1.5">
         {rows.slice(0, 6).map((row) => (
-          <li key={row.value} className="grid grid-cols-[1fr_auto] items-center gap-2 text-[11.5px]">
+          <li key={row.value} className="grid grid-cols-[1fr_auto] items-center gap-2 text-meta">
             <div className="min-w-0">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate text-ink-2">{row.value || "—"}</span>

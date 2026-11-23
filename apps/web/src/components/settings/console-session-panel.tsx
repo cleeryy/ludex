@@ -123,7 +123,7 @@ export function ConsoleSessionPanel() {
   if (loading && !status) return <SettingsLoading label={t("Reading the display manager…")} />;
   if (!status) {
     return (
-      <p role="alert" className="border-t border-line pt-5 text-[13px] text-danger">
+      <p role="alert" className="border-t border-line pt-5 text-body text-danger">
         {error ?? t("The console session status is unavailable.")}
       </p>
     );
@@ -136,12 +136,12 @@ export function ConsoleSessionPanel() {
   return (
     <div className="border-t border-line pt-5">
       {error && (
-        <p role="alert" className="mb-4 border border-danger/40 bg-danger/5 px-3 py-2 text-[12.5px] text-danger">
+        <p role="alert" className="mb-4 border border-danger/40 bg-danger/5 px-3 py-2 text-label text-danger">
           {error}
         </p>
       )}
 
-      <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 font-mono text-[10.5px] text-ink-3">
+      <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 font-mono text-micro text-ink-3">
         <span>
           {t("Session manager:")} {managerLabel(status) ?? t("not detected")}
         </span>
@@ -166,7 +166,7 @@ export function ConsoleSessionPanel() {
       </div>
 
       {needsSeatAttention(status) && (
-        <p className="mt-3 max-w-[70ch] border-s-2 border-signal/60 ps-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-3 max-w-[70ch] border-s-2 border-signal/60 ps-3 text-meta leading-relaxed text-ink-3">
           {status.seat.note}
         </p>
       )}
@@ -177,8 +177,8 @@ export function ConsoleSessionPanel() {
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
           <div className="min-w-0">
-            <p className="break-all font-mono text-[10.5px] text-ink-3">{status.entryPath}</p>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="break-all font-mono text-micro text-ink-3">{status.entryPath}</p>
+            <p className="mt-1 text-meta leading-relaxed text-ink-3">
               {entry?.message ?? t("Session entry state is unavailable.")}
             </p>
           </div>
@@ -194,7 +194,7 @@ export function ConsoleSessionPanel() {
               </Button>
             )}
             {entryMode === "conflict" && (
-              <span className="text-[11.5px] text-danger">
+              <span className="text-meta text-danger">
                 {t("Another program's session file owns this name; Ludex will not overwrite it.")}
               </span>
             )}
@@ -202,10 +202,10 @@ export function ConsoleSessionPanel() {
         </div>
         {entry && entryMode !== "conflict" && (
           <details className="mt-3">
-            <summary className="cursor-pointer text-[11.5px] text-ink-3">
+            <summary className="cursor-pointer text-meta text-ink-3">
               {t("Exact commands for the session entry")}
             </summary>
-            <pre className="mt-2 overflow-x-auto border border-line bg-surface-2 p-3 font-mono text-[10.5px] leading-relaxed text-ink-2">
+            <pre className="mt-2 overflow-x-auto border border-line bg-surface-2 p-3 font-mono text-micro leading-relaxed text-ink-2">
               {entry.installCommand}
               {"\n"}
               {entry.uninstallCommand}
@@ -214,7 +214,7 @@ export function ConsoleSessionPanel() {
         )}
       </SettingsGroup>
 
-      <p className="mt-6 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-6 max-w-[70ch] text-meta leading-relaxed text-ink-3">
         {t("Quit console mode returns to the desktop; suspend, restart and shut down live in the Console Power surface.")}
       </p>
 
@@ -247,9 +247,9 @@ export function ConsoleSessionPanel() {
       >
         {plan && (
           <div className="space-y-4">
-            <p className="text-[12.5px] leading-relaxed text-ink-2">{plan.message}</p>
+            <p className="text-label leading-relaxed text-ink-2">{plan.message}</p>
             {counts && (
-              <p className="font-mono text-[10.5px] text-ink-3">
+              <p className="font-mono text-micro text-ink-3">
                 {t("{writes} write(s), {restores} restore(s), {removes} removal(s), {backups} backup(s)", {
                   writes: counts.writes,
                   restores: counts.restores,
@@ -262,8 +262,8 @@ export function ConsoleSessionPanel() {
               {plan.files.map((file) => (
                 <li key={file.path} className="border-b border-line py-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-[12px] font-medium text-ink">{file.description}</span>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+                    <span className="text-label font-medium text-ink">{file.description}</span>
+                    <span className="text-micro uppercase tracking-[0.08em] text-ink-3">
                       {plannedFileKind(file, plan.enable) === "write"
                         ? t("write")
                         : plannedFileKind(file, plan.enable) === "restore"
@@ -271,18 +271,18 @@ export function ConsoleSessionPanel() {
                           : t("remove")}
                     </span>
                   </div>
-                  <p className="mt-1 break-all font-mono text-[10.5px] text-ink-3">{file.path}</p>
+                  <p className="mt-1 break-all font-mono text-micro text-ink-3">{file.path}</p>
                   {file.backup && (
-                    <p className="mt-1 break-all font-mono text-[10px] text-ink-3">
+                    <p className="mt-1 break-all font-mono text-micro text-ink-3">
                       {t("Backup: {path}", { path: file.backup })}
                     </p>
                   )}
                   {file.action === "write" && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-[11px] text-ink-3">
+                      <summary className="cursor-pointer text-meta text-ink-3">
                         {t("Contents")}
                       </summary>
-                      <pre className="mt-1 max-h-56 overflow-auto border border-line bg-surface-2 p-2 font-mono text-[10.5px] leading-relaxed text-ink-2">
+                      <pre className="mt-1 max-h-56 overflow-auto border border-line bg-surface-2 p-2 font-mono text-micro leading-relaxed text-ink-2">
                         {file.contents}
                       </pre>
                     </details>
@@ -291,15 +291,15 @@ export function ConsoleSessionPanel() {
               ))}
             </ul>
             {plan.warnings.map((warning) => (
-              <p key={warning} className="text-[11.5px] leading-relaxed text-ink-3">
+              <p key={warning} className="text-meta leading-relaxed text-ink-3">
                 {warning}
               </p>
             ))}
             <details>
-              <summary className="cursor-pointer text-[11.5px] text-ink-3">
+              <summary className="cursor-pointer text-meta text-ink-3">
                 {t("Commands run with administrator rights")}
               </summary>
-              <pre className="mt-2 max-h-56 overflow-auto border border-line bg-surface-2 p-2 font-mono text-[10.5px] leading-relaxed text-ink-2">
+              <pre className="mt-2 max-h-56 overflow-auto border border-line bg-surface-2 p-2 font-mono text-micro leading-relaxed text-ink-2">
                 pkexec /bin/sh -c
                 {"\n"}
                 {plan.commands.join("\n")}

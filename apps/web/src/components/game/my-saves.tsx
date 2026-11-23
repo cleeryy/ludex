@@ -203,40 +203,40 @@ export function MySavesPanel({
 
       {native && (
         <div className="mt-4">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-[12.5px] sm:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-label sm:grid-cols-3">
             <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
               <dt className="text-ink-3">{t("Last local change")}</dt>
-              <dd className="font-mono text-[11px] text-ink-2" title={lastLocalChange ?? undefined}>
+              <dd className="font-mono text-meta text-ink-2" title={lastLocalChange ?? undefined}>
                 {lastLocalChange ? formatDate(lastLocalChange) : "—"}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
               <dt className="text-ink-3">{t("Last synced")}</dt>
-              <dd className="font-mono text-[11px] text-ink-2" title={lastSynced ?? undefined}>
+              <dd className="font-mono text-meta text-ink-2" title={lastSynced ?? undefined}>
                 {lastSynced ? formatDate(lastSynced) : t("None")}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
               <dt className="text-ink-3">{t("Device")}</dt>
-              <dd className="truncate font-mono text-[11px] text-ink-2" title={device ?? undefined}>
+              <dd className="truncate font-mono text-meta text-ink-2" title={device ?? undefined}>
                 {shortDeviceId(device)}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
               <dt className="text-ink-3">{t("Size")}</dt>
-              <dd className="font-mono text-[11px] text-ink-2">
+              <dd className="font-mono text-meta text-ink-2">
                 {formatBytes(status?.localBytes ?? 0)}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
               <dt className="text-ink-3">{t("Restore points")}</dt>
-              <dd className="font-mono text-[11px] text-ink-2">{count}</dd>
+              <dd className="font-mono text-meta text-ink-2">{count}</dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
               <dt className="text-ink-3">{t("Conflict state")}</dt>
               <dd
                 className={cn(
-                  "font-mono text-[11px]",
+                  "font-mono text-meta",
                   conflict ? "text-warn" : "text-ink-2",
                 )}
               >
@@ -246,7 +246,7 @@ export function MySavesPanel({
           </dl>
 
           <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-            <label className="flex items-center gap-2 text-[12px] text-ink-3">
+            <label className="flex items-center gap-2 text-label text-ink-3">
               {t("Sessions kept")}
               <Input
                 type="number"
@@ -263,7 +263,7 @@ export function MySavesPanel({
                 }}
               />
             </label>
-            <p className="text-[11.5px] text-ink-3">
+            <p className="text-meta text-ink-3">
               {count === 0
                 ? t("No restore points yet. One is created after each session.")
                 : `${formatBytes(view?.totalBytes ?? 0)} · ${count}`}
@@ -271,7 +271,7 @@ export function MySavesPanel({
           </div>
 
           {points.isError && (
-            <p className="mt-3 text-[12px] text-ink-2" role="alert">
+            <p className="mt-3 text-label text-ink-2" role="alert">
               {errorMessage(points.error)}
             </p>
           )}
@@ -285,16 +285,16 @@ export function MySavesPanel({
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <HardDriveDownload className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
-                    <span className="font-mono text-[11px] text-ink-2">
+                    <span className="font-mono text-meta text-ink-2">
                       {formatDate(point.createdAt)}
                     </span>
-                    <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">
+                    <span className="text-micro uppercase tracking-[0.08em] text-ink-3">
                       {point.source}
                     </span>
                     {point.label && (
-                      <span className="truncate text-[11.5px] text-ink-3">{point.label}</span>
+                      <span className="truncate text-meta text-ink-3">{point.label}</span>
                     )}
-                    <span className="font-mono text-[11px] text-ink-3">
+                    <span className="font-mono text-meta text-ink-3">
                       {shortDeviceId(point.deviceId)} · {formatBytes(point.sizeBytes)}
                     </span>
                   </div>

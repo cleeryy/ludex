@@ -14,7 +14,7 @@ export const STATE_TONE: Record<ProgressState, { dot: string; text: string; bar:
 export function StateMark({ state, className }: { state: ProgressState; className?: string }) {
   const tone = STATE_TONE[state];
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-[11.5px]", tone.text, className)}>
+    <span className={cn("inline-flex items-center gap-1.5 text-meta", tone.text, className)}>
       <span className={cn("size-1.5 shrink-0 rounded-full", tone.dot)} aria-hidden="true" />
       {stateLabel(state)}
     </span>

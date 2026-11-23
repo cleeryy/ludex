@@ -228,11 +228,11 @@ export function ShareDialog({
         <div className="flex flex-col gap-6">
           {created && shareUrl && (
             <section className="border border-signal/45 bg-signal/5 p-4" aria-labelledby="share-created-heading">
-              <h3 id="share-created-heading" className="flex items-center gap-2 text-[13px] font-medium text-signal-text">
+              <h3 id="share-created-heading" className="flex items-center gap-2 text-body font-medium text-signal-text">
                 <Link2 className="size-4" aria-hidden="true" />
                 {t("Link created")}
               </h3>
-              <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+              <p className="mt-1 text-meta leading-relaxed text-ink-3">
                 {t("This is the only time the full link is shown. Ludex stores a hash of the token, so it cannot display it again.")}
               </p>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -240,14 +240,14 @@ export function ShareDialog({
                   readOnly
                   value={shareUrl}
                   aria-label={t("Public share link")}
-                  className="font-mono text-[11px]"
+                  className="font-mono text-meta"
                   onFocus={(event) => event.currentTarget.select()}
                 />
                 <Button variant="default" icon={<Copy className="size-4" />} onClick={() => void copyLink()} className="shrink-0">
                   {t("Copy link")}
                 </Button>
               </div>
-              <p className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+              <p className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
                 <span>{created.expiresAt ? `Expires ${formatDate(created.expiresAt)}` : t("No expiry")}</span>
                 <span>{created.hasPassword ? t("Password required") : t("No password")}</span>
                 <span>{created.maxDownloads === null ? t("Unlimited downloads") : `${created.maxDownloads} downloads max`}</span>
@@ -257,10 +257,10 @@ export function ShareDialog({
 
           <section aria-labelledby="share-new-heading">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 id="share-new-heading" className="text-[15px] font-semibold tracking-[-0.01em]">
+              <h3 id="share-new-heading" className="text-lead font-semibold tracking-[-0.01em]">
                 {t("New link")}
               </h3>
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">{game.title}</span>
+              <span className="text-micro uppercase tracking-[0.14em] text-ink-3">{game.title}</span>
             </div>
 
             <form onSubmit={(event) => void submit(event)} className="mt-3 flex flex-col gap-4">
@@ -330,7 +330,7 @@ export function ShareDialog({
               </div>
 
               {formError && (
-                <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+                <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
                   {formError}
                 </p>
               )}
@@ -339,7 +339,7 @@ export function ShareDialog({
                 <Button type="submit" variant="primary" loading={creating} icon={<Link2 className="size-4" />}>
                   {t("Create link")}
                 </Button>
-                <p className="text-[11.5px] leading-relaxed text-ink-3">
+                <p className="text-meta leading-relaxed text-ink-3">
                   {t("Anyone with the link can open it. A password gates downloads, and revoking the link cuts access immediately.")}
                 </p>
               </div>
@@ -348,22 +348,22 @@ export function ShareDialog({
 
           <section className="border-t border-line pt-5" aria-labelledby="share-list-heading">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 id="share-list-heading" className="text-[15px] font-semibold tracking-[-0.01em]">
+              <h3 id="share-list-heading" className="text-lead font-semibold tracking-[-0.01em]">
                 {t("Links for this game")}
               </h3>
-              <span className="num text-[11.5px] text-ink-3">{gameShares.length}</span>
+              <span className="num text-meta text-ink-3">{gameShares.length}</span>
             </div>
 
             {shares.isError && (
-              <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+              <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
                 {errorMessage(shares.error)}
               </p>
             )}
 
-            {shares.isPending && <p className="mt-3 text-[12.5px] text-ink-3">{t("Loading links…")}</p>}
+            {shares.isPending && <p className="mt-3 text-label text-ink-3">{t("Loading links…")}</p>}
 
             {shares.isSuccess && gameShares.length === 0 && (
-              <p className="mt-3 text-[12.5px] leading-relaxed text-ink-3">
+              <p className="mt-3 text-label leading-relaxed text-ink-3">
                 {t("No share links for this game yet. Created links stay listed here so you can revoke them later.")}
               </p>
             )}
@@ -379,7 +379,7 @@ export function ShareDialog({
                       className="flex flex-col gap-2 border-b border-line py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                     >
                       <div className="min-w-0">
-                        <p className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+                        <p className="flex flex-wrap items-center gap-2 text-body text-ink">
                           <span className="truncate">{share.label || version}</span>
                           <Badge tone={state.tone}>{state.label}</Badge>
                           {share.hasPassword && (
@@ -389,7 +389,7 @@ export function ShareDialog({
                             </Badge>
                           )}
                         </p>
-                        <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+                        <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
                           {share.label && <span>{version}</span>}
                           <span>{t("Created")} {formatDate(share.createdAt)}</span>
                           <span>{share.expiresAt ? `Expires ${formatDate(share.expiresAt)}` : t("No expiry")}</span>

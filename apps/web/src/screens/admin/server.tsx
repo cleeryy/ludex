@@ -98,8 +98,8 @@ export function ServerScreen() {
               [t("Uptime"), health.data ? formatUptime(health.data.uptimeSeconds) : "—"],
             ].map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-                <dt className="text-[12.5px] text-ink-3">{label}</dt>
-                <dd className="num text-[12.5px] text-ink-2">{value}</dd>
+                <dt className="text-label text-ink-3">{label}</dt>
+                <dd className="num text-label text-ink-2">{value}</dd>
               </div>
             ))}
           </dl>
@@ -111,8 +111,8 @@ export function ServerScreen() {
           <div className="border-t border-line">
             {features.map(([label, enabled]) => (
               <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-                <span className="text-[12.5px] text-ink-2">{label}</span>
-                <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                <span className="text-label text-ink-2">{label}</span>
+                <span className="flex items-center gap-1.5 text-label text-ink-3">
                   {enabled ? <Check className="size-3.5 text-ok" aria-hidden="true" /> : <Minus className="size-3.5" aria-hidden="true" />}
                   {enabled ? t("Enabled") : t("Off")}
                 </span>
@@ -121,7 +121,7 @@ export function ServerScreen() {
             {config.isPending &&
               Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="my-3 h-3 w-full" />)}
           </div>
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             {t("Metadata providers are tried in order: IGDB when credentials are set, then the Steam store, then the filename alone.")}
           </p>
         </section>
@@ -152,7 +152,7 @@ export function ServerScreen() {
               {t("Save")}
             </Button>
           </div>
-          {localeError && <p role="alert" className="mt-2 text-[11.5px] text-danger">{localeError}</p>}
+          {localeError && <p role="alert" className="mt-2 text-meta text-danger">{localeError}</p>}
         </section>
 
         <section className="lg:col-span-2">
@@ -171,11 +171,11 @@ export function ServerScreen() {
               ).map(([label, path, hint]) => (
                 <div key={label} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line py-3">
                   <div>
-                    <p className="text-[13px] text-ink">{label}</p>
-                    <p className="mt-0.5 text-[11.5px] text-ink-3">{hint}</p>
+                    <p className="text-body text-ink">{label}</p>
+                    <p className="mt-0.5 text-meta text-ink-3">{hint}</p>
                   </div>
                   <div className="flex min-w-0 items-baseline gap-2">
-                    <code className="truncate font-mono text-[11px] text-ink-2">{path}</code>
+                    <code className="truncate font-mono text-meta text-ink-2">{path}</code>
                     <button
                       type="button"
                       onClick={() => void copy(path, `${label} folder`)}

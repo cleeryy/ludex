@@ -146,7 +146,7 @@ export function OverlayPanel() {
         title={t("In-game overlay")}
         description={t("The controller overlay belongs to the desktop app. The browser build can browse and download.")}
       >
-        <p className="max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+        <p className="max-w-[70ch] text-meta leading-relaxed text-ink-3">
           {t("Install Ludex on the gaming PC to open the overlay with Shift+Tab or a controller.")}
         </p>
       </SettingsGroup>
@@ -156,7 +156,7 @@ export function OverlayPanel() {
   if (query.isPending) {
     return (
       <SettingsGroup title={t("In-game overlay")}>
-        <p className="py-4 text-[13px] text-ink-3">{t("Reading the overlay status…")}</p>
+        <p className="py-4 text-body text-ink-3">{t("Reading the overlay status…")}</p>
       </SettingsGroup>
     );
   }
@@ -164,7 +164,7 @@ export function OverlayPanel() {
   if (!status) {
     return (
       <SettingsGroup title={t("In-game overlay")}>
-        <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-danger">
+        <p className="max-w-[70ch] text-label leading-relaxed text-danger">
           {t("The overlay status is unavailable. Restart Ludex and try again.")}
         </p>
       </SettingsGroup>
@@ -212,12 +212,12 @@ export function OverlayPanel() {
       />
 
       <div className="border-b border-line py-4">
-        <p className="text-[13px] font-medium text-ink">{t("Controller gesture")}</p>
-        <p className="mt-1 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-body font-medium text-ink">{t("Controller gesture")}</p>
+        <p className="mt-1 max-w-[54ch] text-meta leading-relaxed text-ink-3">
           {t("A single Home press stays with the OS or Steam. The chord is the fallback for pads that hide the Guide button.")}
         </p>
         {!guideAvailable && (
-          <p className="mt-2 max-w-[58ch] text-[11.5px] leading-relaxed text-signal-text">
+          <p className="mt-2 max-w-[58ch] text-meta leading-relaxed text-signal-text">
             {t("This system does not deliver the Guide button to apps, so Double Home cannot fire. LB+RB+Start is the default and opens the overlay.")}
           </p>
         )}
@@ -234,10 +234,10 @@ export function OverlayPanel() {
       <div className="border-b border-line py-4">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <p className="text-[13px] font-medium text-ink">{t("Panel opacity")}</p>
-            <p className="mt-1 text-[11.5px] text-ink-3">{t("The game stays visible behind the panel.")}</p>
+            <p className="text-body font-medium text-ink">{t("Panel opacity")}</p>
+            <p className="mt-1 text-meta text-ink-3">{t("The game stays visible behind the panel.")}</p>
           </div>
-          <span className="font-mono text-[12px] tabular-nums text-ink-2">{Math.round(opacity * 100)}%</span>
+          <span className="font-mono text-label tabular-nums text-ink-2">{Math.round(opacity * 100)}%</span>
         </div>
         <input
           type="range"
@@ -257,10 +257,10 @@ export function OverlayPanel() {
       <div className="border-b border-line py-4">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <p className="text-[13px] font-medium text-ink">{t("Panel scale")}</p>
-            <p className="mt-1 text-[11.5px] text-ink-3">{t("Size of the panel relative to the screen.")}</p>
+            <p className="text-body font-medium text-ink">{t("Panel scale")}</p>
+            <p className="mt-1 text-meta text-ink-3">{t("Size of the panel relative to the screen.")}</p>
           </div>
-          <span className="font-mono text-[12px] tabular-nums text-ink-2">{scale.toFixed(2)}×</span>
+          <span className="font-mono text-label tabular-nums text-ink-2">{scale.toFixed(2)}×</span>
         </div>
         <input
           type="range"
@@ -278,8 +278,8 @@ export function OverlayPanel() {
       </div>
 
       <div className="border-b border-line py-4">
-        <p className="text-[13px] font-medium text-ink">{t("Tabs")}</p>
-        <p className="mt-1 text-[11.5px] text-ink-3">
+        <p className="text-body font-medium text-ink">{t("Tabs")}</p>
+        <p className="mt-1 text-meta text-ink-3">
           {t("The game tab is always shown; it holds Resume and Exit.")}
         </p>
         <div className="mt-3 flex flex-wrap gap-x-6 gap-y-3">
@@ -287,7 +287,7 @@ export function OverlayPanel() {
             const label = overlayTabLabel(tab);
             const checked = tab === "game" || tabs.includes(tab);
             return (
-              <label key={tab} className="flex items-center gap-2 text-[12.5px] text-ink-2">
+              <label key={tab} className="flex items-center gap-2 text-label text-ink-2">
                 <Checkbox
                   checked={checked}
                   onCheckedChange={() => toggleTab(tab)}
@@ -301,17 +301,17 @@ export function OverlayPanel() {
       </div>
 
       <div className="border-b border-line py-4">
-        <p className="text-[13px] font-medium text-ink">{t("Disabled for these games")}</p>
-        <p className="mt-1 max-w-[60ch] text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-body font-medium text-ink">{t("Disabled for these games")}</p>
+        <p className="mt-1 max-w-[60ch] text-meta leading-relaxed text-ink-3">
           {t("Use this for anti-cheat-sensitive titles. The overlay also stays off for a game whose page opted out.")}
         </p>
         {status.disabledGames.length === 0 ? (
-          <p className="mt-3 text-[12px] text-ink-3">{t("No game is opted out.")}</p>
+          <p className="mt-3 text-label text-ink-3">{t("No game is opted out.")}</p>
         ) : (
           <ul className="mt-3 flex flex-col gap-1.5">
             {status.disabledGames.map((gameId) => (
               <li key={gameId} className="flex items-center justify-between gap-4 border-b border-line pb-1.5">
-                <span className="truncate text-[12.5px] text-ink">
+                <span className="truncate text-label text-ink">
                   {disabledNames.get(gameId) ?? t("Game {id}", { id: String(gameId) })}
                 </span>
                 <Button
@@ -339,7 +339,7 @@ export function OverlayPanel() {
         onOpenNow={() => void openNow()}
       />
 
-      <p className="mt-4 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">{status.platformNote}</p>
+      <p className="mt-4 max-w-[70ch] text-meta leading-relaxed text-ink-3">{status.platformNote}</p>
     </SettingsGroup>
   );
 }
@@ -385,15 +385,15 @@ function DiagnosticsChecklist({
   return (
     <div className="border-b border-line py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[13px] font-medium text-ink">{t("Why the overlay does not open")}</p>
+        <p className="text-body font-medium text-ink">{t("Why the overlay does not open")}</p>
         <div className="flex items-center gap-2">
-          {saving && <span className="text-[11px] text-ink-3">{t("Saving…")}</span>}
+          {saving && <span className="text-meta text-ink-3">{t("Saving…")}</span>}
           <Badge tone={diagnostics.summary === "ready" ? "ok" : blocking ? "danger" : "signal"}>
             {diagnostics.summary === "ready" ? t("Ready") : t("Needs attention")}
           </Badge>
         </div>
       </div>
-      <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-1 max-w-[62ch] text-meta leading-relaxed text-ink-3">
         {diagnostics.summary === "ready"
           ? t("Everything the controller overlay needs is ready.")
           : t("Fix the first item below, then press the configured gesture again.")}
@@ -406,7 +406,7 @@ function DiagnosticsChecklist({
               className={`mt-[6px] size-1.5 shrink-0 rounded-full ${checkDot(check)}`}
               aria-hidden="true"
             />
-            <span className="text-[12px] leading-relaxed text-ink-2">
+            <span className="text-label leading-relaxed text-ink-2">
               {overlayCheckLabel(check)}
               {check.id === "listener-failed" && (
                 <span className="text-ink-3"> · {check.message}</span>
@@ -453,7 +453,7 @@ function DiagnosticsChecklist({
             t("Not reported by this desktop.")
           )}
           {status.eventsSeen !== undefined && (
-            <span className="mt-0.5 block text-[10.5px] text-ink-3">
+            <span className="mt-0.5 block text-micro text-ink-3">
               {t("Buttons seen: {count}", { count: String(status.eventsSeen) })}
             </span>
           )}
@@ -469,7 +469,7 @@ function DiagnosticsChecklist({
         </DiagnosticFact>
       </div>
 
-      <p className="mt-3 max-w-[72ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-3 max-w-[72ch] text-meta leading-relaxed text-ink-3">
         {t("A game in exclusive fullscreen blocks every panel from outside the game, including this overlay. Set the game to borderless or windowed fullscreen and the overlay will appear above it.")}
       </p>
 
@@ -477,7 +477,7 @@ function DiagnosticsChecklist({
         <Button size="sm" variant="default" icon={<MonitorPlay className="size-3.5" />} onClick={onOpenNow}>
           {t("Open the overlay now")}
         </Button>
-        <span className="max-w-[52ch] text-[11.5px] leading-relaxed text-ink-3">
+        <span className="max-w-[52ch] text-meta leading-relaxed text-ink-3">
           {t("{shortcut} always works while Ludex is focused.", { shortcut: status.keyboardShortcut })}
         </span>
       </div>
@@ -528,8 +528,8 @@ function formatEventTime(value: string): string {
 function DiagnosticFact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <p className="text-[10.5px] uppercase tracking-[0.12em] text-ink-3">{label}</p>
-      <p className="mt-0.5 text-[12px] text-ink-2">{children}</p>
+      <p className="text-micro uppercase tracking-[0.12em] text-ink-3">{label}</p>
+      <p className="mt-0.5 text-label text-ink-2">{children}</p>
     </div>
   );
 }

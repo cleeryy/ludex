@@ -208,7 +208,7 @@ export function StreamHostPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <MonitorPlay className="size-4 text-ink-3" aria-hidden="true" />
-          <h4 className="text-[13.5px] font-semibold text-ink">{t("Stream to another device")}</h4>
+          <h4 className="text-body font-semibold text-ink">{t("Stream to another device")}</h4>
           {host.data && (
             <Badge tone={host.data.ready ? "ok" : "danger"}>
               {host.data.ready ? t("ready") : t("needs attention")}
@@ -225,7 +225,7 @@ export function StreamHostPanel() {
           {t("Rescan")}
         </Button>
       </div>
-      <p className="mt-1 max-w-[80ch] text-[12px] leading-relaxed text-ink-3">
+      <p className="mt-1 max-w-[80ch] text-label leading-relaxed text-ink-3">
         {t("Checks Sunshine, the capture path and the encoder, then writes only the settings a Moonlight stream needs. Every change has a backup and a revert.")}
       </p>
 
@@ -236,18 +236,18 @@ export function StreamHostPanel() {
         </div>
       )}
       {host.isError && (
-        <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-[12px] text-danger">
+        <p role="alert" className="mt-4 border-l-2 border-danger pl-3 text-label text-danger">
           {errorMessage(host.error)}
         </p>
       )}
 
       {host.data && (
         <>
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-3">{host.data.message}</p>
+          <p className="mt-3 text-label leading-relaxed text-ink-3">{host.data.message}</p>
           <DetectionTable report={host.data} />
 
           {host.data.warnings.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-1.5 text-[11.5px] leading-relaxed text-ink-3">
+            <ul className="mt-3 flex flex-col gap-1.5 text-meta leading-relaxed text-ink-3">
               {host.data.warnings.map((warning) => (
                 <li key={warning} className="flex items-start gap-2 border-l-2 border-line-2 pl-2">
                   <AlertTriangle className="mt-0.5 size-3 shrink-0 text-warn" aria-hidden="true" />
@@ -357,11 +357,11 @@ function DetectionTable({ report }: { report: StreamHostReport }) {
         <div key={check.id} className="flex items-start justify-between gap-4 border-b border-line py-2">
           <dt className="flex min-w-0 items-start gap-2">
             <Badge tone={statusTone(check.status)}>{statusLabel(check.status)}</Badge>
-            <span className="text-[12px] text-ink">{streamCheckCopy(check.id)}</span>
+            <span className="text-label text-ink">{streamCheckCopy(check.id)}</span>
           </dt>
           <dd className="min-w-0 max-w-[60%] text-right">
-            <p className="break-words font-mono text-[10.5px] text-ink-2">{check.detail}</p>
-            {check.hint && <p className="mt-0.5 text-[10.5px] text-ink-3">{check.hint}</p>}
+            <p className="break-words font-mono text-micro text-ink-2">{check.detail}</p>
+            {check.hint && <p className="mt-0.5 text-micro text-ink-3">{check.hint}</p>}
           </dd>
         </div>
       ))}
@@ -381,7 +381,7 @@ function SelfTestStep({
   return (
     <div className="mt-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h5 className="flex items-center gap-2 text-[12.5px] font-semibold text-ink">
+        <h5 className="flex items-center gap-2 text-label font-semibold text-ink">
           <Sparkles className="size-3.5 text-ink-3" aria-hidden="true" />
           {t("Self-test")}
         </h5>
@@ -391,7 +391,7 @@ function SelfTestStep({
       </div>
       {result && (
         <div className="mt-3">
-          <p className={`text-[12px] ${result.selfTest.ready ? "text-ok" : "text-ink-2"}`}>
+          <p className={`text-label ${result.selfTest.ready ? "text-ok" : "text-ink-2"}`}>
             {result.selfTest.message}
           </p>
           <ul className="mt-2 flex flex-col gap-1.5">
@@ -401,11 +401,11 @@ function SelfTestStep({
                 <li key={finding.id} className="border-l-2 border-line-2 pl-2">
                   <div className="flex items-center gap-2">
                     <Badge tone={statusTone(finding.status)}>{statusLabel(finding.status)}</Badge>
-                    <span className="text-[12px] font-medium text-ink">
+                    <span className="text-label font-medium text-ink">
                       {copy?.title ?? finding.label}
                     </span>
                   </div>
-                  {copy?.fix && <p className="mt-0.5 text-[11px] leading-relaxed text-ink-3">{copy.fix}</p>}
+                  {copy?.fix && <p className="mt-0.5 text-meta leading-relaxed text-ink-3">{copy.fix}</p>}
                 </li>
               );
             })}
@@ -441,19 +441,19 @@ function ConfigStep({
 
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <h5 className="flex items-center gap-2 text-[12.5px] font-semibold text-ink">
+      <h5 className="flex items-center gap-2 text-label font-semibold text-ink">
         <MonitorPlay className="size-3.5 text-ink-3" aria-hidden="true" />
         {t("Sunshine configuration")}
       </h5>
-      <p className="mt-1 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-1 max-w-[80ch] text-meta leading-relaxed text-ink-3">
         {t("Ludex writes output_name, stream_audio and packet_size. The packet size follows the interface MTU so a WireGuard or NetBird tunnel does not fragment the stream.")}
       </p>
 
       <div className="mt-3 grid gap-4 lg:grid-cols-2">
         <div>
-          <p className="text-[11.5px] font-medium text-ink">{t("Captured output")}</p>
+          <p className="text-meta font-medium text-ink">{t("Captured output")}</p>
           {connected.length === 0 ? (
-            <p className="mt-1 text-[11px] text-danger">{t("No connected output was found.")}</p>
+            <p className="mt-1 text-meta text-danger">{t("No connected output was found.")}</p>
           ) : (
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {connected.map((item) => (
@@ -462,7 +462,7 @@ function ConfigStep({
                   type="button"
                   onClick={() => onOutput(item.name)}
                   aria-pressed={selected === item.name}
-                  className={`border px-2 py-1 font-mono text-[11px] ${
+                  className={`border px-2 py-1 font-mono text-meta ${
                     selected === item.name
                       ? "border-signal bg-signal text-on-signal"
                       : "border-line-2 text-ink-2 hover:border-ink-3"
@@ -476,9 +476,9 @@ function ConfigStep({
           )}
         </div>
         <div>
-          <p className="text-[11.5px] font-medium text-ink">{t("MTU source")}</p>
+          <p className="text-meta font-medium text-ink">{t("MTU source")}</p>
           {report.interfaces.filter((item) => item.up).length === 0 ? (
-            <p className="mt-1 text-[11px] text-ink-3">{t("No network interface was detected.")}</p>
+            <p className="mt-1 text-meta text-ink-3">{t("No network interface was detected.")}</p>
           ) : (
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {report.interfaces
@@ -489,7 +489,7 @@ function ConfigStep({
                     type="button"
                     onClick={() => onInterface(item.interface)}
                     aria-pressed={selectedInterface === item.interface}
-                    className={`border px-2 py-1 font-mono text-[11px] ${
+                    className={`border px-2 py-1 font-mono text-meta ${
                       selectedInterface === item.interface
                         ? "border-signal bg-signal text-on-signal"
                         : "border-line-2 text-ink-2 hover:border-ink-3"
@@ -502,7 +502,7 @@ function ConfigStep({
             </div>
           )}
           {report.mtu && (
-            <p className="mt-2 text-[11px] text-ink-3">
+            <p className="mt-2 text-meta text-ink-3">
               {t("Packet size:")}{" "}
               <span className="font-mono text-ink-2">
                 {packetSizeForMtu(
@@ -544,10 +544,10 @@ function ConfigStep({
 
 function ConfigPlanBody({ plan }: { plan: StreamConfigPlan }) {
   return (
-    <div className="flex flex-col gap-3 text-[12px] text-ink-2">
+    <div className="flex flex-col gap-3 text-label text-ink-2">
       <div>
         <p className="font-medium text-ink">{t("Changes")}</p>
-        <ul className="mt-1 flex flex-col gap-1 font-mono text-[11px]">
+        <ul className="mt-1 flex flex-col gap-1 font-mono text-meta">
           {plan.edits.map((edit) => (
             <li key={edit.key} className="break-all">
               {editSummary(edit)}
@@ -557,7 +557,7 @@ function ConfigPlanBody({ plan }: { plan: StreamConfigPlan }) {
       </div>
       <div>
         <p className="font-medium text-ink">{t("Files")}</p>
-        <ul className="mt-1 flex flex-col gap-1 text-[11px]">
+        <ul className="mt-1 flex flex-col gap-1 text-meta">
           {plan.files.map((file) => (
             <li key={`${file.action}-${file.path}`} className="break-all">
               <span className="font-mono text-ink-3">{file.action}</span> {file.path}{" "}
@@ -568,17 +568,17 @@ function ConfigPlanBody({ plan }: { plan: StreamConfigPlan }) {
       </div>
       <div>
         <p className="font-medium text-ink">{t("Commands")}</p>
-        <pre className="mt-1 overflow-x-auto border border-line bg-surface-2 p-2 font-mono text-[10.5px] leading-relaxed">
+        <pre className="mt-1 overflow-x-auto border border-line bg-surface-2 p-2 font-mono text-micro leading-relaxed">
           {plan.commands.join("\n")}
         </pre>
       </div>
       {plan.warnings.map((warning) => (
-        <p key={warning} className="border-l-2 border-warn pl-2 text-[11px] text-ink-3">
+        <p key={warning} className="border-l-2 border-warn pl-2 text-meta text-ink-3">
           {warning}
         </p>
       ))}
-      {plan.blocked && <p className="border-l-2 border-danger pl-2 text-[11px] text-danger">{plan.blocked}</p>}
-      {!plan.applicable && !plan.blocked && <p className="text-[11px] text-ink-3">{plan.message}</p>}
+      {plan.blocked && <p className="border-l-2 border-danger pl-2 text-meta text-danger">{plan.blocked}</p>}
+      {!plan.applicable && !plan.blocked && <p className="text-meta text-ink-3">{plan.message}</p>}
     </div>
   );
 }
@@ -596,18 +596,18 @@ function FirewallStep({
 }) {
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <h5 className="flex items-center gap-2 text-[12.5px] font-semibold text-ink">
+      <h5 className="flex items-center gap-2 text-label font-semibold text-ink">
         <ShieldCheck className="size-3.5 text-ink-3" aria-hidden="true" />
         {t("Firewall")}
       </h5>
       {plan ? (
         <>
-          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 text-meta leading-relaxed text-ink-3">
             {t("Detected:")} <span className="font-mono text-ink-2">{plan.label}</span>
             {" · "}
             <span className="font-mono text-ink-2">{portSummary(plan.rules)}</span>
           </p>
-          {plan.blocked && <p className="mt-2 text-[11px] text-danger">{plan.blocked}</p>}
+          {plan.blocked && <p className="mt-2 text-meta text-danger">{plan.blocked}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -640,9 +640,9 @@ function FirewallStep({
 
 function FirewallBody({ plan }: { plan: FirewallPlan }) {
   return (
-    <div className="flex flex-col gap-3 text-[12px] text-ink-2">
-      <p className="font-mono text-[11.5px] text-ink">{portSummary(plan.rules)}</p>
-      <ul className="flex flex-col gap-1 text-[11px]">
+    <div className="flex flex-col gap-3 text-label text-ink-2">
+      <p className="font-mono text-meta text-ink">{portSummary(plan.rules)}</p>
+      <ul className="flex flex-col gap-1 text-meta">
         {plan.rules.map((rule) => (
           <li key={`${rule.protocol}-${rule.first}-${rule.last}`}>
             <span className="font-mono text-ink">{rule.protocol.toUpperCase()}</span>{" "}
@@ -652,11 +652,11 @@ function FirewallBody({ plan }: { plan: FirewallPlan }) {
       </ul>
       <div>
         <p className="font-medium text-ink">{t("Commands")}</p>
-        <pre className="mt-1 overflow-x-auto border border-line bg-surface-2 p-2 font-mono text-[10.5px] leading-relaxed">
+        <pre className="mt-1 overflow-x-auto border border-line bg-surface-2 p-2 font-mono text-micro leading-relaxed">
           {plan.commands.join("\n")}
         </pre>
       </div>
-      {plan.blocked && <p className="border-l-2 border-danger pl-2 text-[11px] text-danger">{plan.blocked}</p>}
+      {plan.blocked && <p className="border-l-2 border-danger pl-2 text-meta text-danger">{plan.blocked}</p>}
     </div>
   );
 }
@@ -692,16 +692,16 @@ function PairingStep({
 }) {
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <h5 className="flex items-center gap-2 text-[12.5px] font-semibold text-ink">
+      <h5 className="flex items-center gap-2 text-label font-semibold text-ink">
         <KeyRound className="size-3.5 text-ink-3" aria-hidden="true" />
         {t("Pair Moonlight")}
       </h5>
-      <p className="mt-1 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-1 max-w-[80ch] text-meta leading-relaxed text-ink-3">
         {t("Start the stream in Moonlight, then type the 4-digit PIN it shows here. Ludex sends it to Sunshine's local API; your credentials stay on this machine.")}
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="flex w-[110px] flex-col gap-1">
-          <span className="text-[11px] text-ink-3">{t("PIN")}</span>
+          <span className="text-meta text-ink-3">{t("PIN")}</span>
           <Input
             value={pin}
             onChange={(event) => onPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
@@ -712,7 +712,7 @@ function PairingStep({
           />
         </label>
         <label className="flex min-w-[150px] flex-1 flex-col gap-1">
-          <span className="text-[11px] text-ink-3">{t("Sunshine username")}</span>
+          <span className="text-meta text-ink-3">{t("Sunshine username")}</span>
           <Input
             value={username}
             onChange={(event) => onUsername(event.target.value)}
@@ -722,7 +722,7 @@ function PairingStep({
           />
         </label>
         <label className="flex min-w-[150px] flex-1 flex-col gap-1">
-          <span className="text-[11px] text-ink-3">{t("Sunshine password")}</span>
+          <span className="text-meta text-ink-3">{t("Sunshine password")}</span>
           <Input
             value={password}
             onChange={(event) => onPassword(event.target.value)}
@@ -732,7 +732,7 @@ function PairingStep({
             className="h-9"
           />
         </label>
-        <label className="flex items-center gap-2 pb-2 text-[11px] text-ink-3">
+        <label className="flex items-center gap-2 pb-2 text-meta text-ink-3">
           <input
             type="checkbox"
             checked={remember}
@@ -763,7 +763,7 @@ function PairingStep({
       </div>
       {outcome && (
         <div
-          className={`mt-3 border-l-2 pl-3 text-[11.5px] leading-relaxed ${
+          className={`mt-3 border-l-2 pl-3 text-meta leading-relaxed ${
             outcome.mode === "paired" ? "border-ok text-ink-2" : "border-warn text-ink-2"
           }`}
         >
@@ -778,7 +778,7 @@ function PairingStep({
           {outcome.mode !== "paired" && (
             <button
               type="button"
-              className="mt-1 inline-flex items-center gap-1 text-[11px] text-signal underline"
+              className="mt-1 inline-flex items-center gap-1 text-meta text-signal underline"
               onClick={onOpenPage}
             >
               {t("Open the Sunshine page for this PIN")}

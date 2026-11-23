@@ -95,7 +95,7 @@ export function CollectionSharePanel({ collection }: { collection: Collection })
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Link2 className="size-3.5 text-signal-text" aria-hidden="true" />
-          <h2 id="collection-share-heading" className="text-[13px] font-medium text-ink">
+          <h2 id="collection-share-heading" className="text-body font-medium text-ink">
             {t("Share link")}
           </h2>
           {active.length > 0 && <Badge tone="outline">{active.length}</Badge>}
@@ -110,7 +110,7 @@ export function CollectionSharePanel({ collection }: { collection: Collection })
         </Button>
       </div>
 
-      <p className="mt-2 max-w-[70ch] text-[12px] leading-relaxed text-ink-3">
+      <p className="mt-2 max-w-[70ch] text-label leading-relaxed text-ink-3">
         {collection.visibility === "private"
           ? t("Switch this collection to Link only or Public before creating a share link.")
           : t("Anyone with the link can read the game titles and metadata, logged out. No files, downloads or account data are shared, and revoking the link closes it immediately.")}
@@ -118,9 +118,9 @@ export function CollectionSharePanel({ collection }: { collection: Collection })
 
       {createdToken && (
         <div className="mt-3 border border-signal/50 bg-signal/5 p-3">
-          <p className="text-[11.5px] leading-relaxed text-ink-2">{t("Copy this link now. It is shown once.")}</p>
+          <p className="text-meta leading-relaxed text-ink-2">{t("Copy this link now. It is shown once.")}</p>
           <div className="mt-2 flex gap-2">
-            <Input readOnly value={shareUrl(createdToken)} onFocus={(event) => event.currentTarget.select()} className="h-9 font-mono text-[11px]" />
+            <Input readOnly value={shareUrl(createdToken)} onFocus={(event) => event.currentTarget.select()} className="h-9 font-mono text-meta" />
             <Button variant="primary" size="sm" icon={<Copy className="size-3.5" />} onClick={() => void copy(createdToken)}>
               {t("Copy")}
             </Button>
@@ -136,10 +136,10 @@ export function CollectionSharePanel({ collection }: { collection: Collection })
           {active.map((link) => (
             <li key={link.id} className="flex flex-wrap items-center gap-3 py-2.5">
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12.5px] text-ink">
+                <span className="block truncate text-label text-ink">
                   {link.label ?? t("Share link #{id}", { id: link.id })}
                 </span>
-                <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-ink-3">
+                <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
                   <span>{t("Created {date}", { date: formatDate(link.createdAt) })}</span>
                   <span>{link.expiresAt ? t("Expires {date}", { date: formatDate(link.expiresAt) }) : t("Does not expire")}</span>
                   <span>{t("{count} views", { count: link.viewCount })}</span>

@@ -249,10 +249,10 @@ export function LoginScreen() {
       >
         <form onSubmit={submitCode} className="flex flex-col gap-6">
           <div className="flex flex-col gap-2">
-            <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">
+            <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">
               {t("Two-factor authentication")}
             </h1>
-            <p className="text-[13px] leading-relaxed text-ink-3">
+            <p className="text-body leading-relaxed text-ink-3">
               {tr("Enter the six-digit code from your authenticator app for {user}. A recovery code also works.", {
                 user: <span className="font-mono text-ink-2">{username}</span>,
               })}
@@ -272,7 +272,7 @@ export function LoginScreen() {
             />
           </Field>
           {mfaError && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
               {mfaError}
             </p>
           )}
@@ -306,13 +306,13 @@ export function LoginScreen() {
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-3">
             <CheckCircle2 className="size-6 text-signal" aria-hidden="true" />
-            <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">
+            <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">
               {t("Return to Ludex; you can close this tab.")}
             </h1>
-            <p className="text-[14px] leading-relaxed text-ink-2">
+            <p className="text-body leading-relaxed text-ink-2">
               {t("Ludex has your session. Switch back to the app to continue.")}
             </p>
-            <p className="text-[12.5px] leading-relaxed text-ink-3">
+            <p className="text-label leading-relaxed text-ink-3">
               {t("If the app is still waiting, start the sign-in again from Ludex.")}
             </p>
           </div>
@@ -328,8 +328,8 @@ export function LoginScreen() {
     >
       <form onSubmit={submit} className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">{t("Sign in")}</h1>
-          <p className="flex items-center gap-2 text-[13px] text-ink-3">
+          <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">{t("Sign in")}</h1>
+          <p className="flex items-center gap-2 text-body text-ink-3">
             <span>{setup?.serverName ?? "Ludex"}</span>
             <span className="h-3 w-px bg-line-2" aria-hidden="true" />
             <span className="num">{`v${setup?.version ?? "0.1.0"}`}</span>
@@ -337,7 +337,7 @@ export function LoginScreen() {
         </div>
 
         {oidcBusy && (
-          <p className="flex items-center gap-2 text-[12.5px] text-ink-2" role="status">
+          <p className="flex items-center gap-2 text-label text-ink-2" role="status">
             <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
             {isNative() ? t("Waiting for your browser") : t("Completing sign-in…")}
           </p>
@@ -345,7 +345,7 @@ export function LoginScreen() {
 
         {oidcError && (
           <div className="flex flex-col gap-2 border-l-2 border-danger pl-3">
-            <p role="alert" className="text-[13px] text-danger">
+            <p role="alert" className="text-body text-danger">
               {oidcError}
             </p>
             {isNative() && (
@@ -381,7 +381,7 @@ export function LoginScreen() {
             </Button>
             {isNative() && oidcBusy && (
               <div className="flex flex-col gap-2">
-                <p className="text-[12px] leading-relaxed text-ink-3">
+                <p className="text-label leading-relaxed text-ink-3">
                   {t("Finish the sign-in in your browser, then come back here. This window waits up to five minutes.")}
                 </p>
                 <Button variant="quiet" size="sm" className="self-start px-0 text-ink-2" onClick={cancelDesktopOidc}>
@@ -390,11 +390,11 @@ export function LoginScreen() {
               </div>
             )}
             {isNative() && !oidcBusy && !oidcError && (
-              <p className="text-[12px] leading-relaxed text-ink-3">
+              <p className="text-label leading-relaxed text-ink-3">
                 {t("Single sign-on opens your browser. Password sign-in still works here.")}
               </p>
             )}
-            <div className="flex items-center gap-3 text-[11.5px] text-ink-3" aria-hidden="true">
+            <div className="flex items-center gap-3 text-meta text-ink-3" aria-hidden="true">
               <span className="h-px flex-1 bg-line" />
               <span>{t("or use a password")}</span>
               <span className="h-px flex-1 bg-line" />
@@ -430,13 +430,13 @@ export function LoginScreen() {
         </div>
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
             {error}
           </p>
         )}
 
         {handoffPhase === "sending" && (
-          <p className="flex items-center gap-2 text-[12.5px] text-ink-2" role="status">
+          <p className="flex items-center gap-2 text-label text-ink-2" role="status">
             <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
             {t("Sending the session to Ludex…")}
           </p>
@@ -444,10 +444,10 @@ export function LoginScreen() {
 
         {handoffPhase === "error" && handoffError && (
           <div className="flex flex-col gap-2 border-l-2 border-danger pl-3">
-            <p role="alert" className="text-[13px] text-danger">
+            <p role="alert" className="text-body text-danger">
               {handoffError}
             </p>
-            <p className="text-[12.5px] leading-relaxed text-ink-3">
+            <p className="text-label leading-relaxed text-ink-3">
               {t("You are signed in here, but Ludex did not receive the session. Try again, or close this tab and sign in from the app.")}
             </p>
             <Button
@@ -475,7 +475,7 @@ export function LoginScreen() {
         </Button>
 
         {!isNative() && (
-          <p className="text-[12.5px] leading-relaxed text-ink-3">
+          <p className="text-label leading-relaxed text-ink-3">
             <Link
               to="/download"
               className="text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink"
@@ -488,7 +488,7 @@ export function LoginScreen() {
 
         {USING_MOCKS && (
           <div className="border-t border-line pt-4">
-            <p className="text-[12.5px] leading-relaxed text-ink-3">
+            <p className="text-label leading-relaxed text-ink-3">
               {tr("Demo data is on. Sign in as {user} with the password {password}, or use the single sign-on button.", {
                 user: <span className="font-mono text-ink-2">mara</span>,
                 password: <span className="font-mono text-ink-2">{MOCK_PASSWORD}</span>,

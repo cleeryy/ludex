@@ -82,14 +82,14 @@ export function PreferencesSyncPanel() {
           [t("Source"), sourceLabel],
         ].map(([label, value]) => (
           <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-            <dt className="text-[12.5px] text-ink-3">{label}</dt>
-            <dd className="text-[13px] text-ink">{value}</dd>
+            <dt className="text-label text-ink-3">{label}</dt>
+            <dd className="text-body text-ink">{value}</dd>
           </div>
         ))}
       </dl>
 
       {status === "offline" && (
-        <p className="mt-3 flex items-start gap-2 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-3 flex items-start gap-2 text-meta leading-relaxed text-ink-3">
           <CloudOff className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           {t("Changes are queued on this device and sync when the connection returns.")}
         </p>
@@ -97,7 +97,7 @@ export function PreferencesSyncPanel() {
 
       {status === "conflict" ? (
         <div className="mt-4 border-l-2 border-warn pl-3">
-          <p className="text-[12.5px] leading-relaxed text-ink">
+          <p className="text-label leading-relaxed text-ink">
             {t("Another device changed these settings first. Choose which copy to keep.")}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -107,7 +107,7 @@ export function PreferencesSyncPanel() {
             <Button variant="default" size="sm" onClick={() => void resolveConflict("server")}>
               {t("Use the server")}
             </Button>
-            <span className="num text-[11px] text-ink-3">
+            <span className="num text-meta text-ink-3">
               {conflictRevision === null ? null : `r${conflictRevision}`}
             </span>
           </div>
@@ -122,7 +122,7 @@ export function PreferencesSyncPanel() {
           >
             {t("Use this device's settings")}
           </Button>
-          <span className="text-[11.5px] leading-relaxed text-ink-3">
+          <span className="text-meta leading-relaxed text-ink-3">
             {t("Reset removes the account copy and restores the defaults everywhere. This device keeps its paths, window and network settings.")}
           </span>
         </div>

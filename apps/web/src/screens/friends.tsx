@@ -114,7 +114,7 @@ export function FriendsScreen() {
         actions={
           <Link
             to="/community"
-            className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+            className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
           >
             {t("Community")}
             <ArrowUpRight className="size-3.5" aria-hidden="true" />
@@ -123,10 +123,10 @@ export function FriendsScreen() {
       />
 
       <section className="mt-8 border border-line bg-surface/40 p-4" aria-labelledby="add-friend-heading">
-        <h2 id="add-friend-heading" className="text-[13px] font-medium text-ink">
+        <h2 id="add-friend-heading" className="text-body font-medium text-ink">
           {t("Add a friend")}
         </h2>
-        <p className="mt-1 max-w-[60ch] text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-1 max-w-[60ch] text-meta leading-relaxed text-ink-3">
           {t("Type their exact login name. The account is never revealed by a partial search, and no email is ever shared.")}
         </p>
         <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-3">
@@ -146,7 +146,7 @@ export function FriendsScreen() {
           </Button>
         </form>
         {feedback && (
-          <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12px] text-danger">
+          <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
             {feedback}
           </p>
         )}
@@ -159,12 +159,12 @@ export function FriendsScreen() {
             {data.incoming.map((request) => (
               <li key={request.id} className="flex flex-wrap items-center gap-3 border-b border-line py-3">
                 <Link to={`/community/u/${request.user.id}`} className="flex min-w-0 flex-1 items-center gap-3 group">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[11px] text-ink">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-[var(--r-sm)] border border-line-2 bg-surface-2 font-mono text-meta text-ink">
                     {initials(request.user)}
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] text-ink group-hover:underline">{displayName(request.user)}</span>
-                    <span className="block truncate font-mono text-[10.5px] text-ink-3">@{request.user.username}</span>
+                    <span className="block truncate text-body text-ink group-hover:underline">{displayName(request.user)}</span>
+                    <span className="block truncate font-mono text-micro text-ink-3">@{request.user.username}</span>
                   </span>
                 </Link>
                 <div className="flex items-center gap-2">
@@ -194,7 +194,7 @@ export function FriendsScreen() {
           count={data?.friends.length ?? 0}
           description={t("Presence is visible to friends only")}
           actions={
-            <Link to="/settings" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+            <Link to="/settings" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
               {t("Presence settings")}
             </Link>
           }
@@ -215,7 +215,7 @@ export function FriendsScreen() {
           >
             <Link
               to="/community"
-              className="inline-flex h-11 items-center gap-2 rounded-[2px] border border-line-2 bg-surface px-4 text-sm text-ink transition-colors hover:border-ink-3 hover:bg-surface-2"
+              className="inline-flex h-11 items-center gap-2 rounded-[var(--r-sm)] border border-line-2 bg-surface px-4 text-sm text-ink transition-colors hover:border-ink-3 hover:bg-surface-2"
             >
               <Users className="size-4" aria-hidden="true" />
               {t("Browse the community")}
@@ -229,15 +229,15 @@ export function FriendsScreen() {
               return (
                 <li key={friend.user.id} className="flex flex-wrap items-center gap-3 border-b border-line py-3">
                   <Link to={`/community/u/${friend.user.id}`} className="flex min-w-0 flex-1 items-center gap-3 group">
-                    <span className="relative grid size-9 shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[11px] text-ink">
+                    <span className="relative grid size-9 shrink-0 place-items-center rounded-[var(--r-sm)] border border-line-2 bg-surface-2 font-mono text-meta text-ink">
                       {initials(friend.user)}
                       {isOnline(current) && (
                         <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-bg bg-signal" aria-hidden="true" />
                       )}
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-[13px] text-ink group-hover:underline">{displayName(friend.user)}</span>
-                      <span className="block truncate font-mono text-[10.5px] text-ink-3">@{friend.user.username}</span>
+                      <span className="block truncate text-body text-ink group-hover:underline">{displayName(friend.user)}</span>
+                      <span className="block truncate font-mono text-micro text-ink-3">@{friend.user.username}</span>
                     </span>
                   </Link>
                   <PresenceBadge presence={current} />
@@ -257,12 +257,12 @@ export function FriendsScreen() {
           <ul className="border-t border-line">
             {data.outgoing.map((request) => (
               <li key={request.id} className="flex items-center gap-3 border-b border-line py-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[11px] text-ink-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-[var(--r-sm)] border border-line-2 bg-surface-2 font-mono text-meta text-ink-3">
                   {initials(request.user)}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">{displayName(request.user)}</span>
-                  <span className="block truncate font-mono text-[10.5px] text-ink-3">@{request.user.username}</span>
+                  <span className="block truncate text-body text-ink">{displayName(request.user)}</span>
+                  <span className="block truncate font-mono text-micro text-ink-3">@{request.user.username}</span>
                 </span>
                 <Button variant="ghost" size="sm" onClick={() => cancel.mutate(request.id)}>
                   {t("Cancel")}
@@ -303,8 +303,8 @@ export function FriendsScreen() {
               <li key={blocked.id} className="flex items-center gap-3 border-b border-line py-3">
                 <ShieldOff className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">{displayName(blocked)}</span>
-                  <span className="block truncate font-mono text-[10.5px] text-ink-3">@{blocked.username}</span>
+                  <span className="block truncate text-body text-ink">{displayName(blocked)}</span>
+                  <span className="block truncate font-mono text-micro text-ink-3">@{blocked.username}</span>
                 </span>
                 <Button variant="ghost" size="sm" loading={unblock.isPending && unblock.variables === blocked.id} onClick={() => unblock.mutate(blocked.id)}>
                   {t("Unblock")}
@@ -315,7 +315,7 @@ export function FriendsScreen() {
         </section>
       )}
 
-      <p className="mt-10 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-10 max-w-[70ch] text-meta leading-relaxed text-ink-3">
         {t(
           "Presence goes stale after two minutes of silence. Blocking an account removes the friendship and its pending requests, and hides its notifications.",
         )}
@@ -325,7 +325,7 @@ export function FriendsScreen() {
       </p>
 
       {profile.data && (
-        <p className="mt-2 flex items-center gap-2 text-[11.5px] text-ink-3">
+        <p className="mt-2 flex items-center gap-2 text-meta text-ink-3">
           <Badge tone={profile.data.friendsActivity ? "signal" : "outline"}>
             {profile.data.friendsActivity ? t("Activity shared with friends") : t("Activity private")}
           </Badge>

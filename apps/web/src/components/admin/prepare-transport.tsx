@@ -113,7 +113,7 @@ export function PrepareTransport({
 
   if (status === "ready") {
     return (
-      <span className="flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
+      <span className="flex flex-wrap items-center gap-2 text-meta text-ink-3">
         <Badge tone="ok">{t("Ready")}</Badge>
         <span className="num" role="status">
           {tn(poll.data?.files ?? 0, "1 file", "{count} files")} · {formatBytes(poll.data?.bytes)}
@@ -125,7 +125,7 @@ export function PrepareTransport({
   if (failure) {
     return (
       <span className="flex max-w-[320px] flex-col items-end gap-1">
-        <span role="alert" className="text-end text-[11px] leading-snug text-danger">
+        <span role="alert" className="text-end text-meta leading-snug text-danger">
           {failure}
         </span>
         {status !== "unavailable" && (
@@ -145,8 +145,8 @@ export function PrepareTransport({
   if (started) {
     return (
       <span className="flex min-w-[180px] max-w-[260px] flex-col items-end gap-1.5">
-        <span className="flex flex-wrap items-baseline justify-end gap-x-2 text-[10.5px] text-ink-3">
-          <span className="font-mono uppercase tracking-[0.08em]">
+        <span className="flex flex-wrap items-baseline justify-end gap-x-2 text-micro text-ink-3">
+          <span className="uppercase tracking-[0.08em]">
             {status === "extracting" ? t("Extracting") : status === "queued" ? t("Queued") : t("Preparing")}
           </span>
           {status === "extracting" && (

@@ -116,11 +116,11 @@ export function CollectionShareScreen() {
 
       <main className="page pb-20 pt-6">
         <div className="max-w-[760px]">
-          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">{t("Shared collection")}</p>
-          <h1 className="mt-3 text-[clamp(2.2rem,4.6vw,3.8rem)] font-semibold leading-[0.96] tracking-[-0.033em]">
+          <p className="text-micro uppercase tracking-[0.16em] text-ink-3">{t("Shared collection")}</p>
+          <h1 className="mt-3 text-display sm:text-hero font-semibold leading-[0.96] tracking-[-0.033em]">
             {collection.name}
           </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-ink-2">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-label text-ink-2">
             {collection.owner && <span>{t("By {name}", { name: collection.owner.displayName })}</span>}
             <span>{tn(collection.gameCount, "1 game", "{count} games")}</span>
             <Badge tone={collection.kind === "smart" ? "signal" : "default"}>
@@ -129,7 +129,7 @@ export function CollectionShareScreen() {
             {data.expiresAt && <span className="text-ink-3">{t("Link expires {date}", { date: formatDate(data.expiresAt) })}</span>}
           </div>
           {collection.description && (
-            <p className="measure mt-4 text-[14.5px] leading-relaxed text-ink-2">{collection.description}</p>
+            <p className="measure mt-4 text-lead leading-relaxed text-ink-2">{collection.description}</p>
           )}
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -163,13 +163,13 @@ export function CollectionShareScreen() {
               </Button>
             )}
             {!user && (
-              <p className="text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 {t("Sign in to copy this collection into your library. Viewing never needs an account.")}
               </p>
             )}
           </div>
           {unlockError && (
-            <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            <p role="alert" className="mt-3 border-l-2 border-danger pl-3 text-label text-danger">
               {unlockError}
             </p>
           )}
@@ -182,16 +182,16 @@ export function CollectionShareScreen() {
             description={gamesHidden ? t("Unlock the link to see the games") : undefined}
           />
           {gamesHidden ? (
-            <div className="flex items-center gap-3 border border-line bg-surface/40 p-5 text-[12.5px] text-ink-3">
+            <div className="flex items-center gap-3 border border-line bg-surface/40 p-5 text-label text-ink-3">
               <Lock className="size-4 shrink-0" aria-hidden="true" />
               {t("This link is password-protected. The game list stays hidden until the password is entered.")}
             </div>
           ) : games.length === 0 ? (
-            <p className="border border-line bg-surface/40 p-5 text-[12.5px] text-ink-3">
+            <p className="border border-line bg-surface/40 p-5 text-label text-ink-3">
               {t("This shelf is empty right now.")}
             </p>
           ) : (
-            <div id="shared-games" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div id="shared-games" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {games.map((game) => (
                 <div key={game.id}>
                   <div className="shadow-plate">
@@ -203,8 +203,8 @@ export function CollectionShareScreen() {
                       genre={game.genres[0]}
                     />
                   </div>
-                  <p className="mt-2 line-clamp-2 text-[13px] text-ink">{game.title}</p>
-                  <p className="mt-0.5 font-mono text-[10px] text-ink-3">
+                  <p className="mt-2 line-clamp-2 text-body text-ink">{game.title}</p>
+                  <p className="mt-0.5 font-mono text-micro text-ink-3">
                     {formatYear(game.releaseYear ? `${game.releaseYear}-01-01` : null)}
                     {game.genres.length > 0 ? ` · ${game.genres.slice(0, 2).join(" / ")}` : ""}
                   </p>
@@ -214,7 +214,7 @@ export function CollectionShareScreen() {
           )}
         </section>
 
-        <p className="mt-12 max-w-[70ch] border-t border-line pt-4 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-12 max-w-[70ch] border-t border-line pt-4 text-meta leading-relaxed text-ink-3">
           {t("Anyone with this link can see the collection name, description, game titles and cover art. No files, downloads, file paths or account data are shared. The owner can revoke the link or delete the collection at any time.")}
         </p>
       </main>
@@ -242,10 +242,10 @@ export function CollectionShareScreen() {
         }
       >
         <div className="border border-line px-3 py-2.5">
-          <p className="text-[13px] text-ink">{collection.name}</p>
-          <p className="mt-0.5 text-[11.5px] text-ink-3">{tn(collection.gameCount, "1 game", "{count} games")}</p>
+          <p className="text-body text-ink">{collection.name}</p>
+          <p className="mt-0.5 text-meta text-ink-3">{tn(collection.gameCount, "1 game", "{count} games")}</p>
         </div>
-        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-3 text-meta leading-relaxed text-ink-3">
           {t("Importing the same collection twice merges missing games into the existing copy instead of creating a duplicate.")}
         </p>
       </Dialog>
@@ -280,14 +280,14 @@ function ShareUnavailable({ error, onRetry }: { error: unknown; onRetry: () => v
       <PublicHeader marker />
       <main className="page flex items-center pb-24">
         <div className="max-w-[520px]">
-          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-3">{t("Shared collection")}</p>
-          <h1 className="mt-3 text-[clamp(2.2rem,4.4vw,3.4rem)] font-semibold leading-[0.96] tracking-[-0.033em]">
+          <p className="text-meta uppercase tracking-[0.16em] text-ink-3">{t("Shared collection")}</p>
+          <h1 className="mt-3 text-display sm:text-hero font-semibold leading-[0.96] tracking-[-0.033em]">
             {notFound ? t("This link is not available") : rateLimited ? t("Too many attempts") : t("The link didn’t load")}
           </h1>
-          <p className="mt-4 border-l-2 border-danger pl-3 text-[14px] leading-relaxed text-ink-2" role="alert">
+          <p className="mt-4 border-l-2 border-danger pl-3 text-body leading-relaxed text-ink-2" role="alert">
             {apiError?.message ?? errorMessage(error)}
           </p>
-          <p className="mt-4 max-w-[46ch] text-[12.5px] leading-relaxed text-ink-3">
+          <p className="mt-4 max-w-[46ch] text-label leading-relaxed text-ink-3">
             {t("Collection links can be revoked, expire, or stop working when the owner makes the shelf private. Ask the person who sent it for a new link.")}
           </p>
           {!notFound && (
@@ -311,7 +311,7 @@ function PublicHeader({ marker = false }: { marker?: boolean }) {
       <Wordmark height={18} />
       <div className="flex items-center gap-3">
         {marker && (
-          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
+          <span className="flex items-center gap-2 text-micro uppercase tracking-[0.16em] text-ink-3">
             <Link2 className="size-3.5" aria-hidden="true" />
             {t("Shared link")}
           </span>

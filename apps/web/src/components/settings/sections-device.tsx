@@ -56,7 +56,7 @@ function DesktopBody({
   if (desktop.pending) return <SettingsLoading label={t("Loading desktop settings…")} />;
   if (desktop.error) {
     return (
-      <p role="alert" className="border-t border-line pt-5 text-[13px] text-danger">
+      <p role="alert" className="border-t border-line pt-5 text-body text-danger">
         {errorMessage(desktop.error)}
       </p>
     );
@@ -67,7 +67,7 @@ function DesktopBody({
 
 export function DesktopModeLine({ draft }: { draft: LocalSettings }) {
   return (
-    <div className="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-1 font-mono text-[10.5px] text-ink-3">
+    <div className="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-1 font-mono text-micro text-ink-3">
       <span>
         {t("Mode:")} {draft.mode === "local" ? t("Local library") : t("Remote server")}
       </span>
@@ -139,10 +139,10 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                   value={draft.downloadPolicy}
                   onChange={(value) => desktop.update({ downloadPolicy: value })}
                   options={[...DOWNLOAD_POLICY_OPTIONS]}
-                  className="h-10 text-[12px]"
+                  className="h-10 text-label"
                 />
               </div>
-              <p className="mt-3 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+              <p className="mt-3 max-w-[54ch] text-meta leading-relaxed text-ink-3">
                 {draft.downloadPolicy === "automatic"
                   ? t("Resolved per version: the server's extracted files when they are ready, then a streamed ZIP, then the archive. A probe that finds nothing falls back on its own; only a transfer that fails mid-install says why on the job.")
                   : draft.downloadPolicy === "stream"
@@ -185,14 +185,14 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                       serverFileCacheBudgetGb: Math.min(1000, Math.max(1, Math.round(Number(event.target.value) || 50))),
                     })
                   }
-                  className="font-mono text-[12px]"
+                  className="font-mono text-label"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+              <span className="text-meta text-ink-3" aria-hidden="true">
                 {t("GB")}
               </span>
             </div>
-            <p className="mt-2 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-2 max-w-[54ch] text-meta leading-relaxed text-ink-3">
               {draft.serverFileCache
                 ? t("Entries unused for 14 days are evicted, and the least recently used ones go first when the budget is reached. The cache lives next to the local server's data and is never unbounded.")
                 : t("The cache stays off; installs download the archive and extract it locally.")}
@@ -214,8 +214,8 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                   className="mt-0.5 size-4 shrink-0 accent-signal"
                 />
                 <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink">{t("Configured download folder")}</span>
-                  <span className="mt-1 block max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+                  <span className="block text-body font-medium text-ink">{t("Configured download folder")}</span>
+                  <span className="mt-1 block max-w-[54ch] text-meta leading-relaxed text-ink-3">
                     {t("The archive is written to the download folder, verified there, then extracted into the install location.")}
                   </span>
                 </span>
@@ -230,8 +230,8 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                   className="mt-0.5 size-4 shrink-0 accent-signal"
                 />
                 <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink">{t("Install drive (default)")}</span>
-                  <span className="mt-1 block max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+                  <span className="block text-body font-medium text-ink">{t("Install drive (default)")}</span>
+                  <span className="mt-1 block max-w-[54ch] text-meta leading-relaxed text-ink-3">
                     {t("The archive is staged next to the game, so hashing and extraction never read it back over the network. It needs temporary free space on the install drive, and the archive is deleted after extraction unless Keep downloaded archives is on.")}
                   </span>
                 </span>
@@ -269,10 +269,10 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                       downloadStallTimeoutSecs: Math.min(600, Math.max(5, Math.round(Number(event.target.value) || 30))),
                     })
                   }
-                  className="font-mono text-[12px]"
+                  className="font-mono text-label"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+              <span className="text-meta text-ink-3" aria-hidden="true">
                 s
               </span>
             </div>
@@ -297,14 +297,14 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                     const hours = Math.max(0, Math.min(168, Number(event.target.value) || 0));
                     desktop.update({ downloadRetryWindowSecs: Math.round(hours * 3600) });
                   }}
-                  className="font-mono text-[12px]"
+                  className="font-mono text-label"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+              <span className="text-meta text-ink-3" aria-hidden="true">
                 h
               </span>
             </div>
-            <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-2 text-meta leading-relaxed text-ink-3">
               {draft.downloadRetryWindowSecs === 0
                 ? t("Retrying until the app closes. Cancel always stops the download immediately.")
                 : tn(
@@ -335,10 +335,10 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                       keepAwakeAfterMinutes: Math.min(60, Math.max(0, Math.round(Number(event.target.value) || 0))),
                     })
                   }
-                  className="font-mono text-[12px]"
+                  className="font-mono text-label"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+              <span className="text-meta text-ink-3" aria-hidden="true">
                 {t("min")}
               </span>
             </div>
@@ -370,10 +370,10 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                       shaderPrepBudgetSecs: Math.min(900, Math.max(30, Math.round(Number(event.target.value) || 180))),
                     })
                   }
-                  className="font-mono text-[12px]"
+                  className="font-mono text-label"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+              <span className="text-meta text-ink-3" aria-hidden="true">
                 {t("seconds")}
               </span>
             </div>
@@ -399,14 +399,14 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                       downloadConcurrency: Math.min(2, Math.max(1, Math.round(Number(event.target.value) || 1))),
                     })
                   }
-                  className="font-mono text-[12px]"
+                  className="font-mono text-label"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+              <span className="text-meta text-ink-3" aria-hidden="true">
                 {t("at a time")}
               </span>
             </div>
-            <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-2 text-meta leading-relaxed text-ink-3">
               {draft.downloadConcurrency > 1
                 ? t("Two archives may download in parallel while one extracts. The disk reservation still gates every start, so this never overcommits the same volume.")
                 : t("One archive downloads while the previous one extracts: the network is not left idle waiting for an unpack.")}
@@ -423,10 +423,10 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
           </SettingsGroup>
 
           <SettingsGroup title={t("Encrypted archives")}>
-            <label htmlFor="archive-passwords" className="text-[13px] font-medium text-ink">
+            <label htmlFor="archive-passwords" className="text-body font-medium text-ink">
               {t("Archive passwords")}
             </label>
-            <p className="mb-2 mt-1 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mb-2 mt-1 max-w-[54ch] text-meta leading-relaxed text-ink-3">
               {t("Tried in order when an archive is encrypted. One per line, or separated by commas.")}
             </p>
             <Textarea
@@ -442,9 +442,9 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
               }
               placeholder={"first-password\nsecond-password"}
               rows={3}
-              className="min-h-[84px] font-mono text-[12px]"
+              className="min-h-[84px] font-mono text-label"
             />
-            <p className="mt-1 text-[11px] text-ink-3">
+            <p className="mt-1 text-meta text-ink-3">
               {draft.archivePasswords.length === 0
                 ? t("No passwords. Encrypted archives will fail to extract.")
                 : tn(draft.archivePasswords.length, "1 password stored locally in the desktop settings.", "{count} passwords stored locally in the desktop settings.")}
@@ -452,8 +452,8 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
           </SettingsGroup>
 
           <SettingsGroup title={t("Quiet installers")}>
-            <p className="text-[13px] font-medium text-ink">{t("Silent installer arguments")}</p>
-            <p className="mb-2 mt-1 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-body font-medium text-ink">{t("Silent installer arguments")}</p>
+            <p className="mb-2 mt-1 max-w-[54ch] text-meta leading-relaxed text-ink-3">
               {tr("Tried in order when a game ships a setup program, one argument set per line. Leave empty for the built-in presets ({presets}).", {
                 presets: (
                   <>
@@ -478,10 +478,10 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
               }
               placeholder={"/S\n/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"}
               rows={3}
-              className="min-h-[78px] font-mono text-[12px]"
+              className="min-h-[78px] font-mono text-label"
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <label htmlFor="installer-timeout" className="text-[12.5px] text-ink-2">
+              <label htmlFor="installer-timeout" className="text-label text-ink-2">
                 {t("Timeout per attempt")}
               </label>
               <div className="w-[110px]">
@@ -496,18 +496,18 @@ export function DownloadsBody({ desktop }: { desktop: DesktopSettingsController 
                   onChange={(event) =>
                     desktop.update({ installerTimeoutSecs: Math.max(30, Math.round(Number(event.target.value) || 600)) })
                   }
-                  className="font-mono text-[12px]"
+                  className="font-mono text-label"
                 />
               </div>
-              <span className="text-[11.5px] text-ink-3">{t("seconds")}</span>
+              <span className="text-meta text-ink-3">{t("seconds")}</span>
             </div>
           </SettingsGroup>
 
           <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
-            <span className="text-[11.5px] text-ink-3">{t("Finished downloads, history and the queue live on their own screen.")}</span>
+            <span className="text-meta text-ink-3">{t("Finished downloads, history and the queue live on their own screen.")}</span>
             <Link
               to="/downloads"
-              className="inline-flex h-11 items-center gap-1 text-[12px] text-ink-2 underline-offset-4 hover:text-ink hover:underline"
+              className="inline-flex h-11 items-center gap-1 text-label text-ink-2 underline-offset-4 hover:text-ink hover:underline"
             >
               {t("Open the downloads screen")}
               <ChevronRight className="rtl:-scale-x-100 size-3" aria-hidden="true" />
@@ -549,24 +549,24 @@ export function SavesBody({ desktop }: { desktop: DesktopSettingsController }) {
             {isNative() && (
               <div className="grid gap-4 pt-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[12px] text-ink-2">{t("Device name")}</span>
+                  <span className="text-label text-ink-2">{t("Device name")}</span>
                   <Input
                     value={draft.cloudDeviceLabel ?? ""}
                     maxLength={60}
                     placeholder={t("Living room PC")}
                     onChange={(event) => desktop.update({ cloudDeviceLabel: event.target.value || null })}
-                    className="h-11 text-[13px]"
+                    className="h-11 text-body"
                   />
-                  <span className="text-[10.5px] leading-relaxed text-ink-3">
+                  <span className="text-micro leading-relaxed text-ink-3">
                     {t("Shown on automatic snapshots. Leave empty to use the computer name.")}
                   </span>
                 </label>
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[12px] text-ink-2">{t("Device identifier")}</span>
-                  <p className="truncate border border-line bg-surface px-3 py-2.5 font-mono text-[11.5px] text-ink-3">
+                  <span className="text-label text-ink-2">{t("Device identifier")}</span>
+                  <p className="truncate border border-line bg-surface px-3 py-2.5 font-mono text-meta text-ink-3">
                     {draft.cloudDeviceId || t("Generated on first upload")}
                   </p>
-                  <span className="text-[10.5px] leading-relaxed text-ink-3">
+                  <span className="text-micro leading-relaxed text-ink-3">
                     {t("A random id stored in this app's settings, not a hardware fingerprint.")}
                   </span>
                 </div>
@@ -574,7 +574,7 @@ export function SavesBody({ desktop }: { desktop: DesktopSettingsController }) {
             )}
           </SettingsGroup>
 
-          <p className="mt-6 max-w-[86ch] border-l-2 border-line-2 pl-3 text-[11px] leading-relaxed text-ink-3">
+          <p className="mt-6 max-w-[86ch] border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
             {t("Privacy: snapshots are uploaded to the Ludex server you are signed in to, under your account, and only you can list or download them. The server stores the archive as-is and never opens it. Host paths, device names and file contents stay between this machine and your server.")}
           </p>
 
@@ -640,10 +640,10 @@ export function IntegrationsBody({ desktop }: { desktop: DesktopSettingsControll
                         onChange={(event) => desktop.update({ discordClientId: event.target.value })}
                         placeholder={t("Discord application id")}
                         spellCheck={false}
-                        className="font-mono text-[11.5px]"
+                        className="font-mono text-meta"
                       />
                     </div>
-                    <span className="text-[11px] text-ink-3">{t("An application id labels the activity; it is not a secret.")}</span>
+                    <span className="text-meta text-ink-3">{t("An application id labels the activity; it is not a secret.")}</span>
                   </div>
                   <PresenceStatus enabled={draft.discordPresence} />
                 </SettingsGroup>
@@ -654,24 +654,24 @@ export function IntegrationsBody({ desktop }: { desktop: DesktopSettingsControll
                 >
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="flex flex-col gap-1.5">
-                      <span className="text-[12px] text-ink-2">{t("Device name")}</span>
+                      <span className="text-label text-ink-2">{t("Device name")}</span>
                       <Input
                         value={draft.deviceName ?? ""}
                         maxLength={80}
                         placeholder={t("Gaming PC")}
                         onChange={(event) => desktop.update({ deviceName: event.target.value || null })}
-                        className="h-11 text-[13px]"
+                        className="h-11 text-body"
                       />
-                      <span className="text-[10.5px] leading-relaxed text-ink-3">
+                      <span className="text-micro leading-relaxed text-ink-3">
                         {t("Shown on the phone. Leave empty to use the computer name.")}
                       </span>
                     </label>
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[12px] text-ink-2">{t("Device identifier")}</span>
-                      <p className="truncate border border-line bg-surface px-3 py-2.5 font-mono text-[11.5px] text-ink-3">
+                      <span className="text-label text-ink-2">{t("Device identifier")}</span>
+                      <p className="truncate border border-line bg-surface px-3 py-2.5 font-mono text-meta text-ink-3">
                         {draft.deviceId || t("Generated on first heartbeat")}
                       </p>
-                      <span className="text-[10.5px] leading-relaxed text-ink-3">
+                      <span className="text-micro leading-relaxed text-ink-3">
                         {t("A random id stored in this app's settings, not a hardware fingerprint.")}
                       </span>
                     </div>
@@ -709,8 +709,8 @@ export function UpdatesBody({ desktop }: { desktop: DesktopSettingsController })
             [t("Server"), setup?.serverName ?? "Ludex"],
           ].map(([label, value]) => (
             <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <dt className="text-[12.5px] text-ink-3">{label}</dt>
-              <dd className="num text-[12.5px] text-ink">{value}</dd>
+              <dt className="text-label text-ink-3">{label}</dt>
+              <dd className="num text-label text-ink">{value}</dd>
             </div>
           ))}
         </dl>
@@ -763,7 +763,7 @@ export function UpdatesBody({ desktop }: { desktop: DesktopSettingsController })
         {(draft) => (
           <>
             <SettingsGroup title={t("Update channel")}>
-              <p className="mb-2 max-w-[54ch] text-[11.5px] leading-relaxed text-ink-3">
+              <p className="mb-2 max-w-[54ch] text-meta leading-relaxed text-ink-3">
                 {tr("Early access builds come from the {channel} prerelease and can be rough. Save the settings to switch.", {
                   channel: <span className="font-mono">edge</span>,
                 })}
@@ -846,7 +846,7 @@ export function HostBody({ desktop }: { desktop: DesktopSettingsController }) {
     <div className="border-t border-line pt-5">
       <HostPreflightPanel />
       <div className="mt-6 border-t border-line pt-5">
-        <h3 className="text-[13px] font-medium text-ink">{t("Keep the machine awake")}</h3>
+        <h3 className="text-body font-medium text-ink">{t("Keep the machine awake")}</h3>
         <div className="mt-2">
           <KeepAwakeStatus />
         </div>
@@ -884,13 +884,13 @@ function BandwidthLimitField({ kib, onChange }: { kib: number; onChange: (kib: n
             setText(value);
             onChange(mbpsToKib(Number(value) || 0));
           }}
-          className="font-mono text-[12px]"
+          className="font-mono text-label"
         />
       </div>
-      <span className="text-[11.5px] text-ink-3" aria-hidden="true">
+      <span className="text-meta text-ink-3" aria-hidden="true">
         Mb/s
       </span>
-      {kib === 0 && <span className="num text-[11px] text-ink-3">{t("Unlimited")}</span>}
+      {kib === 0 && <span className="num text-meta text-ink-3">{t("Unlimited")}</span>}
     </div>
   );
 }
@@ -915,7 +915,7 @@ function PathField({
   const id = `path-${label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-[13px] font-medium text-ink" htmlFor={id}>
+      <label className="text-body font-medium text-ink" htmlFor={id}>
         {label}
       </label>
       <div className="flex items-stretch gap-2">
@@ -924,14 +924,14 @@ function PathField({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           spellCheck={false}
-          className="h-11 font-mono text-[11.5px]"
+          className="h-11 font-mono text-meta"
           placeholder="/home/user/Games"
         />
         <Button variant="default" size="sm" className="h-11 shrink-0" onClick={onPick} icon={<FolderOpen className="size-3.5" />}>
           {t("Browse")}
         </Button>
       </div>
-      <p className="text-[11.5px] leading-relaxed text-ink-3">{hint}</p>
+      <p className="text-meta leading-relaxed text-ink-3">{hint}</p>
     </div>
   );
 }

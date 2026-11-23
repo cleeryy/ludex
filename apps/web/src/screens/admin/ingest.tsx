@@ -201,7 +201,7 @@ export function IngestScreen() {
             <SectionHeader title={t("Add a download")} />
             <form onSubmit={submit} className="border border-line bg-surface/40 p-4 sm:p-5">
               <div className="flex flex-col gap-3">
-                <label htmlFor="ingest-url" className="text-[12px] text-ink-2">
+                <label htmlFor="ingest-url" className="text-label text-ink-2">
                   {t("Download URL")}
                 </label>
                 <Input
@@ -211,12 +211,12 @@ export function IngestScreen() {
                   placeholder="https://files.example.net/Game%20(2026)%20v1.0.zip"
                   autoFocus
                   spellCheck={false}
-                  className="h-12 font-mono text-[12.5px]"
+                  className="h-12 font-mono text-label"
                   aria-invalid={Boolean(formError)}
                 />
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                   <div className="flex-1">
-                    <label htmlFor="ingest-title" className="mb-1.5 block text-[12px] text-ink-2">
+                    <label htmlFor="ingest-title" className="mb-1.5 block text-label text-ink-2">
                       {t("Title")} <span className="text-ink-3">{t("optional")}</span>
                     </label>
                     <Input
@@ -233,12 +233,12 @@ export function IngestScreen() {
                   </Button>
                 </div>
                 {formError && (
-                  <p role="alert" className="flex items-center gap-2 text-[12.5px] text-danger">
+                  <p role="alert" className="flex items-center gap-2 text-label text-danger">
                     <AlertTriangle className="size-3.5" aria-hidden="true" />
                     {formError}
                   </p>
                 )}
-                <p className="text-[11.5px] leading-relaxed text-ink-3">
+                <p className="text-meta leading-relaxed text-ink-3">
                   {t("http or https only. The format is read from the file header, not the URL. A successful download triggers a library scan.")}
                 </p>
               </div>
@@ -249,7 +249,7 @@ export function IngestScreen() {
             <SectionHeader
               title={t("Active")}
               count={active.length}
-              actions={<span className="font-mono text-[10.5px] text-ink-3">{t("Refreshing every 2s")}</span>}
+              actions={<span className="font-mono text-micro text-ink-3">{t("Refreshing every 2s")}</span>}
             />
             <div id="active-heading" className="border-t border-line">
               {jobsQuery.isPending && (
@@ -263,7 +263,7 @@ export function IngestScreen() {
                 <ErrorState message={errorMessage(jobsQuery.error)} onRetry={() => void jobsQuery.refetch()} />
               )}
               {!jobsQuery.isPending && !jobsQuery.isError && active.length === 0 && (
-                <p className="py-6 text-[13px] text-ink-3">{t("Nothing downloading. Past downloads are below.")}</p>
+                <p className="py-6 text-body text-ink-3">{t("Nothing downloading. Past downloads are below.")}</p>
               )}
               {active.map((job) => (
                 <JobRow
@@ -285,10 +285,10 @@ export function IngestScreen() {
             <section className="mt-10" aria-labelledby="history-heading">
               <SectionHeader title={t("History")} count={history.length} />
               <details id="history-heading" className="group border-t border-line">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 text-[12.5px] text-ink-3 hover:text-ink-2">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 text-label text-ink-3 hover:text-ink-2">
                   <span>{t("Finished, failed and cancelled downloads")}</span>
-                  <span className="font-mono text-[10.5px] group-open:hidden">{t("Show")}</span>
-                  <span className="hidden font-mono text-[10.5px] group-open:inline">{t("Hide")}</span>
+                  <span className="font-mono text-micro group-open:hidden">{t("Show")}</span>
+                  <span className="hidden font-mono text-micro group-open:inline">{t("Hide")}</span>
                 </summary>
                 <div className="border-t border-line">
                   {history.map((job) => (
@@ -321,7 +321,7 @@ export function IngestScreen() {
                     onChange={(event) => setFileFilter(event.target.value)}
                     placeholder={t("Filter by name")}
                     aria-label={t("Filter library files")}
-                    className="h-8 text-[12px]"
+                    className="h-8 text-label"
                   />
                 </div>
               }
@@ -334,7 +334,7 @@ export function IngestScreen() {
                 />
               )}
               {!filesQuery.isPending && !filesQuery.isError && files.length === 0 && (
-                <p className="py-6 text-[13px] text-ink-3">
+                <p className="py-6 text-body text-ink-3">
                   {fileFilter ? t("No files match that filter.") : t("The games folder is empty.")}
                 </p>
               )}
@@ -344,8 +344,8 @@ export function IngestScreen() {
                     <div className="flex min-w-0 items-baseline gap-2.5">
                       <FileArchive className="size-3.5 shrink-0 self-center text-ink-3" aria-hidden="true" />
                       <div className="min-w-0">
-                        <p className="truncate font-mono text-[11.5px] text-ink">{file.name}</p>
-                        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
+                        <p className="truncate font-mono text-meta text-ink">{file.name}</p>
+                        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
                           <span>{formatBytes(file.size)}</span>
                           <span>{formatDate(file.modifiedAt)}</span>
                           {file.partial && <span className="text-signal-text">{t("partial — resumes automatically")}</span>}
@@ -377,7 +377,7 @@ export function IngestScreen() {
                   {verifyState?.name === file.name && (
                     <pre
                       className={cn(
-                        "mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words border-l-2 bg-bg-deep/60 px-3 py-2 font-mono text-[10.5px] leading-relaxed",
+                        "mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words border-l-2 bg-bg-deep/60 px-3 py-2 font-mono text-micro leading-relaxed",
                         verifyState.ok ? "border-ok text-ink-2" : "border-danger text-ink-2",
                       )}
                     >
@@ -394,21 +394,21 @@ export function IngestScreen() {
 
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <div className="border border-line bg-surface/40 p-4">
-            <h2 className="text-[12px] font-medium text-ink-2">{t("Storage")}</h2>
+            <h2 className="text-label font-medium text-ink-2">{t("Storage")}</h2>
             {stats ? (
               <>
                 <p className="mt-3 flex items-baseline gap-1.5">
-                  <span className="num text-[26px] leading-none text-ink">{formatBytes(stats.diskFree)}</span>
-                  <span className="text-[11.5px] text-ink-3">{t("free")}</span>
+                  <span className="num text-title leading-none text-ink">{formatBytes(stats.diskFree)}</span>
+                  <span className="text-meta text-ink-3">{t("free")}</span>
                 </p>
                 <div className="mt-3">
                   <Progress value={stats.diskTotal - stats.diskFree} max={stats.diskTotal} label={t("Disk usage")} />
-                  <p className="mt-1.5 flex justify-between font-mono text-[10.5px] text-ink-3">
+                  <p className="mt-1.5 flex justify-between font-mono text-micro text-ink-3">
                     <span>{t("{size} used", { size: formatBytes(stats.diskTotal - stats.diskFree) })}</span>
                     <span>{t("{size} total", { size: formatBytes(stats.diskTotal) })}</span>
                   </p>
                 </div>
-                <dl className="mt-4 flex flex-col gap-2 border-t border-line pt-3 text-[12px]">
+                <dl className="mt-4 flex flex-col gap-2 border-t border-line pt-3 text-label">
                   <div className="flex items-baseline justify-between gap-3">
                     <dt className="text-ink-3">{t("Library")}</dt>
                     <dd className="num text-ink-2">{formatBytes(stats.libraryBytes)}</dd>
@@ -423,9 +423,9 @@ export function IngestScreen() {
                   </div>
                 </dl>
                 <div className="mt-4 border-t border-line pt-3">
-                  <p className="text-[10.5px] text-ink-3">{t("Games folder")}</p>
+                  <p className="text-micro text-ink-3">{t("Games folder")}</p>
                   <div className="mt-1 flex items-baseline gap-2">
-                    <code className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-ink-2">{stats.gamesDir}</code>
+                    <code className="min-w-0 flex-1 truncate font-mono text-micro text-ink-2">{stats.gamesDir}</code>
                     <button
                       type="button"
                       onClick={() => void copy(stats.gamesDir, "Path")}
@@ -438,7 +438,7 @@ export function IngestScreen() {
                 </div>
               </>
             ) : statsQuery.isError ? (
-              <p className="mt-3 text-[12px] leading-relaxed text-ink-3">{t("Storage information is unavailable. The download jobs are unaffected.")}</p>
+              <p className="mt-3 text-label leading-relaxed text-ink-3">{t("Storage information is unavailable. The download jobs are unaffected.")}</p>
             ) : (
               <div className="mt-3 space-y-2">
                 <Skeleton className="h-6 w-24" />
@@ -448,7 +448,7 @@ export function IngestScreen() {
             )}
           </div>
 
-          <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-4 text-meta leading-relaxed text-ink-3">
             {t("Jobs survive a server restart. Partial files are kept and resumed, and an archive is only renamed once its header and CRC check pass.")}
           </p>
         </aside>
@@ -480,14 +480,14 @@ export function IngestScreen() {
           </>
         }
       >
-        <label htmlFor="replace-url" className="mb-1.5 block text-[12px] text-ink-2">
+        <label htmlFor="replace-url" className="mb-1.5 block text-label text-ink-2">
           {t("New URL")}
         </label>
         <Input
           id="replace-url"
           value={replaceUrl}
           onChange={(event) => setReplaceUrl(event.target.value)}
-          className="font-mono text-[12px]"
+          className="font-mono text-label"
           autoFocus
         />
       </Dialog>
@@ -518,7 +518,7 @@ function JobRow({
   return (
     <article className={cn("border-b border-line", compact ? "py-2.5" : "py-4")} aria-label={t("{title}, {phase}", { title: job.title, phase: ingestStatusLabel(job.status) })}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className={cn("min-w-0 truncate font-medium text-ink", compact ? "text-[13px]" : "text-[14.5px]")}>{job.title}</h3>
+        <h3 className={cn("min-w-0 truncate font-medium text-ink", compact ? "text-body" : "text-lead")}>{job.title}</h3>
         <Badge tone={statusTone(job.status)}>{ingestStatusLabel(job.status)}</Badge>
       </div>
 
@@ -528,7 +528,7 @@ function JobRow({
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="min-w-0 truncate font-mono text-[10.5px] text-ink-3 underline-offset-2 hover:text-ink-2 hover:underline"
+            className="min-w-0 truncate font-mono text-micro text-ink-3 underline-offset-2 hover:text-ink-2 hover:underline"
           >
             {job.url}
           </a>
@@ -547,7 +547,7 @@ function JobRow({
               tone={job.status === "error" ? "danger" : "signal"}
             />
           </div>
-          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
             <span>
               {job.totalBytes
                 ? `${formatBytes(job.downloadedBytes)} / ${formatBytes(job.totalBytes)}`
@@ -563,14 +563,14 @@ function JobRow({
       )}
 
       {compact && (
-        <p className="mt-1 font-mono text-[10.5px] text-ink-3">
+        <p className="mt-1 font-mono text-micro text-ink-3">
           {formatBytes(job.downloadedBytes)}
           {job.totalBytes ? ` / ${formatBytes(job.totalBytes)}` : ""} · {formatRelative(job.updatedAt)}
         </p>
       )}
 
       {job.error && (
-        <p className={cn("mt-1.5 flex items-start gap-1.5 text-[12px]", job.status === "error" ? "text-danger" : "text-ink-3")}>
+        <p className={cn("mt-1.5 flex items-start gap-1.5 text-label", job.status === "error" ? "text-danger" : "text-ink-3")}>
           <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
           {job.error}
         </p>
@@ -581,7 +581,7 @@ function JobRow({
           <button
             type="button"
             onClick={onCancel}
-            className="flex h-8 items-center gap-1.5 text-[12px] text-danger underline-offset-4 hover:underline"
+            className="flex h-8 items-center gap-1.5 text-label text-danger underline-offset-4 hover:underline"
           >
             <X className="size-3.5" aria-hidden="true" />
             {t("Cancel")}
@@ -598,7 +598,7 @@ function JobRow({
           </>
         )}
         {job.status === "done" && (
-          <span className="flex items-center gap-1.5 text-[11.5px] text-ok">
+          <span className="flex items-center gap-1.5 text-meta text-ok">
             <Check className="size-3.5" aria-hidden="true" />
             {t("Indexed")}
           </span>

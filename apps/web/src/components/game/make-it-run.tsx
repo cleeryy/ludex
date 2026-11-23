@@ -552,13 +552,13 @@ export function MakeItRunPanel({
             <Skeleton className="h-10 w-full" />
           </div>
         ) : diagnosis.isError ? (
-          <div className="flex items-start gap-2 text-[13px] text-danger">
+          <div className="flex items-start gap-2 text-body text-danger">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <p>{errorMessage(diagnosis.error)}</p>
           </div>
         ) : data ? (
           <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-ink-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-meta text-ink-3">
               <Badge tone="outline">
                 {data.platform === "linux" ? "Linux" : data.platform === "windows" ? "Windows" : "macOS"}
               </Badge>
@@ -571,7 +571,7 @@ export function MakeItRunPanel({
 
             {data.running && !running && (
               <div className="flex flex-wrap items-center gap-3">
-                <p className="text-[12px] text-ink-3">{t("A Make it run task is already in progress.")}</p>
+                <p className="text-label text-ink-3">{t("A Make it run task is already in progress.")}</p>
                 <Button variant="ghost" size="sm" icon={<X className="size-3.5" />} onClick={() => void cancel()}>
                   {t("Cancel running task")}
                 </Button>
@@ -582,7 +582,7 @@ export function MakeItRunPanel({
               <div className="space-y-2">
                 <Progress value={progressPct} label={t("Runtime progress")} />
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-[12px] text-ink-3">
+                  <p className="text-label text-ink-3">
                     {progress?.message ?? t("Starting…")}
                     {progressPct !== null && <span className="ms-2 font-mono">{formatPercent(progressPct)}</span>}
                   </p>
@@ -609,8 +609,8 @@ export function MakeItRunPanel({
                       aria-hidden="true"
                     />
                     <div>
-                      <p className="text-[13px] text-ink">{issueTitle(issue)}</p>
-                      <p className="text-[12px] leading-relaxed text-ink-3">{issueDetail(issue)}</p>
+                      <p className="text-body text-ink">{issueTitle(issue)}</p>
+                      <p className="text-label leading-relaxed text-ink-3">{issueDetail(issue)}</p>
                     </div>
                   </li>
                 ))}
@@ -624,34 +624,34 @@ export function MakeItRunPanel({
                   const applied = reportStep(step.id);
                   return (
                     <li key={step.id} className="flex gap-3 py-3">
-                      <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border border-line text-[10.5px] font-medium text-ink-3">
+                      <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border border-line text-micro font-medium text-ink-3">
                         {index + 1}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                          <p className={cn("text-[13.5px]", status === "done" ? "text-ink-2" : "text-ink")}>
+                          <p className={cn("text-body", status === "done" ? "text-ink-2" : "text-ink")}>
                             {stepTitle(step)}
                           </p>
                           {step.optional && <Badge>{t("Optional")}</Badge>}
                           {step.requiresAdmin && <Badge tone="outline">{t("Administrator")}</Badge>}
                           {step.download && (
-                            <span className="font-mono text-[10.5px] text-ink-3">
+                            <span className="font-mono text-micro text-ink-3">
                               {formatBytes(step.download.sizeBytes)}
                             </span>
                           )}
-                          <span className="ms-auto flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em] text-ink-3">
+                          <span className="ms-auto flex items-center gap-1.5 text-micro uppercase tracking-[0.08em] text-ink-3">
                             <StatusIcon status={status} />
                             {statusLabel(status)}
                           </span>
                         </div>
-                        <p className="mt-1 text-[12px] leading-relaxed text-ink-3">{stepDetail(step)}</p>
+                        <p className="mt-1 text-label leading-relaxed text-ink-3">{stepDetail(step)}</p>
 
                         {step.download && (
-                          <details className="mt-1.5 text-[11px] text-ink-3">
+                          <details className="mt-1.5 text-meta text-ink-3">
                             <summary className="cursor-pointer select-none">
                               {t("Source, licence and checksum")}
                             </summary>
-                            <dl className="mt-1.5 grid gap-1 font-mono text-[10.5px]">
+                            <dl className="mt-1.5 grid gap-1 font-mono text-micro">
                               <div className="flex gap-2">
                                 <dt className="w-16 shrink-0 text-ink-3">{t("Source")}</dt>
                                 <dd className="break-all">{step.download.url}</dd>
@@ -670,7 +670,7 @@ export function MakeItRunPanel({
 
                         {step.manual?.command && (
                           <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <code className="min-w-0 flex-1 overflow-x-auto rounded-[2px] border border-line bg-surface px-2 py-1.5 font-mono text-[11px] text-ink-2">
+                            <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--r-sm)] border border-line bg-surface px-2 py-1.5 font-mono text-meta text-ink-2">
                               {step.manual.command}
                             </code>
                             <Button size="sm" variant="ghost" onClick={() => void copyCommand(step.manual!.command!)}>
@@ -702,12 +702,12 @@ export function MakeItRunPanel({
                           </Button>
                         )}
                         {applied && applied.status === "needsElevation" && (
-                          <p className="mt-2 rounded-[2px] border border-warn/40 bg-warn/10 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ink-2">
+                          <p className="mt-2 rounded-[var(--r-sm)] border border-warn/40 bg-warn/10 px-2.5 py-2 font-mono text-meta leading-relaxed text-ink-2">
                             {applied.message}
                           </p>
                         )}
                         {applied && applied.status === "failed" && (
-                          <p className="mt-2 text-[12px] text-danger">{applied.message}</p>
+                          <p className="mt-2 text-label text-danger">{applied.message}</p>
                         )}
                       </div>
                     </li>
@@ -730,7 +730,7 @@ export function MakeItRunPanel({
                 >
                   {t("Fix it")}
                 </Button>
-                <p className="text-[12px] text-ink-3">
+                <p className="text-label text-ink-3">
                   {t("{count} step(s) will run after you accept the licences.", { count: String(applyable.length) })}
                 </p>
               </div>
@@ -746,31 +746,31 @@ export function MakeItRunPanel({
                 >
                   {t("Test launch")}
                 </Button>
-                <p className="text-[12px] text-ink-3">
+                <p className="text-label text-ink-3">
                   {t("A test launch is the source of truth. Ludex records which runtime it used.")}
                 </p>
               </div>
             )}
 
             {action === "rescan" && manual.length > 0 && (
-              <p className="flex items-start gap-2 text-[12px] text-ink-3">
+              <p className="flex items-start gap-2 text-label text-ink-3">
                 <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 {t("Finish the manual steps above, then re-scan. Ludex detects what you installed.")}
               </p>
             )}
 
             {target && action !== "apply" && (
-              <p className="text-[11.5px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 {t("Game Porting Toolkit is optional and never downloaded by Ludex.")}
               </p>
             )}
 
             {report && (
-              <div className="rounded-[2px] border border-line bg-surface p-3">
-                <p className="text-[12px] font-medium text-ink">{t("Last run")}</p>
+              <div className="rounded-[var(--r-sm)] border border-line bg-surface p-3">
+                <p className="text-label font-medium text-ink">{t("Last run")}</p>
                 <ul className="mt-1.5 space-y-1">
                   {report.steps.map((step) => (
-                    <li key={step.stepId} className="flex items-baseline justify-between gap-4 text-[11.5px]">
+                    <li key={step.stepId} className="flex items-baseline justify-between gap-4 text-meta">
                       <span className="font-mono text-ink-3">{step.stepId}</span>
                       <span className={step.status === "failed" ? "text-danger" : "text-ink-2"}>
                         {statusLabel(step.status) ?? step.status}
@@ -778,16 +778,16 @@ export function MakeItRunPanel({
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2 break-all font-mono text-[10.5px] text-ink-3">{report.logPath}</p>
+                <p className="mt-2 break-all font-mono text-micro text-ink-3">{report.logPath}</p>
               </div>
             )}
 
             {data.platform === "windows" && (
-              <details className="text-[12px]">
+              <details className="text-label">
                 <summary className="cursor-pointer select-none text-ink-2">
                   {t("Prerequisites this game declares")}
                 </summary>
-                <p className="mt-1.5 text-[11.5px] text-ink-3">
+                <p className="mt-1.5 text-meta text-ink-3">
                   {t("Redistributables found in the game folder are always included.")}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
@@ -805,7 +805,7 @@ export function MakeItRunPanel({
                       />
                       <button
                         type="button"
-                        className="text-[12px] text-ink-2"
+                        className="text-label text-ink-2"
                         disabled={busy === `prereq-${id}`}
                         onClick={() => void togglePrerequisite(id)}
                       >
@@ -818,7 +818,7 @@ export function MakeItRunPanel({
             )}
 
             {data.detections.some((detection) => detection.installed && detection.applicable) && (
-              <details className="text-[12px]">
+              <details className="text-label">
                 <summary className="cursor-pointer select-none text-ink-2">
                   {t("Detected on this machine")}
                 </summary>
@@ -829,7 +829,7 @@ export function MakeItRunPanel({
                       <li key={detection.providerId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-ink-2">{detection.name}</span>
                         {detection.version && (
-                          <span className="font-mono text-[10.5px] text-ink-3">{detection.version}</span>
+                          <span className="font-mono text-micro text-ink-3">{detection.version}</span>
                         )}
                         {data.platform === "macos" && detection.kind === "wrapper" && (
                             <Button
@@ -849,7 +849,7 @@ export function MakeItRunPanel({
             )}
 
             {data.managed.length > 0 && (
-              <details className="text-[12px]">
+              <details className="text-label">
                 <summary className="cursor-pointer select-none text-ink-2">
                   {t("Runtimes managed by Ludex")}
                 </summary>
@@ -859,7 +859,7 @@ export function MakeItRunPanel({
                       <span className="text-ink-2">
                         {runtime.name} {runtime.version}
                       </span>
-                      <span className="font-mono text-[10.5px] text-ink-3">
+                      <span className="font-mono text-micro text-ink-3">
                         {runtime.imported
                           ? t("imported")
                           : runtime.path
@@ -884,13 +884,13 @@ export function MakeItRunPanel({
             )}
 
             {data.audit.length > 0 && (
-              <details className="text-[12px]">
+              <details className="text-label">
                 <summary className="cursor-pointer select-none text-ink-2">{t("Recent activity")}</summary>
-                <ul className="mt-2 space-y-1 text-[11.5px] text-ink-3">
+                <ul className="mt-2 space-y-1 text-meta text-ink-3">
                   {data.audit.slice(0, 8).map((event) => (
                     <li key={event.id} className="flex flex-wrap items-baseline gap-x-2">
                       <span>{auditLabel(event)}</span>
-                      <span className="font-mono text-[10.5px]">{event.providerId || "—"}</span>
+                      <span className="font-mono text-micro">{event.providerId || "—"}</span>
                       <span className={event.outcome === "failed" ? "text-danger" : "text-ink-3"}>
                         {event.outcome}
                       </span>
@@ -902,7 +902,7 @@ export function MakeItRunPanel({
             )}
 
             {data.notices.length > 0 && (
-              <details className="text-[11.5px] text-ink-3">
+              <details className="text-meta text-ink-3">
                 <summary className="cursor-pointer select-none">{t("Compatibility notes")}</summary>
                 <ul className="mt-1.5 list-disc space-y-1 ps-4">
                   {data.notices.map((notice) => (
@@ -944,17 +944,17 @@ export function MakeItRunPanel({
           {applyable.map((step) => (
             <li key={step.id} className="border-b border-line pb-2 last:border-0 last:pb-0">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="text-[13px] text-ink">{stepTitle(step)}</p>
+                <p className="text-body text-ink">{stepTitle(step)}</p>
                 {step.download && (
-                  <span className="font-mono text-[10.5px] text-ink-3">
+                  <span className="font-mono text-micro text-ink-3">
                     {formatBytes(step.download.sizeBytes)}
                   </span>
                 )}
               </div>
               {step.download && (
                 <>
-                  <p className="mt-0.5 break-all font-mono text-[10.5px] text-ink-3">{step.download.url}</p>
-                  <p className="mt-0.5 text-[10.5px] text-ink-3">
+                  <p className="mt-0.5 break-all font-mono text-micro text-ink-3">{step.download.url}</p>
+                  <p className="mt-0.5 text-micro text-ink-3">
                     {step.download.licence} · SHA-256 <span className="font-mono">{step.download.sha256.slice(0, 16)}…</span>
                   </p>
                 </>
@@ -963,13 +963,13 @@ export function MakeItRunPanel({
             </li>
           ))}
         </ul>
-        <p className="mt-3 text-[11.5px] text-ink-3">
+        <p className="mt-3 text-meta text-ink-3">
           {t("Downloads are cached in {path}.", { path: data?.cacheDir ?? "" })}
         </p>
-        <p className="mt-1 text-[11.5px] text-ink-2">
+        <p className="mt-1 text-meta text-ink-2">
           {t("Total download: {size}", { size: formatBytes(totalDownloadBytes(applyable)) })}
         </p>
-        <div className="mt-3 flex items-start gap-2.5 text-[12px] leading-relaxed text-ink-2">
+        <div className="mt-3 flex items-start gap-2.5 text-label leading-relaxed text-ink-2">
           <Checkbox checked={accepted} onCheckedChange={setAccepted} label={t("Accept the licences")} />
           <span className="cursor-pointer select-none" onClick={() => setAccepted(!accepted)}>
             {t("I accept the third-party licences and want to download and install these runtimes.")}

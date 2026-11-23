@@ -184,7 +184,7 @@ export function MetadataProvidersScreen() {
               href={DOCS_URL}
               target="_blank"
               rel="noreferrer"
-              className="flex h-9 items-center gap-1.5 text-[12.5px] text-ink-2 hover:text-ink"
+              className="flex h-9 items-center gap-1.5 text-label text-ink-2 hover:text-ink"
             >
               {t("Provider contract")}
               <ExternalLink className="size-3.5" aria-hidden="true" />
@@ -220,7 +220,7 @@ export function MetadataProvidersScreen() {
           />
 
           {providers.length === 0 ? (
-            <p className="mt-5 border border-line bg-surface/50 p-5 text-[12.5px] text-ink-2">
+            <p className="mt-5 border border-line bg-surface/50 p-5 text-label text-ink-2">
               {t("No community provider is configured. IGDB, Steam and file names keep working as before.")}
             </p>
           ) : (
@@ -229,7 +229,7 @@ export function MetadataProvidersScreen() {
                 <li key={provider.id} className="flex flex-wrap items-center gap-4 p-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-[13.5px] font-medium text-ink">{provider.name}</p>
+                      <p className="truncate text-body font-medium text-ink">{provider.name}</p>
                       <Badge tone={provider.enabled ? "ok" : "outline"}>
                         {provider.enabled ? t("Enabled") : t("Disabled")}
                       </Badge>
@@ -240,16 +240,16 @@ export function MetadataProvidersScreen() {
                         </Badge>
                       )}
                     </div>
-                    <p className="mt-1 truncate font-mono text-[11.5px] text-ink-3">{provider.baseUrl}</p>
+                    <p className="mt-1 truncate font-mono text-meta text-ink-3">{provider.baseUrl}</p>
                     {Object.keys(provider.mapping ?? {}).length > 0 && (
-                      <p className="mt-1 text-[11.5px] text-ink-3">
+                      <p className="mt-1 text-meta text-ink-3">
                         {t("{count} mapped fields", { count: Object.keys(provider.mapping ?? {}).length })}
                       </p>
                     )}
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="num w-16 text-right text-[12px] text-ink-3">
+                    <span className="num w-16 text-right text-label text-ink-3">
                       {t("Priority {priority}", { priority: provider.priority })}
                     </span>
                     <Button
@@ -423,7 +423,7 @@ function ProviderDialog({
     >
       <form id="provider-form" onSubmit={submit} className="flex flex-col gap-4">
         {error && (
-          <p className="border-l-2 border-danger pl-3 text-[12.5px] leading-relaxed text-danger">{error}</p>
+          <p className="border-l-2 border-danger pl-3 text-label leading-relaxed text-danger">{error}</p>
         )}
 
         <Field label={t("Name")} htmlFor="provider-name" hint={t("Unique name, also used as the stored provider slug.")}>
@@ -462,7 +462,7 @@ function ProviderDialog({
         >
           <div className="flex flex-col gap-2">
             {provider?.secretConfigured && (
-              <span className="flex h-9 items-center gap-2 text-[13px] text-ink-2">
+              <span className="flex h-9 items-center gap-2 text-body text-ink-2">
                 <KeyRound className="size-3.5 text-ink-3" aria-hidden="true" />
                 {t("A token is stored")}
               </span>
@@ -482,7 +482,7 @@ function ProviderDialog({
             {provider?.secretConfigured && (
               <button
                 type="button"
-                className={form.clearToken ? "self-start text-[12px] text-ok" : "self-start text-[12px] text-danger"}
+                className={form.clearToken ? "self-start text-label text-ok" : "self-start text-label text-danger"}
                 onClick={() => {
                   set("clearToken", !form.clearToken);
                   if (!form.clearToken) set("token", "");
@@ -511,8 +511,8 @@ function ProviderDialog({
           </Field>
           <div className="flex items-start justify-between gap-4 border-b border-line pb-2 pt-5">
             <div>
-              <p className="text-[13px] font-medium text-ink">{t("Enabled")}</p>
-              <p className="mt-0.5 text-[12px] text-ink-3">{t("Run during scans and manual refreshes.")}</p>
+              <p className="text-body font-medium text-ink">{t("Enabled")}</p>
+              <p className="mt-0.5 text-label text-ink-3">{t("Run during scans and manual refreshes.")}</p>
             </div>
             <Switch
               checked={form.enabled}
@@ -535,14 +535,14 @@ function ProviderDialog({
             onChange={(event) => set("mapping", event.target.value)}
             rows={6}
             spellCheck={false}
-            className="w-full resize-y rounded-[2px] border border-line bg-surface px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-ink placeholder:text-ink-3"
+            className="w-full resize-y rounded-[var(--r-sm)] border border-line bg-surface px-3 py-2.5 font-mono text-label leading-relaxed text-ink placeholder:text-ink-3"
             placeholder={'{\n  "title": "data.name",\n  "coverUrl": "data.images.cover"\n}'}
           />
         </Field>
         {"error" in mappingResult ? (
-          <p className="text-[12px] text-danger">{mappingResult.error}</p>
+          <p className="text-label text-danger">{mappingResult.error}</p>
         ) : (
-          <p className="text-[12px] text-ink-3">{t("Canonical fields: {fields}", { fields: CANONICAL_FIELDS.join(", ") })}</p>
+          <p className="text-label text-ink-3">{t("Canonical fields: {fields}", { fields: CANONICAL_FIELDS.join(", ") })}</p>
         )}
       </form>
     </Dialog>
@@ -633,22 +633,22 @@ function TestDialog({
         </div>
 
         {error && (
-          <p className="border-l-2 border-danger pl-3 text-[12.5px] leading-relaxed text-danger">{error}</p>
+          <p className="border-l-2 border-danger pl-3 text-label leading-relaxed text-danger">{error}</p>
         )}
 
         {result && (
           <section aria-live="polite" className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={result.ok ? "ok" : "danger"}>{result.ok ? t("Reachable") : t("Test failed")}</Badge>
-              <span className="text-[12px] text-ink-3">
+              <span className="text-label text-ink-3">
                 {t("{count} candidates in {ms} ms", { count: result.candidates.length, ms: result.elapsedMs })}
               </span>
               {result.statusCode !== undefined && (
-                <span className="font-mono text-[11px] text-ink-3">HTTP {result.statusCode}</span>
+                <span className="font-mono text-meta text-ink-3">HTTP {result.statusCode}</span>
               )}
             </div>
             {result.error && (
-              <p className="border-l-2 border-danger pl-3 text-[12.5px] leading-relaxed text-danger">
+              <p className="border-l-2 border-danger pl-3 text-label leading-relaxed text-danger">
                 {result.error}
               </p>
             )}
@@ -660,7 +660,7 @@ function TestDialog({
               </ul>
             )}
             {result.ok && result.candidates.length === 0 && (
-              <p className="text-[12.5px] text-ink-2">{t("The provider answered but returned no candidate.")}</p>
+              <p className="text-label text-ink-2">{t("The provider answered but returned no candidate.")}</p>
             )}
           </section>
         )}
@@ -673,14 +673,14 @@ function CandidateRow({ candidate }: { candidate: ProviderCandidate }) {
   return (
     <li className="flex items-start gap-3 p-3">
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium text-ink">{candidate.title}</p>
-        <p className="mt-0.5 font-mono text-[11px] text-ink-3">
+        <p className="text-body font-medium text-ink">{candidate.title}</p>
+        <p className="mt-0.5 font-mono text-meta text-ink-3">
           {candidate.id}
           {candidate.releaseDate ? ` · ${candidate.releaseDate.slice(0, 10)}` : ""}
           {candidate.rating !== undefined ? ` · ${candidate.rating}/100` : ""}
         </p>
         {candidate.description && (
-          <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-ink-2">{candidate.description}</p>
+          <p className="mt-1 line-clamp-2 text-label leading-relaxed text-ink-2">{candidate.description}</p>
         )}
       </div>
       {candidate.providerUrl && (

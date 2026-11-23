@@ -69,10 +69,10 @@ export function GettingStartedCard({ className }: { className?: string }) {
     <section className={cn("border border-line bg-surface/40", className)} aria-labelledby="getting-started-heading">
       <div className="flex items-start justify-between gap-4 border-b border-line px-4 py-3">
         <div>
-          <h2 id="getting-started-heading" className="text-[13.5px] font-medium text-ink">
+          <h2 id="getting-started-heading" className="text-body font-medium text-ink">
             {t("Getting started")}
           </h2>
-          <p className="mt-0.5 font-mono text-[10px] text-ink-3">
+          <p className="mt-0.5 font-mono text-micro text-ink-3">
             {remaining.length === 0
               ? t("All recommended steps are done.")
               : t("{done} of {total} done", { done: rows.length - remaining.length, total: rows.length })}
@@ -90,7 +90,7 @@ export function GettingStartedCard({ className }: { className?: string }) {
       <ul className="px-4">
         {rows.map((row) => (
           <li key={row.id} className="border-b border-line py-2">
-            <Link to={row.to} className="flex items-center gap-2.5 text-[12.5px] text-ink-2 transition-colors hover:text-ink">
+            <Link to={row.to} className="flex items-center gap-2.5 text-label text-ink-2 transition-colors hover:text-ink">
               {row.done ? (
                 <Check className="size-3.5 shrink-0 text-ok" aria-label={t("Done")} />
               ) : (
@@ -103,13 +103,13 @@ export function GettingStartedCard({ className }: { className?: string }) {
         ))}
       </ul>
       <div className="flex items-center justify-between gap-3 px-4 py-3">
-        <button type="button" onClick={hide} className="text-[12px] text-ink-3 transition-colors hover:text-ink">
+        <button type="button" onClick={hide} className="text-label text-ink-3 transition-colors hover:text-ink">
           {t("Dismiss")}
         </button>
         <button
           type="button"
           onClick={() => openOnboarding()}
-          className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-ink transition-colors hover:text-signal-text"
+          className="inline-flex items-center gap-1.5 text-label font-medium text-ink transition-colors hover:text-signal-text"
         >
           {t("Resume")}
           <ArrowRight className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />

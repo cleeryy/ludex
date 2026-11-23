@@ -80,11 +80,11 @@ export function AddToCollectionDialog({
     >
       <div className="flex flex-col gap-5">
         <div>
-          <p className="pb-2 text-[12px] text-ink-3">{t("Your manual collections")}</p>
+          <p className="pb-2 text-label text-ink-3">{t("Your manual collections")}</p>
           {collections.isPending ? (
-            <p className="text-[13px] text-ink-3">{t("Loading…")}</p>
+            <p className="text-body text-ink-3">{t("Loading…")}</p>
           ) : own.length === 0 ? (
-            <p className="border border-line px-3 py-3 text-[13px] leading-relaxed text-ink-2">
+            <p className="border border-line px-3 py-3 text-body leading-relaxed text-ink-2">
               {t("No manual collections yet. Create one below and this game becomes its first entry.")}
             </p>
           ) : (
@@ -101,14 +101,14 @@ export function AddToCollectionDialog({
                     <ListPlus className="size-3.5" aria-hidden="true" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] text-ink">{collection.name}</span>
-                    <span className="mt-0.5 block font-mono text-[10px] text-ink-3">
+                    <span className="block truncate text-body text-ink">{collection.name}</span>
+                    <span className="mt-0.5 block font-mono text-micro text-ink-3">
                       {collection.gameCount} {collection.gameCount === 1 ? "game" : "games"}
                       {collection.isPublic ? t(" · public") : ""}
                     </span>
                   </span>
                   {busyId === collection.id ? (
-                    <span className="text-[11.5px] text-ink-3">{t("Adding…")}</span>
+                    <span className="text-meta text-ink-3">{t("Adding…")}</span>
                   ) : (
                     <Plus className="size-4 shrink-0 text-ink-3" aria-hidden="true" />
                   )}
@@ -119,7 +119,7 @@ export function AddToCollectionDialog({
         </div>
 
         <div>
-          <p className="pb-2 text-[12px] text-ink-3">{t("New collection")}</p>
+          <p className="pb-2 text-label text-ink-3">{t("New collection")}</p>
           <div className="flex items-stretch gap-2">
             <Input
               value={name}

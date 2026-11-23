@@ -209,7 +209,7 @@ export function CollectionDialog({
         </Field>
 
         <div>
-          <p className="pb-2 text-[13px] font-medium text-ink">{t("Kind")}</p>
+          <p className="pb-2 text-body font-medium text-ink">{t("Kind")}</p>
           <Segmented
             value={kind}
             onChange={setKind}
@@ -219,7 +219,7 @@ export function CollectionDialog({
               { value: "smart", label: t("Smart list") },
             ]}
           />
-          <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-2 text-meta leading-relaxed text-ink-3">
             {kind === "manual"
               ? t("Pick games by hand. You can add or remove them later from the collection page.")
               : t("Rules are evaluated when the collection is opened, against your library.")}
@@ -229,8 +229,8 @@ export function CollectionDialog({
         {kind === "manual" ? (
           <div>
             <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
-              <p className="text-[13px] font-medium text-ink">{t("Games")}</p>
-              <span className="num text-[11.5px] text-ink-3">
+              <p className="text-body font-medium text-ink">{t("Games")}</p>
+              <span className="num text-meta text-ink-3">
                 {t("{selected} of {total} selected", { selected: selected.length, total: games.length })}
               </span>
             </div>
@@ -239,11 +239,11 @@ export function CollectionDialog({
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("Filter by title")}
               aria-label={t("Filter games")}
-              className="mb-2 h-9 text-[13px]"
+              className="mb-2 h-9 text-body"
             />
             <div className="max-h-[260px] overflow-y-auto border border-line">
               {filtered.length === 0 ? (
-                <p className="p-3 text-[12.5px] text-ink-3">{t("No games match that filter.")}</p>
+                <p className="p-3 text-label text-ink-3">{t("No games match that filter.")}</p>
               ) : (
                 filtered.map((game) => {
                   const checked = selected.includes(game.id);
@@ -262,8 +262,8 @@ export function CollectionDialog({
                         label={`Include ${game.title}`}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] text-ink">{game.title}</span>
-                        <span className="mt-0.5 block font-mono text-[10px] text-ink-3">
+                        <span className="block truncate text-body text-ink">{game.title}</span>
+                        <span className="mt-0.5 block font-mono text-micro text-ink-3">
                           {formatYear(game.releaseDate)} · {game.genres.join(", ") || t("Unclassified")}
                         </span>
                       </span>
@@ -276,9 +276,9 @@ export function CollectionDialog({
         ) : (
           <div>
             <div className="flex flex-wrap items-center justify-between gap-3 pb-2">
-              <p className="text-[13px] font-medium text-ink">{t("Rules")}</p>
+              <p className="text-body font-medium text-ink">{t("Rules")}</p>
               <div className="flex items-center gap-2">
-                <span className="text-[11.5px] text-ink-3">{t("Match")}</span>
+                <span className="text-meta text-ink-3">{t("Match")}</span>
                 <Segmented
                   value={rules.match}
                   onChange={(match) => setRules((current) => ({ ...current, match }))}
@@ -303,14 +303,14 @@ export function CollectionDialog({
                       value={rule.field}
                       onChange={(field) => changeField(index, field)}
                       options={smartFields().map((field) => ({ value: field.value, label: field.label }))}
-                      className="h-9 text-[12.5px]"
+                      className="h-9 text-label"
                     />
                     <Select
                       label={`Rule ${index + 1} operator`}
                       value={rule.op ?? defaultOperator(rule.field)}
                       onChange={(op) => patchRule(index, { op })}
                       options={operators.map((operator) => ({ value: operator.value, label: operator.label }))}
-                      className="h-9 text-[12.5px]"
+                      className="h-9 text-label"
                     />
                     {rule.field === "installed" ? (
                       <div className="flex h-9 items-center gap-2">
@@ -319,7 +319,7 @@ export function CollectionDialog({
                           onCheckedChange={(value) => patchRule(index, { value })}
                           label={`Rule ${index + 1} installed`}
                         />
-                        <span className="text-[12.5px] text-ink-2">{rule.value ? t("Available") : t("Not available")}</span>
+                        <span className="text-label text-ink-2">{rule.value ? t("Available") : t("Not available")}</span>
                       </div>
                     ) : (
                       <div className="flex gap-2">
@@ -330,7 +330,7 @@ export function CollectionDialog({
                             patchRule(index, { value: numeric ? Number(event.target.value) : event.target.value })
                           }
                           aria-label={`Rule ${index + 1} value`}
-                          className="h-9 text-[12.5px]"
+                          className="h-9 text-label"
                         />
                         {rule.op === "between" && (
                           <Input
@@ -338,7 +338,7 @@ export function CollectionDialog({
                             value={String(rule.value2 ?? "")}
                             onChange={(event) => patchRule(index, { value2: Number(event.target.value) })}
                             aria-label={`Rule ${index + 1} upper bound`}
-                            className="h-9 text-[12.5px]"
+                            className="h-9 text-label"
                           />
                         )}
                       </div>
@@ -372,12 +372,12 @@ export function CollectionDialog({
               >
                 {t("Add rule")}
               </Button>
-              <span className="num text-[11.5px] text-ink-3">
+              <span className="num text-meta text-ink-3">
                 {t("{shown} of {total} games", { shown: previewCount, total: games.length })}
               </span>
             </div>
             {rules.rules.length === 0 && (
-              <p className="mt-2 border-l-2 border-line-2 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+              <p className="mt-2 border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
                 {t("A smart collection with no rules stays empty. Add at least one.")}
               </p>
             )}
@@ -385,7 +385,7 @@ export function CollectionDialog({
         )}
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
             {error}
           </p>
         )}

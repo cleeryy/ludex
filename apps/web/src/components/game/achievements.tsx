@@ -86,7 +86,7 @@ export function AchievementsPanel({
             <Skeleton className="h-12 w-full" />
           </div>
         ) : isError ? (
-          <p className="text-[12.5px] text-ink-3">{t("Achievements could not be loaded:")} {errorMessage(error)}</p>
+          <p className="text-label text-ink-3">{t("Achievements could not be loaded:")} {errorMessage(error)}</p>
         ) : !data || data.total === 0 ? (
           <EmptyState
             compact
@@ -97,14 +97,14 @@ export function AchievementsPanel({
           <div className="flex flex-col gap-5">
             <div>
               <div className="flex items-baseline justify-between gap-4 pb-1.5">
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">{t("Completion")}</span>
-                <span className="num text-[12px] text-ink-2">{formatPercent(data.completion, 1)}</span>
+                <span className="text-micro uppercase tracking-[0.08em] text-ink-3">{t("Completion")}</span>
+                <span className="num text-label text-ink-2">{formatPercent(data.completion, 1)}</span>
               </div>
               <Progress
                 value={data.completion}
                 label={`Achievements: ${data.unlocked} of ${data.total} unlocked`}
               />
-              <p className="mt-2 flex flex-wrap items-baseline gap-x-3 font-mono text-[10.5px] text-ink-3">
+              <p className="mt-2 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
                 <span>{tn(data.total, "1 achievement", "{count} achievements")}</span>
                 <span>{tn(data.points, "1 point", "{count} points")}</span>
                 {data.lastScan && <span>{t("Scanned")} {formatDate(data.lastScan.scannedAt)}</span>}
@@ -136,7 +136,7 @@ function AchievementRow({ achievement }: { achievement: Achievement }) {
       <AchievementIcon achievement={achievement} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-          <p className={achievement.unlocked ? "text-[13.5px] text-ink" : "text-[13.5px] text-ink-2"}>
+          <p className={achievement.unlocked ? "text-body text-ink" : "text-body text-ink-2"}>
             {achievement.name}
           </p>
           {achievement.unlocked ? (
@@ -145,17 +145,17 @@ function AchievementRow({ achievement }: { achievement: Achievement }) {
               {t("{count} pts", { count: achievement.points })}
             </Badge>
           ) : (
-            <span className="inline-flex items-center gap-1 font-mono text-[10.5px] text-ink-3">
+            <span className="inline-flex items-center gap-1 font-mono text-micro text-ink-3">
               <Lock className="size-3" aria-hidden="true" />
               {t("{count} pts", { count: achievement.points })}
             </span>
           )}
-          {achievement.hidden && <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">{t("Hidden")}</span>}
+          {achievement.hidden && <span className="text-micro uppercase tracking-[0.08em] text-ink-3">{t("Hidden")}</span>}
         </div>
         {achievement.description && (
-          <p className="mt-0.5 text-[12px] leading-relaxed text-ink-3">{achievement.description}</p>
+          <p className="mt-0.5 text-label leading-relaxed text-ink-3">{achievement.description}</p>
         )}
-        <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-[10px] text-ink-3">
+        <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
           <span>{t("{percent} of players", { percent: formatPercent(achievement.unlockPercentage, 1) })}</span>
           {achievement.unlockedAt && <span>{t("Unlocked")} {formatDate(achievement.unlockedAt)}</span>}
           {achievement.provider !== "manual" && <span>{providerLabel(achievement.provider)}</span>}
@@ -173,7 +173,7 @@ function AchievementIcon({ achievement }: { achievement: Achievement }) {
         src={achievement.iconUrl}
         alt=""
         loading="lazy"
-        className={achievement.unlocked ? "size-10 shrink-0 rounded-[2px] border border-line object-cover" : "size-10 shrink-0 rounded-[2px] border border-line object-cover grayscale"}
+        className={achievement.unlocked ? "size-10 shrink-0 rounded-[var(--r-sm)] border border-line object-cover" : "size-10 shrink-0 rounded-[var(--r-sm)] border border-line object-cover grayscale"}
       />
     );
   }
@@ -183,8 +183,8 @@ function AchievementIcon({ achievement }: { achievement: Achievement }) {
       aria-hidden="true"
       className={
         achievement.unlocked
-          ? "grid size-10 shrink-0 place-items-center rounded-[2px] border border-signal/40 bg-signal/10 font-mono text-[13px] text-signal-text"
-          : "grid size-10 shrink-0 place-items-center rounded-[2px] border border-line bg-surface-2 font-mono text-[13px] text-ink-3"
+          ? "grid size-10 shrink-0 place-items-center rounded-[var(--r-sm)] border border-signal/40 bg-signal/10 font-mono text-body text-signal-text"
+          : "grid size-10 shrink-0 place-items-center rounded-[var(--r-sm)] border border-line bg-surface-2 font-mono text-body text-ink-3"
       }
     >
       {achievement.hidden && !achievement.unlocked ? <Lock className="size-3.5" /> : letter}

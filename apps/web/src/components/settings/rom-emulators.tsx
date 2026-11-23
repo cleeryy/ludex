@@ -73,15 +73,15 @@ export function RomEmulatorsPanel() {
 
   const data = settings.data;
   if (!data) {
-    return <p className="text-[12.5px] text-ink-3">{t("The emulator registry is available in the desktop app.")}</p>;
+    return <p className="text-label text-ink-3">{t("The emulator registry is available in the desktop app.")}</p>;
   }
 
   return (
     <div className="flex flex-col gap-5">
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse text-label">
           <thead>
-            <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
+            <tr className="border-b border-line text-left text-micro uppercase tracking-[0.1em] text-ink-3">
               <th className="py-2 font-normal">{t("Emulator")}</th>
               <th className="py-2 font-normal">{t("Command")}</th>
               <th className="py-2 font-normal">{t("Platforms")}</th>
@@ -98,10 +98,10 @@ export function RomEmulatorsPanel() {
                     {!emulator.enabled && <Badge tone="danger">{t("Disabled")}</Badge>}
                   </span>
                 </td>
-                <td className="max-w-[280px] truncate py-2 pr-3 font-mono text-[10.5px] text-ink-3" title={emulator.command}>
+                <td className="max-w-[280px] truncate py-2 pr-3 font-mono text-micro text-ink-3" title={emulator.command}>
                   {emulator.command}
                 </td>
-                <td className="py-2 pr-3 font-mono text-[10.5px] text-ink-3">{emulator.platforms.join(", ") || "—"}</td>
+                <td className="py-2 pr-3 font-mono text-micro text-ink-3">{emulator.platforms.join(", ") || "—"}</td>
                 <td className="py-2 text-right">
                   <Button size="sm" variant="ghost" onClick={() => setDraft({ ...emulator })}>
                     {t("Edit")}
@@ -121,8 +121,8 @@ export function RomEmulatorsPanel() {
         </table>
       </div>
 
-      <div className="rounded-[2px] border border-line/70 p-3">
-        <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
+      <div className="rounded-[var(--r-sm)] border border-line/70 p-3">
+        <p className="flex items-center gap-2 text-micro uppercase tracking-[0.1em] text-ink-3">
           <Cpu className="size-3.5" /> {draft.id ? t("Edit emulator") : t("Add an emulator")}
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -150,7 +150,7 @@ export function RomEmulatorsPanel() {
           <Input
             value={draft.command}
             spellCheck={false}
-            className="font-mono text-[12px]"
+            className="font-mono text-label"
             onChange={(event) => setDraft({ ...draft, command: event.target.value })}
           />
         </Field>
@@ -171,7 +171,7 @@ export function RomEmulatorsPanel() {
             {t("Save emulator")}
           </Button>
           {validation && (
-            <span className={validation.valid ? "text-[11.5px] text-ok" : "text-[11.5px] text-danger"}>
+            <span className={validation.valid ? "text-meta text-ok" : "text-meta text-danger"}>
               {validation.valid ? t("Command looks good") : validation.error}
             </span>
           )}
@@ -179,13 +179,13 @@ export function RomEmulatorsPanel() {
       </div>
 
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">{t("Platform defaults")}</p>
+        <p className="text-micro uppercase tracking-[0.1em] text-ink-3">{t("Platform defaults")}</p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {data.platforms.map((platform) => {
             const candidates = data.registry.emulators.filter((emulator) => emulator.enabled && emulator.platforms.includes(platform.id));
             return (
               <div key={platform.id} className="flex items-center justify-between gap-3 border-b border-line/60 py-1.5">
-                <span className="text-[12px] text-ink-2">{platform.label}</span>
+                <span className="text-label text-ink-2">{platform.label}</span>
                 <div className="w-[190px]">
                   <Select
                     label={t("Default emulator for {platform}", { platform: platform.label })}

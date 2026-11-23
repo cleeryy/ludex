@@ -122,7 +122,7 @@ function BootScreen() {
         <div className="h-px w-44 overflow-hidden bg-line">
           <div className="h-full w-1/3 animate-[slide_1.4s_ease-in-out_infinite] bg-signal" />
         </div>
-        <p className="text-[11.5px] text-ink-3">{t("Opening the library")}</p>
+        <p className="text-meta text-ink-3">{t("Opening the library")}</p>
       </div>
       <FloatingWindowControls />
     </div>
@@ -141,9 +141,9 @@ function BootError({ message }: { message: string }) {
       </div>
       <div className="flex flex-1 items-center px-6">
         <div className="w-full max-w-[480px]">
-          <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.03em]">{t("The server did not answer")}</h1>
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">{message}</p>
-          <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">
+          <h1 className="text-display font-semibold leading-tight tracking-[-0.03em]">{t("The server did not answer")}</h1>
+          <p className="mt-3 text-body leading-relaxed text-ink-2">{message}</p>
+          <p className="mt-2 text-label leading-relaxed text-ink-3">
             {t("Check that the Ludex server is running, then try again. In the desktop app you can also reset the connection and point it at another address.")}
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
@@ -152,7 +152,7 @@ function BootError({ message }: { message: string }) {
             </Button>
             {isNative() && (
               <Button
-                variant="default"
+                variant="outline"
                 onClick={async () => {
                   const current = await native.getSettings();
                   if (current) await native.saveSettings({ ...current, serverUrl: "", token: null });
@@ -165,7 +165,7 @@ function BootError({ message }: { message: string }) {
           </div>
         </div>
       </div>
-      <div className="px-6 pb-6 font-mono text-[11px] text-ink-3">{api ? "api: configured" : null}</div>
+      <div className="px-6 pb-6 font-mono text-meta text-ink-3">{api ? "api: configured" : null}</div>
       <FloatingWindowControls />
     </div>
   );

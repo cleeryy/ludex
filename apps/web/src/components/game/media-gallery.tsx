@@ -51,7 +51,7 @@ function TrailerFallback({ video }: { video: GameVideo }) {
   const watch = youtubeWatchUrl(video);
   if (!watch) return null;
   return (
-    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-ink-3">
+    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-3">
       <span>{t("If the trailer does not play, its owner may have disabled embedding or blocked it in your region.")}</span>
       <a
         href={watch}
@@ -150,12 +150,12 @@ export function TrailerPlayer({
         </span>
         <span className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4">
           <span className="min-w-0">
-            <span className="block truncate text-[14px] font-medium text-sheen">{video.title || title}</span>
-            <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-sheen/65">
+            <span className="block truncate text-body font-medium text-sheen">{video.title || title}</span>
+            <span className="mt-0.5 block text-micro uppercase tracking-[0.14em] text-sheen/65">
               {isYoutube ? t("YouTube · no cookies until play") : t("Video")}
             </span>
           </span>
-          <span className="hidden shrink-0 border border-sheen/25 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-sheen/70 sm:block">
+          <span className="hidden shrink-0 border border-sheen/25 px-2 py-1 text-micro uppercase tracking-[0.12em] text-sheen/70 sm:block">
             {t("Play")}
           </span>
         </span>
@@ -284,7 +284,7 @@ function MediaLightbox({
           <MediaFrame item={current} game={game} spec={spec} seed={seed} />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="font-mono text-[11px] text-ink-3">
+          <span className="font-mono text-meta text-ink-3">
             {index + 1} / {items.length}
             {current.kind === "video" ? t(" · video") : t(" · still")}
           </span>
@@ -314,7 +314,7 @@ function MediaLightbox({
             </IconButton>
           </div>
         </div>
-        <p className="text-[11.5px] text-ink-3">
+        <p className="text-meta text-ink-3">
           {t("Arrow keys move through the gallery, Escape closes it. Trailers only load after you press play.")}
         </p>
       </div>
@@ -403,8 +403,8 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
                         )}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-[12px] text-ink">{video.title}</span>
-                        <span className="mt-0.5 block font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
+                        <span className="block truncate text-label text-ink">{video.title}</span>
+                        <span className="mt-0.5 block text-micro uppercase tracking-[0.1em] text-ink-3">
                           {index === 0 ? t("Featured") : t("Trailer")}
                         </span>
                       </span>
@@ -425,7 +425,7 @@ export function MediaGallery({ game, spec, seed }: { game: GameDetail; spec: Art
               key={item.kind === "video" ? `video-${index}-${item.video.url}` : `still-${index}`}
               type="button"
               onClick={() => setLightbox(index)}
-              className="group relative w-[240px] shrink-0 overflow-hidden rounded-[2px] border border-line text-left transition-colors hover:border-line-2 sm:w-[300px]"
+              className="group relative w-[240px] shrink-0 overflow-hidden rounded-[var(--r-sm)] border border-line text-left transition-colors hover:border-line-2 sm:w-[300px]"
               aria-label={
                 item.kind === "video" ? `Open video ${index + 1}` : `Open still ${item.index + 1}`
               }

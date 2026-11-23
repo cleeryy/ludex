@@ -108,14 +108,14 @@ export function RemoteInstallAction({
       <Link to="/remote" className="inline-flex items-center gap-2">
         <Badge tone={remoteStatusTone(install.status)}>{remoteStatusLabel(install.status)}</Badge>
         {percent !== null && (
-          <span className="num text-[12px] text-ink-3">
+          <span className="num text-label text-ink-3">
             {isRemoteActive(install.status) && (
               <Loader2 className="me-1 inline size-3 animate-spin text-signal" aria-hidden="true" />
             )}
             {percent}%
           </span>
         )}
-        <span className="text-[12.5px] text-ink-2 underline decoration-line-2 underline-offset-2">
+        <span className="text-label text-ink-2 underline decoration-line-2 underline-offset-2">
           {isRemoteActive(install.status) ? t("Follow progress") : t("Open the queue")}
         </span>
       </Link>

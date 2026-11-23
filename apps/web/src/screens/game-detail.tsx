@@ -505,7 +505,7 @@ export function GameDetailScreen() {
   const versionPicker =
     game.versions.length > 1 && version ? (
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-[12px] text-ink-3">{t("Game version")}</span>
+        <span className="text-label text-ink-3">{t("Game version")}</span>
         <div className="w-full sm:w-[240px]">
           <Select
             label={t("Game version")}
@@ -516,7 +516,7 @@ export function GameDetailScreen() {
               label: entry.version ? `v${entry.version}` : entry.fileName,
               hint: formatBytes(entry.size),
             }))}
-            className="h-10 text-[13px]"
+            className="h-10 text-body"
           />
         </div>
       </div>
@@ -631,7 +631,7 @@ export function GameDetailScreen() {
         <button
           type="button"
           onClick={back}
-          className="inline-flex h-8 items-center gap-2 text-[12.5px] text-ink-2 transition-colors hover:text-ink"
+          className="inline-flex h-8 items-center gap-2 text-label text-ink-2 transition-colors hover:text-ink"
         >
           <ArrowLeft className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
           {t("Back")}
@@ -645,7 +645,7 @@ export function GameDetailScreen() {
           </div>
 
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-meta uppercase tracking-[0.08em] text-ink-3">
               <span>{formatYear(game.releaseDate)}</span>
               {game.ageRating && (
                 <>
@@ -661,15 +661,15 @@ export function GameDetailScreen() {
               {game.kind === "rom" && <Badge tone="outline">{t("ROM")}</Badge>}
             </div>
 
-            <h1 className="mt-3 max-w-[18ch] text-[clamp(2.4rem,4.6vw,4.25rem)] font-semibold leading-[0.94] tracking-[-0.035em]">
+            <h1 className="mt-3 max-w-[18ch] text-display sm:text-hero font-semibold leading-[0.94] tracking-[-0.035em]">
               {game.title}
             </h1>
 
-            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px] text-ink-2">
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-label text-ink-2">
               {formatRating(game.rating) && (
                 <span className="flex items-baseline gap-1.5">
-                  <span className="num text-[15px] text-ink">{formatRating(game.rating)}</span>
-                  <span className="text-[11px] text-ink-3">/ 100</span>
+                  <span className="num text-lead text-ink">{formatRating(game.rating)}</span>
+                  <span className="text-meta text-ink-3">/ 100</span>
                 </span>
               )}
               <span className="num">{formatBytes(game.totalSize)}</span>
@@ -683,7 +683,7 @@ export function GameDetailScreen() {
               {game.lastPlayedAt && <span className="text-ink-3">{t("Last played")} {formatRelative(game.lastPlayedAt)}</span>}
             </div>
 
-            {game.description && <p className="measure mt-6 text-[14.5px] leading-relaxed text-ink-2">{game.description}</p>}
+            {game.description && <p className="measure mt-6 text-lead leading-relaxed text-ink-2">{game.description}</p>}
 
             {game.versionCount === 0 && <MissingArchiveNotice game={game} />}
 
@@ -730,7 +730,7 @@ export function GameDetailScreen() {
             {activeJob && (
               <div className="mt-4 max-w-[360px]">
                 <Progress value={installPct} label={t("Install progress")} />
-                <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-[10.5px] text-ink-3">
+                <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 font-mono text-micro text-ink-3">
                   <span className="text-ink-2">
                     {activeJob.phase === "downloading" ? t("Downloading") : activeJob.phase === "paused" ? t("Paused") : activeJob.phase}
                   </span>
@@ -879,7 +879,7 @@ function StatePicker({ state, onChange }: { state: ProgressState; onChange: (sta
     <>
       <button
         {...menu.triggerProps}
-        className="flex h-9 items-center gap-2 rounded-[2px] border border-line bg-surface px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+        className="flex h-9 items-center gap-2 rounded-[var(--r-sm)] border border-line bg-surface px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
       >
         <span className={cn("size-1.5 rounded-full", STATE_TONE[state].dot)} aria-hidden="true" />
         <span className="text-ink-3">{t("Progress")}</span>

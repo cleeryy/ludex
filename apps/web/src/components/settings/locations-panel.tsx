@@ -36,15 +36,15 @@ function SpaceLedgerSummary() {
   if (totals.length === 0) return null;
   return (
     <div className="border border-line p-4">
-      <p className="text-[12.5px] font-medium text-ink">{t("Reserved for installs")}</p>
-      <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="text-label font-medium text-ink">{t("Reserved for installs")}</p>
+      <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
         {t("Each active install reserves its worst-case size (archive plus extracted files, with a safety margin) on its volume. A queued install only starts when its own reservation fits next to these.")}
       </p>
       <div className="mt-3 flex flex-col divide-y divide-line border-y border-line">
         {totals.map((total) => (
           <div key={total.volume} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
-            <span className="truncate font-mono text-[11.5px] text-ink-2">{total.volume}</span>
-            <span className="flex items-baseline gap-3 text-[11.5px] text-ink-3">
+            <span className="truncate font-mono text-meta text-ink-2">{total.volume}</span>
+            <span className="flex items-baseline gap-3 text-meta text-ink-3">
               <span>{t("{size} reserved", { size: formatBytes(total.reservedBytes) })}</span>
               <Badge tone="outline">
                 {total.jobs === 1 ? t("1 install") : t("{count} installs", { count: total.jobs })}
@@ -296,8 +296,8 @@ export function LocationsPanel({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Locations")}</p>
-          <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("Locations")}</p>
+          <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
             {t("Named folders for installs, temporary archives and scratch space. Each install can pick one, and an unplugged drive only fails that job.")}
           </p>
         </div>
@@ -305,7 +305,7 @@ export function LocationsPanel({
       </div>
 
       {locations.length === 0 && (
-        <p className="border border-dashed border-line px-3 py-4 text-[12px] text-ink-3">
+        <p className="border border-dashed border-line px-3 py-4 text-label text-ink-3">
           {t("No location saved yet. Ludex will create one from the default install folder on save.")}
         </p>
       )}
@@ -315,12 +315,12 @@ export function LocationsPanel({
       {nativeAvailable && detected && detected.suggestions.length > 0 && (
         <div className="border border-line p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-[12.5px] font-medium text-ink">{t("Add a detected folder")}</p>
+            <p className="text-label font-medium text-ink">{t("Add a detected folder")}</p>
             <Button size="sm" variant="quiet" loading={detecting} onClick={() => void detect()}>
               {t("Refresh")}
             </Button>
           </div>
-          <p className="mt-1 max-w-[56ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
             {t("Drives and mounts found on this computer, with their free space. The recommended one is preselected for new installs.")}
           </p>
           <div className="mt-3 flex flex-col divide-y divide-line border-y border-line">
@@ -332,8 +332,8 @@ export function LocationsPanel({
                   label={suggestion.path}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-mono text-[11.5px] text-ink">{suggestion.path}</p>
-                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[10.5px] text-ink-3">
+                  <p className="truncate font-mono text-meta text-ink">{suggestion.path}</p>
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-micro text-ink-3">
                     <span>
                       {suggestion.freeBytes !== null
                         ? t("{free} free", { free: formatBytes(suggestion.freeBytes) })
@@ -350,9 +350,9 @@ export function LocationsPanel({
             ))}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <span className="text-[11px] text-ink-3">{t("Add as")}</span>
+            <span className="text-meta text-ink-3">{t("Add as")}</span>
             {KINDS.map((value) => (
-              <span key={value} className="flex items-center gap-2 text-[11.5px] text-ink-2">
+              <span key={value} className="flex items-center gap-2 text-meta text-ink-2">
                 <Checkbox
                   checked={roles[value]}
                   onCheckedChange={(checked) => setRoles((current) => ({ ...current, [value]: checked }))}
@@ -371,7 +371,7 @@ export function LocationsPanel({
               {t("Add selected")}
             </Button>
           </div>
-          <p className="mt-2 text-[10.5px] text-ink-3">
+          <p className="mt-2 text-micro text-ink-3">
             {t("Nothing is created before you save these locations, and existing installations keep their current paths.")}
           </p>
         </div>
@@ -390,7 +390,7 @@ export function LocationsPanel({
                     value={location.label}
                     onChange={(event) => update(index, { label: event.target.value })}
                     aria-label={t("Location name")}
-                    className="h-9 text-[13px]"
+                    className="h-9 text-body"
                     maxLength={60}
                   />
                 </div>
@@ -400,7 +400,7 @@ export function LocationsPanel({
                     onChange={(event) => update(index, { path: event.target.value })}
                     aria-label={t("Location folder")}
                     spellCheck={false}
-                    className="h-9 font-mono text-[11.5px]"
+                    className="h-9 font-mono text-meta"
                   />
                 </div>
                 <div className="w-[130px]">
@@ -409,7 +409,7 @@ export function LocationsPanel({
                     value={location.kind}
                     onChange={(value) => update(index, { kind: value as LocationKind })}
                     options={KINDS.map((value) => ({ value, label: kindLabel(value) }))}
-                    className="h-9 text-[12px]"
+                    className="h-9 text-label"
                   />
                 </div>
                 <div className="flex items-center gap-1">
@@ -442,7 +442,7 @@ export function LocationsPanel({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-[10.5px] text-ink-3">
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-micro text-ink-3">
                 <span className="text-ink-2">{kindLabel(location.kind)}</span>
                 {status ? (
                   <>
@@ -476,7 +476,7 @@ export function LocationsPanel({
             value={label}
             onChange={(event) => setLabel(event.target.value)}
             placeholder={t("Fast SSD")}
-            className="h-9 text-[13px]"
+            className="h-9 text-body"
             maxLength={60}
           />
         </Field>
@@ -488,7 +488,7 @@ export function LocationsPanel({
               onChange={(event) => setPath(event.target.value)}
               placeholder="/mnt/fast/Games"
               spellCheck={false}
-              className="h-9 font-mono text-[11.5px]"
+              className="h-9 font-mono text-meta"
             />
             <Button variant="ghost" onClick={() => void pick()} aria-label={t("Choose folder")} icon={<FolderOpen className="size-3.5" />} />
           </div>
@@ -499,7 +499,7 @@ export function LocationsPanel({
             value={kind}
             onChange={(value) => setKind(value as LocationKind)}
             options={KINDS.map((value) => ({ value, label: kindLabel(value) }))}
-            className="h-9 text-[12px]"
+            className="h-9 text-label"
           />
         </Field>
         <Button variant="default" icon={<Plus className="size-3.5" />} onClick={add} className="h-9">

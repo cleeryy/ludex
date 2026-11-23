@@ -24,15 +24,15 @@ function usedPercent(overview: CacheOverview): number {
 }
 
 const linkClass =
-  "inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 underline decoration-line-2 underline-offset-4 transition-colors duration-[120ms] hover:text-ink";
+  "inline-flex items-center gap-1.5 text-label text-ink-2 underline decoration-line-2 underline-offset-4 transition-colors duration-[120ms] hover:text-ink";
 
 /** One number of the capacity strip. */
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="flex flex-col gap-1 py-4 sm:px-6 sm:first:ps-0 sm:last:pe-0">
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{label}</span>
-      <span className="num text-[clamp(1.35rem,2vw,1.85rem)] font-semibold leading-none text-ink">{value}</span>
-      {hint && <span className="num text-[11.5px] text-ink-3">{hint}</span>}
+      <span className="text-micro uppercase tracking-[0.12em] text-ink-3">{label}</span>
+      <span className="num text-title sm:text-display font-semibold leading-none text-ink">{value}</span>
+      {hint && <span className="num text-meta text-ink-3">{hint}</span>}
     </div>
   );
 }
@@ -200,10 +200,10 @@ export function ExtractedCacheScreen() {
               {t("Open download settings")}
             </Link>
           ) : (
-            <p className="mt-5 text-[12.5px] leading-relaxed text-ink-3">
+            <p className="mt-5 text-label leading-relaxed text-ink-3">
               {tr("Set {variable} on the server and restart it to turn the cache on.", {
                 variable: (
-                  <code className="font-mono text-[11.5px] text-ink-2">LUDEX_EXTRACTED_CACHE=1</code>
+                  <code className="font-mono text-meta text-ink-2">LUDEX_EXTRACTED_CACHE=1</code>
                 ),
               })}
             </p>
@@ -237,10 +237,10 @@ export function ExtractedCacheScreen() {
               className="mt-4"
             />
             <div className="mt-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+              <span className="text-micro uppercase tracking-[0.12em] text-ink-3">
                 {t("Cache folder")}
               </span>
-              <code className="break-all font-mono text-[11.5px] text-ink-2">{data.root || "—"}</code>
+              <code className="break-all font-mono text-meta text-ink-2">{data.root || "—"}</code>
             </div>
           </section>
 
@@ -266,9 +266,9 @@ export function ExtractedCacheScreen() {
               </EmptyState>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] border-collapse text-left text-[12.5px]">
+                <table className="w-full min-w-[860px] border-collapse text-left text-label">
                   <thead>
-                    <tr className="border-b border-line-2 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
+                    <tr className="border-b border-line-2 text-micro uppercase tracking-[0.1em] text-ink-3">
                       <th className="py-2 pe-3">{t("Archive")}</th>
                       <th className="py-2 pe-3 text-end">{t("Version")}</th>
                       <th className="py-2 pe-3 text-end">{t("Extracted")}</th>
@@ -285,7 +285,7 @@ export function ExtractedCacheScreen() {
                           <span className="flex items-center gap-1">
                             <code
                               title={entry.sha256}
-                              className="font-mono text-[11.5px] text-ink-2"
+                              className="font-mono text-meta text-ink-2"
                             >
                               {shortSha(entry.sha256)}
                             </code>

@@ -312,7 +312,7 @@ export function InstallDialog({
       <div className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Install location")}</span>
+            <span className="text-label text-ink-2">{t("Install location")}</span>
             {installLocations.length > 0 ? (
               <Select
                 label={t("Install location")}
@@ -323,19 +323,19 @@ export function InstallDialog({
                   label: location.default ? t("{label} (default)", { label: location.label }) : location.label,
                   hint: location.freeBytes != null ? t("{free} free", { free: formatBytes(location.freeBytes) }) : location.note ?? undefined,
                 }))}
-                className="h-10 text-[12px]"
+                className="h-10 text-label"
               />
             ) : (
-              <p className="truncate font-mono text-[11px] text-ink-2">{settings?.installDir || t("Set in Settings")}</p>
+              <p className="truncate font-mono text-meta text-ink-2">{settings?.installDir || t("Set in Settings")}</p>
             )}
             {installStatus && (
-              <p className="font-mono text-[10.5px] text-ink-3">
+              <p className="font-mono text-micro text-ink-3">
                 {installStatus.writable ? t("Writable") : t("Not writable")} · {installStatus.path}
               </p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Download location")}</span>
+            <span className="text-label text-ink-2">{t("Download location")}</span>
             <Select
               label={t("Download location")}
               value={downloadLocationId}
@@ -348,31 +348,31 @@ export function InstallDialog({
                   hint: location.freeBytes != null ? t("{free} free", { free: formatBytes(location.freeBytes) }) : location.note ?? undefined,
                 })),
               ]}
-              className="h-10 text-[12px]"
+              className="h-10 text-label"
             />
-            <p className="text-[10.5px] leading-relaxed text-ink-3">
+            <p className="text-micro leading-relaxed text-ink-3">
               {preflightCopy(transport, { stagingOnInstall, sameVolume })}
             </p>
           </div>
         </div>
 
-        <dl className="flex flex-col gap-2 border-t border-line pt-3 text-[12.5px]">
+        <dl className="flex flex-col gap-2 border-t border-line pt-3 text-label">
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-ink-3">{t("Archive")}</dt>
-            <dd className="truncate font-mono text-[11px] text-ink-2">{version.fileName}</dd>
+            <dd className="truncate font-mono text-meta text-ink-2">{version.fileName}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-ink-3">{t("Peak disk use")}</dt>
-            <dd className="truncate text-right text-[11.5px] text-ink-2">{formatBytes(estimate.peakBytes)}</dd>
+            <dd className="truncate text-right text-meta text-ink-2">{formatBytes(estimate.peakBytes)}</dd>
           </div>
         </dl>
-        <p className="text-[11.5px] leading-relaxed text-ink-3">{peakEstimateLabel(estimate, archiveOnInstallVolume)}</p>
+        <p className="text-meta leading-relaxed text-ink-3">{peakEstimateLabel(estimate, archiveOnInstallVolume)}</p>
 
         {/* #224: advisory only. A malicious archive is loud, never blocking. */}
         <VirusTotalArchiveWarning gameId={game.id} versionId={version.id} />
 
         {rollback && (
-          <p className="border-l-2 border-signal pl-3 text-[12px] leading-relaxed text-signal-text">
+          <p className="border-l-2 border-signal pl-3 text-label leading-relaxed text-signal-text">
             {t(
               "This version is older than the one installed. Ludex installs it alongside the current files and switches the launch path to it; the previous folder is left on disk. Saves live outside the install folder and are not modified. Older builds may not read saves written by a newer one.",
             )}
@@ -382,11 +382,11 @@ export function InstallDialog({
         {job && (
           <div className="flex flex-col gap-2 border-t border-line pt-4">
             <div className="flex items-baseline justify-between gap-3">
-              <span className="text-[12.5px] text-ink">{installPhaseLabel(job.phase)}</span>
-              {pct !== null && <span className="num text-[11.5px] text-ink-3">{formatPercent(pct)}</span>}
+              <span className="text-label text-ink">{installPhaseLabel(job.phase)}</span>
+              {pct !== null && <span className="num text-meta text-ink-3">{formatPercent(pct)}</span>}
             </div>
             <Progress value={pct} label={t("Install progress")} />
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
               <span>{formatBytes(job.bytesDone)}</span>
               {job.bytesTotal && <span>{t("{done} of {total}", { done: formatBytes(job.bytesDone), total: formatBytes(job.bytesTotal) })}</span>}
               {job.phase === "downloading" && job.speedBps > 0 && <span>{formatSpeed(job.speedBps)}</span>}
@@ -409,12 +409,12 @@ export function InstallDialog({
               ) : null}
             </div>
             {job.currentEntry && (
-              <p className="truncate font-mono text-[10.5px] text-ink-3" title={job.currentEntry}>
+              <p className="truncate font-mono text-micro text-ink-3" title={job.currentEntry}>
                 {job.currentEntry}
               </p>
             )}
             {job.resumedEntries !== null && job.resumedEntries > 0 && (
-              <p className="text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 {tn(
                   job.resumedEntries,
                   "Resumed {count} file already on disk.",
@@ -424,26 +424,26 @@ export function InstallDialog({
               </p>
             )}
             {active && (
-              <p className="text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 {t("You can close this window. The install keeps running and stays in Downloads.")}
               </p>
             )}
             {streamFailed && (
-              <p className="text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 {t(
                   "This stream has no per-file checkpoint and cannot be resumed; retrying as a download keeps the archive so it can resume.",
                 )}
               </p>
             )}
             {job.stream && job.resumable && !streamFailed && (
-              <p className="text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 {t(
                   "Stream installs resume file by file: closing or losing the connection never re-downloads completed files.",
                 )}
               </p>
             )}
             {waitingLine && (
-              <p className="border-l-2 border-signal pl-3 text-[11.5px] leading-relaxed text-signal-text">
+              <p className="border-l-2 border-signal pl-3 text-meta leading-relaxed text-signal-text">
                 {waitingLine}
               </p>
             )}
@@ -451,7 +451,7 @@ export function InstallDialog({
               <button
                 type="button"
                 onClick={() => void downloads.openFolder(job.installPath!)}
-                className="flex w-fit items-center gap-1.5 text-[11.5px] text-ink-3 hover:text-ink"
+                className="flex w-fit items-center gap-1.5 text-meta text-ink-3 hover:text-ink"
               >
                 <FolderOpen className="size-3.5" aria-hidden="true" />
                 {t("Open install folder")}
@@ -461,11 +461,11 @@ export function InstallDialog({
         )}
 
         {spaceError && (
-          <p className="border-l-2 border-signal pl-3 text-[12px] text-signal-text">{spaceError}</p>
+          <p className="border-l-2 border-signal pl-3 text-label text-signal-text">{spaceError}</p>
         )}
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}

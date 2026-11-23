@@ -69,17 +69,17 @@ export function CompatRulesPanel({ gameId }: { gameId: number }) {
             <Skeleton className="h-3 w-1/2" />
           </div>
         ) : report.isError ? (
-          <p className="text-[12px] text-ink-3">{t("The rules could not be read for this game.")}</p>
+          <p className="text-label text-ink-3">{t("The rules could not be read for this game.")}</p>
         ) : data ? (
           <div className="space-y-4">
             {data.degraded && (
-              <p className="max-w-[80ch] text-[11.5px] leading-relaxed text-ink-3">
+              <p className="max-w-[80ch] text-meta leading-relaxed text-ink-3">
                 {t("The rules file could not be read. Ludex uses the shipped defaults.")}
               </p>
             )}
 
             {rules.length === 0 ? (
-              <p className="max-w-[80ch] text-[12px] leading-relaxed text-ink-3">
+              <p className="max-w-[80ch] text-label leading-relaxed text-ink-3">
                 {t("No compatibility rule targets this game yet. Ludex uses your launch options as they are.")}
               </p>
             ) : (
@@ -106,9 +106,9 @@ function RuleRow({ rule }: { rule: CompatEvaluatedRule }) {
         <Badge tone="default">{confidenceLabel(rule.confidence)}</Badge>
         {rule.applied && <Badge tone="ok">{t("Applied")}</Badge>}
       </div>
-      <p className="mt-2 max-w-[80ch] text-[12.5px] leading-relaxed text-ink-2">{rule.reason}</p>
+      <p className="mt-2 max-w-[80ch] text-label leading-relaxed text-ink-2">{rule.reason}</p>
       {rule.source && (
-        <p className="mt-1 max-w-[80ch] break-words text-[11px] text-ink-3">
+        <p className="mt-1 max-w-[80ch] break-words text-meta text-ink-3">
           {t("Source: {source}", { source: rule.source })}
         </p>
       )}
@@ -120,10 +120,10 @@ function RuleRow({ rule }: { rule: CompatEvaluatedRule }) {
             return (
               <li
                 key={`${rule.id}-${change.field}-${change.value}`}
-                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11.5px]"
+                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-meta"
               >
                 <span className="text-ink-3">{changeFieldLabel(change.field)}</span>
-                <code className="break-all font-mono text-[11px] text-ink-2">
+                <code className="break-all font-mono text-meta text-ink-2">
                   {changeDetail(change)}
                 </code>
                 {!change.applied && skipped && (
@@ -137,7 +137,7 @@ function RuleRow({ rule }: { rule: CompatEvaluatedRule }) {
 
       {rule.knownIssues.length > 0 && (
         <div className="mt-2.5">
-          <p className="text-[11px] font-medium text-ink-3">{t("Known issues")}</p>
+          <p className="text-meta font-medium text-ink-3">{t("Known issues")}</p>
           <ul className="mt-1 space-y-1.5">
             {rule.knownIssues.map((issue) => {
               const label = issueSeverityLabel(issue.severity);
@@ -150,7 +150,7 @@ function RuleRow({ rule }: { rule: CompatEvaluatedRule }) {
                   )}
                   <span
                     className={cn(
-                      "max-w-[80ch] text-[11.5px] leading-relaxed",
+                      "max-w-[80ch] text-meta leading-relaxed",
                       issue.severity === "blocking" ? "text-ink-2" : "text-ink-3",
                     )}
                   >
@@ -164,7 +164,7 @@ function RuleRow({ rule }: { rule: CompatEvaluatedRule }) {
       )}
 
       {rule.prerequisites.length > 0 && (
-        <p className="mt-2 text-[11.5px] text-ink-3">
+        <p className="mt-2 text-meta text-ink-3">
           {t("Prerequisites: {list}", {
             list: rule.prerequisites.map(prerequisiteLabel).join(", "),
           })}

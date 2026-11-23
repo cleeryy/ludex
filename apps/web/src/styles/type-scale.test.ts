@@ -94,32 +94,49 @@ describe("console type scale", () => {
     expect(css).toMatch(/--text-meta:\s*11\.5px;/);
   });
 
-  it("keeps core UI primitives and shell components free of arbitrary text-[Npx] sizes", () => {
-    const dirs = [
-      path.join(srcRoot, "components", "ui"),
-      path.join(srcRoot, "components", "shell"),
-    ];
-    const extraFiles = [
-      path.join(srcRoot, "components", "page.tsx"),
-      path.join(srcRoot, "components", "public-page.tsx"),
-      path.join(srcRoot, "components", "auth-layout.tsx"),
-      path.join(srcRoot, "components", "game", "game-card.tsx"),
-    ];
+  it("keeps the entire app free of arbitrary text-[Npx] and text-[clamp(...)] sizes", () => {
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) return walk(full);
+        return entry.name.endsWith(".tsx") && !entry.name.endsWith(".test.tsx") ? [full] : [];
+      });
     const files = [
-      ...dirs.flatMap((dir) =>
-        fs
-          .readdirSync(dir)
-          .filter((file) => file.endsWith(".tsx") && !file.endsWith(".test.tsx"))
-          .map((file) => path.join(dir, file)),
-      ),
-      ...extraFiles,
+      ...walk(path.join(srcRoot, "screens")),
+      ...walk(path.join(srcRoot, "components")),
+      path.join(srcRoot, "app.tsx"),
     ];
     const offenders: string[] = [];
     for (const file of files) {
       const source = fs.readFileSync(file, "utf8");
-      if (/text-\[\d+(?:\.\d+)?px\]/.test(source)) {
+      if (/text-\[\d+(?:\.\d+)?px\]/.test(source) || /text-\[clamp\(/.test(source)) {
         offenders.push(path.relative(srcRoot, file));
       }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("restricts JetBrains Mono to numeric/technical data (never headings, table headers, uppercase kickers or buttons)", () => {
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) return walk(full);
+        return entry.name.endsWith(".tsx") && !entry.name.endsWith(".test.tsx") ? [full] : [];
+      });
+    const files = [
+      ...walk(path.join(srcRoot, "screens")),
+      ...walk(path.join(srcRoot, "components")),
+    ];
+    const offenders: string[] = [];
+    for (const file of files) {
+      const lines = fs.readFileSync(file, "utf8").split("\n");
+      lines.forEach((line, idx) => {
+        if (!line.includes("font-mono")) return;
+        if (/<(?:code|pre|input|textarea)\b/.test(line)) return;
+        if (/(?:uppercase|tracking-\[0\.(?:06|08|1|12|14|16)em\]|<h[1-4]\b|<th\b|<tr\b|<button\b)/.test(line)) {
+          offenders.push(`${path.relative(srcRoot, file)}:${idx + 1}`);
+        }
+      });
     }
     expect(offenders).toEqual([]);
   });

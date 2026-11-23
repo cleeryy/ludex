@@ -121,8 +121,8 @@ export function UsersScreen() {
 
       {isError && <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />}
 
-      <div className="mt-8 border-t border-line">
-        <div className="hidden grid-cols-[1fr_140px_110px_120px_72px] items-center gap-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 md:grid">
+      <div className="mt-8 overflow-hidden rounded-[var(--r-md)] border border-line bg-surface">
+        <div className="hidden grid-cols-[1fr_140px_110px_120px_72px] items-center gap-4 border-b border-line bg-bg-deep px-4 py-2.5 text-meta font-medium text-ink-3 md:grid">
           <span>{t("Account")}</span>
           <span>{t("Role")}</span>
           <span>{t("Active")}</span>
@@ -132,32 +132,32 @@ export function UsersScreen() {
 
         {isPending &&
           Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="flex items-center gap-4 border-t border-line py-3">
+            <div key={index} className="flex items-center gap-4 border-t border-line px-4 py-3 first:border-t-0">
               <Skeleton className="size-8" />
               <Skeleton className="h-3 w-32" />
             </div>
           ))}
 
         {!isPending && !isError && data?.length === 0 && (
-          <p className="py-6 text-[13px] text-ink-3">{t("No accounts. Add the first one.")}</p>
+          <p className="px-4 py-6 text-body text-ink-3">{t("No accounts. Add the first one.")}</p>
         )}
 
         {data?.map((user) => (
           <div
             key={user.id}
-            className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-3 border-t border-line py-3 md:grid-cols-[1fr_140px_110px_120px_72px]"
+            className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-3 border-b border-line px-4 py-3 transition-colors last:border-b-0 hover:bg-surface-2 md:grid-cols-[1fr_140px_110px_120px_72px]"
           >
             <div className="flex min-w-0 items-center gap-3">
-              <span className="grid size-8 shrink-0 place-items-center rounded-[2px] border border-line-2 bg-surface-2 font-mono text-[10px] text-ink-2">
+              <span className="grid size-8 shrink-0 place-items-center rounded-[var(--r-xs)] border border-line-2 bg-bg-deep text-micro font-semibold text-ink-2">
                 {initials(user.username)}
               </span>
               <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-2 truncate text-[13.5px] text-ink">
+                <p className="flex flex-wrap items-center gap-2 truncate text-body text-ink">
                   {user.username}
-                  {user.id === me?.id && <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">{t("you")}</span>}
+                  {user.id === me?.id && <Badge tone="signal">{t("you")}</Badge>}
                   <SourceBadge user={user} />
                 </p>
-                <p className="truncate text-[11.5px] text-ink-3">{user.email ?? t("No email")}</p>
+                <p className="truncate text-meta text-ink-3">{user.email ?? t("No email")}</p>
               </div>
             </div>
 
@@ -167,7 +167,7 @@ export function UsersScreen() {
                 value={user.role}
                 onChange={(role) => update.mutate({ id: user.id, patch: { role } })}
                 options={roleOptions()}
-                className="h-8 text-[12px]"
+                className="h-8 text-label"
               />
             </div>
 
@@ -177,10 +177,10 @@ export function UsersScreen() {
                 label={t("Activate {name}", { name: user.username })}
                 onCheckedChange={(activated) => update.mutate({ id: user.id, patch: { activated } })}
               />
-              <span className="text-[11.5px] text-ink-3 md:hidden">{user.activated ? t("Active") : t("Disabled")}</span>
+              <span className="text-meta text-ink-3 md:hidden">{user.activated ? t("Active") : t("Disabled")}</span>
             </div>
 
-            <span className="num hidden text-[11px] text-ink-3 md:block">{formatDate(user.createdAt)}</span>
+            <span className="num hidden text-meta text-ink-3 md:block">{formatDate(user.createdAt)}</span>
 
             <div className="flex justify-end gap-1">
               <IconButton
@@ -214,7 +214,7 @@ export function UsersScreen() {
         ))}
       </div>
 
-      <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-4 text-meta leading-relaxed text-ink-3">
         {t("Local accounts store their own identity and password. SSO accounts take their username, email and password from the identity provider; only role and activation are editable here. The last administrator cannot be deleted or demoted, and you cannot delete your own account.")}
       </p>
 
@@ -247,7 +247,7 @@ export function UsersScreen() {
       >
         {resetResult && (
           <div className="flex flex-col gap-3">
-            <code className="break-all border border-line-2 bg-surface px-3 py-2 font-mono text-[13px] text-ink">
+            <code className="break-all border border-line-2 bg-surface px-3 py-2 font-mono text-body text-ink">
               {resetResult.password ?? t("No password was generated")}
             </code>
             {resetResult.password && (
@@ -265,7 +265,7 @@ export function UsersScreen() {
                 {t("Copy password")}
               </Button>
             )}
-            <p className="text-[12px] leading-relaxed text-ink-3">
+            <p className="text-label leading-relaxed text-ink-3">
               {tr("{count} sessions were signed out.", { count: <span className="num">{resetResult.revoked}</span> })}
             </p>
           </div>
@@ -389,7 +389,7 @@ function EditUserDialog({
     >
       <form id="edit-user" onSubmit={submit} className="flex flex-col gap-4">
         {sso && (
-          <p className="border-l-2 border-line-2 pl-3 text-[12.5px] leading-relaxed text-ink-3">
+          <p className="border-l-2 border-line-2 pl-3 text-label leading-relaxed text-ink-3">
             {tr("This account is managed by {issuer}. Change the username, email or password there; they cannot be edited here.", {
               issuer: <span className="break-all text-ink-2">{target?.oidcIssuer ?? t("an identity provider")}</span>,
             })}
@@ -481,13 +481,13 @@ function EditUserDialog({
         </Field>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[13px] font-medium text-ink">{t("Activated")}</p>
-            <p className="text-[12.5px] text-ink-3">{t("Disabled accounts cannot sign in.")}</p>
+            <p className="text-body font-medium text-ink">{t("Activated")}</p>
+            <p className="text-label text-ink-3">{t("Disabled accounts cannot sign in.")}</p>
           </div>
           <Switch checked={activated} label={t("Activate {name}", { name: target?.username ?? t("this user") })} onCheckedChange={setActivated} />
         </div>
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}
@@ -565,13 +565,13 @@ function CreateUserDialog({ open, onOpenChange, onCreated }: { open: boolean; on
         <Field label={t("Role")} htmlFor="new-role">
           <Select label={t("Role")} id="new-role" value={role} onChange={setRole} options={roleOptions()} />
         </Field>
-        <div className="flex flex-wrap gap-2 text-[11.5px] text-ink-3">
+        <div className="flex flex-wrap gap-2 text-meta text-ink-3">
           <Badge tone="outline">{t("Admin: everything")}</Badge>
           <Badge tone="outline">{t("Editor: ingest, scan, metadata")}</Badge>
           <Badge tone="outline">{t("Member: browse and play")}</Badge>
         </div>
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}

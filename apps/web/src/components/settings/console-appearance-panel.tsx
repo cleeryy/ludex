@@ -55,7 +55,7 @@ function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "inline-flex h-8 items-center gap-2 rounded-[6px] border px-2.5 text-[12px] transition-colors duration-150",
+        "inline-flex h-8 items-center gap-2 rounded-[6px] border px-2.5 text-label transition-colors duration-150",
         active
           ? "border-signal bg-surface-2 text-ink"
           : "border-line text-ink-2 hover:border-line-2 hover:bg-surface",
@@ -70,10 +70,10 @@ function Chip({
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-2 border-t border-line py-3 first:border-t-0 first:pt-0">
-      <span className="w-[120px] shrink-0 pt-1.5 text-[11.5px] text-ink-3">{label}</span>
+      <span className="w-[120px] shrink-0 pt-1.5 text-meta text-ink-3">{label}</span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap gap-2">{children}</div>
-        {hint && <p className="mt-1.5 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">{hint}</p>}
+        {hint && <p className="mt-1.5 max-w-[64ch] text-meta leading-relaxed text-ink-3">{hint}</p>}
       </div>
     </div>
   );
@@ -151,12 +151,12 @@ export function ConsoleAppearancePanel() {
     <section className="border border-line p-4" aria-label={t("Console room")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">{t("Console room")}</p>
-          <p className="mt-1 max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("Console room")}</p>
+          <p className="mt-1 max-w-[64ch] text-meta leading-relaxed text-ink-3">
             {t("How Console mode looks on this device. A room sets eight knobs at once; each one can then be changed on its own. The desktop keeps the app theme.")}
           </p>
         </div>
-        <span className="text-[11.5px] text-ink-3">
+        <span className="text-meta text-ink-3">
           {t("Now: {values}", {
             values: [
               consoleRoomLabel(room.room),
@@ -193,7 +193,7 @@ export function ConsoleAppearancePanel() {
       </div>
 
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
-        <p className="max-w-[64ch] text-[11.5px] leading-relaxed text-ink-3">
+        <p className="max-w-[64ch] text-meta leading-relaxed text-ink-3">
           {t("Changes apply immediately. Reset restores the room's own answers.")}
         </p>
         <Button

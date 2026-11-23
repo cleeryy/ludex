@@ -107,12 +107,12 @@ export function RomPanel({ game }: { game: GameDetail }) {
                   })),
               ]}
             />
-            <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-2 text-meta leading-relaxed text-ink-3">
               {t("Emulator commands are configured by an administrator. A per-game pick overrides the platform default.")}
             </p>
           </div>
         ) : (
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {isNative()
               ? t("Ludex resolves the emulator command locally; no emulator binary is bundled.")
               : t("ROM files stay on the server. Open this page in the Ludex desktop app to launch the game.")}

@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/http";
 import { formatBytes, formatRelative } from "@/lib/format";
 import type {
@@ -17,7 +16,8 @@ import type {
 import { useIsAdmin } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
-import { Badge, Button, Progress, Skeleton } from "@/components/ui/controls";
+import { Badge, Button, Led, Progress, Skeleton, TelemetryStrip } from "@/components/ui/controls";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
@@ -117,25 +117,25 @@ function FindingRow({
 }) {
   const actions = finding.actions.filter((action) => action !== "media_gc_apply" || isAdmin);
   return (
-    <tr className="align-top">
-      <td className="py-3 pe-3">
+    <TableRow className="align-top">
+      <TableCell>
         <Badge tone={SEVERITY_TONE[finding.severity]}>{severityLabel(finding.severity)}</Badge>
-      </td>
-      <td className="min-w-0 py-3 pe-4">
-        <p className="text-[13.5px] font-medium leading-snug text-ink">{finding.title}</p>
-        <p className="measure mt-1 text-[12.5px] leading-relaxed text-ink-2">{finding.detail}</p>
+      </TableCell>
+      <TableCell className="min-w-0">
+        <p className="text-body font-medium leading-snug text-ink">{finding.title}</p>
+        <p className="measure mt-1 text-label leading-relaxed text-ink-2">{finding.detail}</p>
         {finding.path && (
-          <code className="mt-1.5 block truncate font-mono text-[10.5px] text-ink-3" title={finding.path}>
+          <code className="mt-1.5 block truncate font-mono text-meta text-ink-3" title={finding.path}>
             {finding.path}
           </code>
         )}
-      </td>
-      <td className="hidden py-3 pe-3 md:table-cell">
-        <span className="text-[11.5px] text-ink-3">{categoryLabel(finding.category)}</span>
-      </td>
-      <td className="py-3">
+      </TableCell>
+      <TableCell className="hidden md:table-cell">
+        <span className="text-meta text-ink-3">{categoryLabel(finding.category)}</span>
+      </TableCell>
+      <TableCell>
         <div className="flex flex-wrap justify-end gap-1.5">
-          {actions.length === 0 && <span className="text-[11.5px] text-ink-3">{t("No action")}</span>}
+          {actions.length === 0 && <span className="text-meta text-ink-3">{t("No action")}</span>}
           {actions.map((action) => {
             const destructive = DESTRUCTIVE.includes(action);
             const disabled = busy || (destructive && !isAdmin);
@@ -143,7 +143,7 @@ function FindingRow({
               <Button
                 key={action}
                 size="sm"
-                variant={destructive ? "danger" : action === "review" ? "ghost" : "default"}
+                variant={destructive ? "danger" : action === "review" ? "ghost" : "outline"}
                 disabled={disabled}
                 title={destructive && !isAdmin ? t("Administrator only") : actionDescription(action)}
                 onClick={() => (action === "review" ? onReview(finding) : onAct(action, finding))}
@@ -153,8 +153,8 @@ function FindingRow({
             );
           })}
         </div>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -255,18 +255,17 @@ export function LibraryHealthScreen() {
         meta={
           <>
             <span className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "size-1.5 rounded-full",
+              <Led
+                tone={
                   running
-                    ? "animate-pulse bg-signal"
+                    ? "signal"
                     : report?.status === "failed"
-                      ? "bg-danger"
+                      ? "danger"
                       : healthy
-                        ? "bg-ok"
-                        : "bg-ink-3",
-                )}
-                aria-hidden="true"
+                        ? "ok"
+                        : "muted"
+                }
+                pulse={running}
               />
               {running
                 ? t("Checking")
@@ -317,8 +316,8 @@ export function LibraryHealthScreen() {
       {running && report && (
         <section className="mt-6 border border-line bg-surface/40 p-4" aria-live="polite">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-[13px] text-ink">{t("Scanning the library")}</p>
-            <span className="num text-[12px] text-ink-3">{report.progress}%</span>
+            <p className="text-body text-ink">{t("Scanning the library")}</p>
+            <span className="num text-label text-ink-3">{report.progress}%</span>
           </div>
           <Progress
             className="mt-2"
@@ -332,43 +331,36 @@ export function LibraryHealthScreen() {
         <div className="mt-6 flex items-start gap-3 border border-danger/40 bg-danger/5 p-4" role="alert">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
           <div>
-            <p className="text-[13px] font-medium text-ink">{t("The last health check failed")}</p>
-            <p className="mt-1 text-[12.5px] text-ink-2">{report.error}</p>
+            <p className="text-body font-medium text-ink">{t("The last health check failed")}</p>
+            <p className="mt-1 text-label text-ink-2">{report.error}</p>
           </div>
         </div>
       )}
 
       {report && summary && (
         <section className="mt-8" aria-label={t("Findings by severity")}>
-          <div className="grid grid-cols-2 gap-px border border-line bg-line sm:grid-cols-4">
-            {(
-              [
-                [t("Errors"), summary.error, "text-danger"],
-                [t("Warnings"), summary.warning, "text-signal-text"],
-                [t("Info"), summary.info, "text-ink"],
-                [t("Total"), summary.total, "text-ink"],
-              ] as const
-            ).map(([label, value, tone]) => (
-              <div key={label} className="bg-bg px-4 py-5">
-                <p className={cn("num text-[30px] leading-none", tone)}>{value}</p>
-                <p className="mt-2 text-[11.5px] text-ink-3">{label}</p>
-              </div>
-            ))}
-          </div>
+          <TelemetryStrip
+            items={[
+              { label: t("Errors"), value: summary.error, tone: summary.error > 0 ? "danger" : "default" },
+              { label: t("Warnings"), value: summary.warning, tone: summary.warning > 0 ? "warn" : "default" },
+              { label: t("Info"), value: summary.info, tone: summary.info > 0 ? "info" : "default" },
+              { label: t("Total"), value: summary.total },
+            ]}
+          />
         </section>
       )}
 
       {gcPreview && (
         <section className="mt-6 border border-line bg-surface/40 p-4" aria-live="polite">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-[13px] text-ink">
+            <p className="text-body text-ink">
               {gcPreview.dryRun ? t("Media cleanup preview") : t("Media cleanup applied")}
             </p>
             <Badge tone={gcPreview.dryRun ? "outline" : "ok"}>
               {gcPreview.dryRun ? t("Dry run") : t("Applied")}
             </Badge>
           </div>
-          <p className="mt-1 text-[12.5px] text-ink-2">
+          <p className="mt-1 text-label text-ink-2">
             {gcPreview.dryRun
               ? t(
                   "{files} unreferenced file(s), {bytes}, would be removed after the grace period.",
@@ -380,7 +372,7 @@ export function LibraryHealthScreen() {
                 })}
           </p>
           {gcPreview.candidates.length > 0 && (
-            <p className="mt-2 truncate font-mono text-[10.5px] text-ink-3" title={gcPreview.candidates.join(", ")}>
+            <p className="mt-2 truncate font-mono text-micro text-ink-3" title={gcPreview.candidates.join(", ")}>
               {gcPreview.candidates.join(", ")}
             </p>
           )}
@@ -456,18 +448,18 @@ export function LibraryHealthScreen() {
           )}
 
           {!health.isPending && findings.length > 0 && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full border-collapse text-start">
+            <TableContainer className="mt-4">
+              <Table>
                 <caption className="sr-only">{t("Library health findings")}</caption>
-                <thead>
-                  <tr className="border-b border-line text-start font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">
-                    <th scope="col" className="pb-2 pe-3 text-start font-normal">{t("Severity")}</th>
-                    <th scope="col" className="pb-2 pe-4 text-start font-normal">{t("Finding")}</th>
-                    <th scope="col" className="hidden pb-2 pe-3 text-start font-normal md:table-cell">{t("Category")}</th>
-                    <th scope="col" className="pb-2 text-end font-normal">{t("Actions")}</th>
+                <TableHead>
+                  <tr>
+                    <TableHeaderCell>{t("Severity")}</TableHeaderCell>
+                    <TableHeaderCell>{t("Finding")}</TableHeaderCell>
+                    <TableHeaderCell className="hidden md:table-cell">{t("Category")}</TableHeaderCell>
+                    <TableHeaderCell className="text-end">{t("Actions")}</TableHeaderCell>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
+                </TableHead>
+                <TableBody>
                   {findings.map((finding) => (
                     <FindingRow
                       key={finding.id}
@@ -478,9 +470,9 @@ export function LibraryHealthScreen() {
                       onReview={review}
                     />
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
 
           {!health.isPending && findings.length > 0 && total > findings.length && (
@@ -510,7 +502,7 @@ export function LibraryHealthScreen() {
           )}
 
           {!health.isPending && findings.length === 0 && !healthy && (
-            <p className="mt-4 text-[13px] text-ink-3">{t("No finding matches these filters.")}</p>
+            <p className="mt-4 text-body text-ink-3">{t("No finding matches these filters.")}</p>
           )}
         </section>
       )}

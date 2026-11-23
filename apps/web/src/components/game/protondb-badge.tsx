@@ -31,7 +31,7 @@ export function ProtonDbBadge({ gameId }: { gameId: number }) {
     const offline = rating.status === "unavailable";
     return (
       <span
-        className="flex items-center gap-1.5 text-[11.5px] text-ink-3"
+        className="flex items-center gap-1.5 text-meta text-ink-3"
         title={rating.message ?? undefined}
       >
         <CircleHelp className="size-3.5" aria-hidden="true" />
@@ -70,13 +70,13 @@ function TierBadge({ rating, tier }: { rating: ProtonDbRating; tier: string }) {
       rel="noreferrer noopener"
       title={hint || t("ProtonDB compatibility")}
       className={cn(
-        "inline-flex h-5 items-center gap-1.5 rounded-[2px] border px-1.5 text-[11px] leading-none transition-opacity hover:opacity-80",
+        "inline-flex h-5 items-center gap-1.5 rounded-[var(--r-sm)] border px-1.5 text-meta leading-none transition-opacity hover:opacity-80",
         TIER_STYLES[tier] ?? TIER_STYLES.pending,
       )}
     >
       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
       <span>{t("ProtonDB")} {label}</span>
-      {cached && <span className="font-mono text-[10px] opacity-70">{t("cached")}</span>}
+      {cached && <span className="font-mono text-micro opacity-70">{t("cached")}</span>}
     </a>
   );
 }

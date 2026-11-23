@@ -120,13 +120,13 @@ export function StartupCommandPanel({
           </div>
         ) : (
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-2">{t("Executable")}</span>
-            <Input value={executable} onChange={(event) => setExecutable(event.target.value)} placeholder="Game.exe" className="h-10 font-mono text-[12px]" />
+            <span className="text-label text-ink-2">{t("Executable")}</span>
+            <Input value={executable} onChange={(event) => setExecutable(event.target.value)} placeholder="Game.exe" className="h-10 font-mono text-label" />
           </label>
         )}
         <label className={cn("flex flex-col gap-1.5", canPick && "sm:col-span-2")}>
-          <span className="text-[12px] text-ink-2">{t("Parameters")}</span>
-          <Input value={parameters} onChange={(event) => setParameters(event.target.value)} placeholder="-windowed" className="h-10 font-mono text-[12px]" />
+          <span className="text-label text-ink-2">{t("Parameters")}</span>
+          <Input value={parameters} onChange={(event) => setParameters(event.target.value)} placeholder="-windowed" className="h-10 font-mono text-label" />
         </label>
         {canPick ? (
           <>
@@ -154,12 +154,12 @@ export function StartupCommandPanel({
         ) : (
           <>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] text-ink-2">{t("Installer")}</span>
-              <Input value={installer} onChange={(event) => setInstaller(event.target.value)} placeholder="setup.exe" className="h-10 font-mono text-[12px]" />
+              <span className="text-label text-ink-2">{t("Installer")}</span>
+              <Input value={installer} onChange={(event) => setInstaller(event.target.value)} placeholder="setup.exe" className="h-10 font-mono text-label" />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] text-ink-2">{t("Uninstaller")}</span>
-              <Input value={uninstaller} onChange={(event) => setUninstaller(event.target.value)} placeholder="unins000.exe" className="h-10 font-mono text-[12px]" />
+              <span className="text-label text-ink-2">{t("Uninstaller")}</span>
+              <Input value={uninstaller} onChange={(event) => setUninstaller(event.target.value)} placeholder="unins000.exe" className="h-10 font-mono text-label" />
             </label>
           </>
         )}

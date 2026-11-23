@@ -141,13 +141,13 @@ export function AudioOutputPanel({ gameId, title }: { gameId: number; title: str
       />
 
       {!supported ? (
-        <p className="text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-meta leading-relaxed text-ink-3">
           {t("Audio routing needs PipeWire or PulseAudio (pactl) on this Linux desktop.")}
         </p>
       ) : (
         <>
           <label className="flex max-w-[46rem] flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">{t("Device for this game")}</span>
+            <span className="text-label text-ink-3">{t("Device for this game")}</span>
             <Select
               label={t("Device for this game")}
               value={saved}
@@ -169,13 +169,13 @@ export function AudioOutputPanel({ gameId, title }: { gameId: number; title: str
           </label>
 
           {missing ? (
-            <p role="status" className="border-l-2 border-warn/60 pl-3 text-[11.5px] leading-relaxed text-warn">
+            <p role="status" className="border-l-2 border-warn/60 pl-3 text-meta leading-relaxed text-warn">
               {t("The saved device is not connected. Until it returns, the game starts on {device}.", {
                 device: fallbackUsed?.description ?? t("the system default"),
               })}
             </p>
           ) : (
-            <p className="text-[11px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               {saved
                 ? t("Only this game is moved; the stream follows the game's process tree.")
                 : t("The game follows the default output: {device}.", { device: profileLabel })}
@@ -198,7 +198,7 @@ export function AudioOutputPanel({ gameId, title }: { gameId: number; title: str
               </Button>
             ) : null}
           </div>
-          <p className="text-[11px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {overview?.globalDefault
               ? t("All games default to {device}. A per-game device still wins.", { device: profileLabel })
               : t("No global override: games without their own device follow the system default.")}

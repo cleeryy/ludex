@@ -12,8 +12,8 @@ export function GamepadDebugPanel({ info }: { info: GamepadDebugInfo | null }) {
     <aside
       aria-label="Gamepad diagnostics"
       className={cn(
-        "pointer-events-none fixed bottom-3 left-3 z-[120] w-[310px] rounded-[2px] border border-line-2 bg-bg-deep/95 p-3",
-        "font-mono text-[10px] leading-relaxed text-ink-2 shadow-debug",
+        "pointer-events-none fixed bottom-3 left-3 z-[120] w-[310px] rounded-[var(--r-sm)] border border-line-2 bg-bg-deep/95 p-3",
+        "font-mono text-micro leading-relaxed text-ink-2 shadow-debug",
       )}
     >
       <p className="mb-1.5 flex items-center justify-between text-signal-text">

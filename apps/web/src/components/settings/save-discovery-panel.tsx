@@ -172,7 +172,7 @@ export function SaveDiscoveryPanel() {
       />
       <div className="border-t border-line pt-4">
         {overview && (
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {tr("Registry v{version} · depth ≤{depth} · {entries} entries per folder.", {
               version: overview.registryVersion,
               depth: overview.maxDepth,
@@ -185,23 +185,23 @@ export function SaveDiscoveryPanel() {
         )}
 
         {query.isError && (
-          <p role="alert" className="mt-3 text-[12.5px] text-danger">
+          <p role="alert" className="mt-3 text-label text-danger">
             {t("The save location candidates did not load.")} {errorMessage(query.error)}
           </p>
         )}
 
         {overview?.warnings.length ? (
-          <ul className="mt-3 space-y-1 border-l-2 border-line-2 pl-3 text-[11px] leading-relaxed text-ink-3">
+          <ul className="mt-3 space-y-1 border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
             {overview.warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>
         ) : null}
 
-        {query.isPending && <p className="mt-4 text-[12px] text-ink-3">{t("Loading…")}</p>}
+        {query.isPending && <p className="mt-4 text-label text-ink-3">{t("Loading…")}</p>}
 
         {!query.isPending && total === 0 && (
-          <p className="mt-4 max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
+          <p className="mt-4 max-w-[70ch] text-label leading-relaxed text-ink-3">
             {t(
               "No save location candidates yet. Run a scan after installing a game; a confirmed path can also be added manually on its game page.",
             )}
@@ -211,7 +211,7 @@ export function SaveDiscoveryPanel() {
         <div className="mt-4 space-y-6">
           {overview?.groups.map((group) => (
             <div key={group.gameId}>
-              <p className="text-[12.5px] font-medium text-ink">{group.title}</p>
+              <p className="text-label font-medium text-ink">{group.title}</p>
               <ul className="mt-2">
                 {group.candidates.map((candidate) => (
                   <CandidateRow
@@ -296,23 +296,23 @@ function CandidateRow({
           {confidenceText(candidate.confidence)}
         </Badge>
         <Badge tone="outline">{sourceText(candidate.source)}</Badge>
-        <span className="font-mono text-[10px] text-ink-3">{candidate.rootId}</span>
+        <span className="font-mono text-micro text-ink-3">{candidate.rootId}</span>
         {candidate.confirmed && <Badge tone="ok">{t("Confirmed")}</Badge>}
         {guess && status === "waiting" && (
-          <span className="text-[10.5px] text-ink-3">
+          <span className="text-micro text-ink-3">
             {t("Guessed from an engine default; it starts saving after a session writes to it.")}
           </span>
         )}
       </div>
 
       {editing === undefined ? (
-        <p className="mt-1.5 break-all font-mono text-[11px] text-ink-2">{candidate.path}</p>
+        <p className="mt-1.5 break-all font-mono text-meta text-ink-2">{candidate.path}</p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Input
             value={editing}
             onChange={(event) => onChangeEdit(event.target.value)}
-            className="h-9 min-w-[280px] flex-1 font-mono text-[11.5px]"
+            className="h-9 min-w-[280px] flex-1 font-mono text-meta"
             aria-label={t("Save path")}
           />
           <Button variant="primary" size="sm" loading={busy} onClick={() => onConfirm(editing)}>
@@ -324,11 +324,11 @@ function CandidateRow({
         </div>
       )}
 
-      <p className="mt-1 text-[11px] leading-relaxed text-ink-3">{candidate.evidence}</p>
+      <p className="mt-1 text-meta leading-relaxed text-ink-3">{candidate.evidence}</p>
       {candidate.autoReason && status === "skipped" && (
-        <p className="mt-1 text-[11px] leading-relaxed text-warning">{candidate.autoReason}</p>
+        <p className="mt-1 text-meta leading-relaxed text-warning">{candidate.autoReason}</p>
       )}
-      <p className="mt-1 text-[10.5px] text-ink-3">
+      <p className="mt-1 text-micro text-ink-3">
         {candidate.subpath ? `${candidate.subpath} · ` : ""}
         {candidate.firstSeen
           ? tr("First seen {date}", { date: formatDate(candidate.firstSeen) })

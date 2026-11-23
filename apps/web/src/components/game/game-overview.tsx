@@ -82,18 +82,18 @@ export function GameOverview({
               )}
             </Fact>
             <Fact label={t("Location")}>
-              <span className="truncate font-mono text-[11px]" title={installed.installPath}>
+              <span className="truncate font-mono text-meta" title={installed.installPath}>
                 {installed.installPath}
               </span>
             </Fact>
           </dl>
         ) : (
           <div className="border-t border-line pt-4">
-            <p className="flex items-center gap-2 text-[13.5px] text-ink-2">
+            <p className="flex items-center gap-2 text-body text-ink-2">
               <HardDrive className="size-4 text-ink-3" aria-hidden="true" />
               {t("Not installed on this device")}
             </p>
-            <p className="mt-1 max-w-[62ch] text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-1 max-w-[62ch] text-meta leading-relaxed text-ink-3">
               {game.versionCount === 0
                 ? t("No archive is available. The notice above names the missing file and the repair actions.")
                 : preferredVersion
@@ -132,7 +132,7 @@ export function GameOverview({
           <p className="mt-3">
             <Link
               to={gameSectionPath(game.id, "files")}
-              className="inline-flex items-center gap-1.5 text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+              className="inline-flex items-center gap-1.5 text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline"
             >
               {t("Manage files")}
               <ArrowRight className="rtl:-scale-x-100 size-3" aria-hidden="true" />
@@ -153,7 +153,7 @@ export function GameOverview({
         {game.tags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {game.tags.map((tag) => (
-              <span key={tag} className="border border-line px-2 py-1 text-[11px] text-ink-3">
+              <span key={tag} className="border border-line px-2 py-1 text-meta text-ink-3">
                 {tag}
               </span>
             ))}
@@ -183,7 +183,7 @@ export function GameOverview({
             {playtime.recentSessions.slice(0, 5).map((session) => (
               <li
                 key={session.id}
-                className="flex items-baseline justify-between gap-3 border-b border-line py-1.5 font-mono text-[10.5px] text-ink-3"
+                className="flex items-baseline justify-between gap-3 border-b border-line py-1.5 font-mono text-micro text-ink-3"
               >
                 <span>{formatDate(session.startedAt)}</span>
                 <span className="text-ink-2">{formatSeconds(session.seconds) ?? `${session.minutes}m`}</span>
@@ -192,7 +192,7 @@ export function GameOverview({
           </ul>
         )}
         {user && (
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             {t("Progress is stored per account on the server.")}
           </p>
         )}
@@ -204,8 +204,8 @@ export function GameOverview({
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-      <dt className="shrink-0 text-[12px] text-ink-3">{label}</dt>
-      <dd className="min-w-0 text-right text-[12.5px] text-ink-2">{children}</dd>
+      <dt className="shrink-0 text-label text-ink-3">{label}</dt>
+      <dd className="min-w-0 text-right text-label text-ink-2">{children}</dd>
     </div>
   );
 }

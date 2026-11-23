@@ -106,14 +106,14 @@ export function StreamDialog({
       )}
 
       {target.isError && (
-        <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+        <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
           {errorMessage(target.error)}
         </p>
       )}
 
       {target.data && !target.data.published && (
         <div className="flex flex-col gap-3">
-          <p className="flex items-start gap-2 border-l-2 border-warn/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
+          <p className="flex items-start gap-2 border-l-2 border-warn/60 pl-3 text-label leading-relaxed text-ink-2">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warn" aria-hidden="true" />
             <span>{target.data.message}</span>
           </p>
@@ -127,32 +127,32 @@ export function StreamDialog({
         <div className="flex flex-col gap-4">
           <dl className="border-t border-line">
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-              <dt className="text-[12px] text-ink-3">{t("Sunshine app")}</dt>
-              <dd className="truncate text-[12.5px] text-ink">{target.data.appName}</dd>
+              <dt className="text-label text-ink-3">{t("Sunshine app")}</dt>
+              <dd className="truncate text-label text-ink">{target.data.appName}</dd>
             </div>
             <div className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-              <dt className="text-[12px] text-ink-3">{t("Moonlight")}</dt>
-              <dd className={cn("truncate font-mono text-[10.5px]", target.data.moonlight.detected ? "text-ink-2" : "text-warn")}>
+              <dt className="text-label text-ink-3">{t("Moonlight")}</dt>
+              <dd className={cn("truncate font-mono text-micro", target.data.moonlight.detected ? "text-ink-2" : "text-warn")}>
                 {target.data.moonlight.binary ?? t("not found")}
               </dd>
             </div>
           </dl>
 
           {!target.data.moonlight.detected && (
-            <p className="border-l-2 border-danger pl-3 text-[12px] leading-relaxed text-ink-2">
+            <p className="border-l-2 border-danger pl-3 text-label leading-relaxed text-ink-2">
               {target.data.moonlight.message}
             </p>
           )}
 
           {target.data.moonlight.detected && target.data.hosts.length === 0 && (
-            <p className="border-l-2 border-warn/60 pl-3 text-[12px] leading-relaxed text-ink-2">
+            <p className="border-l-2 border-warn/60 pl-3 text-label leading-relaxed text-ink-2">
               {target.data.moonlight.message}
             </p>
           )}
 
           {target.data.hosts.length > 0 && (
             <div>
-              <p className="mb-2 text-[12px] text-ink-3">{t("Choose a host")}</p>
+              <p className="mb-2 text-label text-ink-3">{t("Choose a host")}</p>
               <div className="flex flex-col gap-1.5">
                 {target.data.hosts.map((host) => (
                   <button
@@ -168,22 +168,22 @@ export function StreamDialog({
                     )}
                   >
                     <Wifi className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
-                    <span className="text-[13px] text-ink">{host.name}</span>
-                    <span className="font-mono text-[10.5px] text-ink-3">{host.address}</span>
+                    <span className="text-body text-ink">{host.name}</span>
+                    <span className="font-mono text-micro text-ink-3">{host.address}</span>
                     <span className="ml-auto">
                       <Badge tone={host.paired ? "ok" : "outline"}>{host.paired ? t("paired") : t("not paired")}</Badge>
                     </span>
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+              <p className="mt-2 text-meta leading-relaxed text-ink-3">
                 {t("Pairing happens once in Moonlight. An unpaired host is listed but cannot stream yet.")}
               </p>
             </div>
           )}
 
           {error && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
               {error}
             </p>
           )}

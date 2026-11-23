@@ -249,7 +249,7 @@ export function OnboardingWizard() {
       >
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 pb-4 pt-4">
           <div className="min-w-0">
-            <p className="flex items-center gap-1.5 font-mono text-micro uppercase tracking-[0.14em] text-ink-3">
+            <p className="flex items-center gap-1.5 text-micro uppercase tracking-[0.14em] text-ink-3">
               <Sparkles className="size-3 text-signal-text" aria-hidden="true" />
               {t("Getting started")}
             </p>

@@ -31,31 +31,31 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
     return (
       <div className="grid min-h-dvh place-items-center bg-bg px-6 py-10">
         <div className="w-full max-w-[520px]">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.03em] text-ink">
+          <h1 className="text-display font-semibold leading-tight tracking-[-0.03em] text-ink">
             {t("Something went wrong on this screen")}
           </h1>
-          <p className="mt-3 text-[13.5px] leading-relaxed text-ink-2">
+          <p className="mt-3 text-body leading-relaxed text-ink-2">
             {t("The page hit an unexpected error. Your library and saves are untouched.")}
           </p>
-          <pre className="mt-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-[3px] border border-line bg-surface p-3 font-mono text-[11px] text-ink-3">
+          <pre className="mt-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-[var(--r-sm)] border border-line bg-surface p-3 font-mono text-meta text-ink-3">
             {error.message}
           </pre>
           {isNative() && (
-            <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+            <p className="mt-3 text-label leading-relaxed text-ink-3">
               {t("A redacted report was saved locally. Review and send it from Settings → Help and about if you want to help fix this.")}
             </p>
           )}
           <div className="mt-6 flex flex-wrap gap-2">
             <button
               type="button"
-              className="h-9 rounded-[2px] bg-signal px-4 text-[12.5px] font-medium text-bg"
+              className="h-9 rounded-[var(--r-sm)] bg-signal px-4 text-label font-medium text-bg"
               onClick={() => window.location.reload()}
             >
               {t("Reload")}
             </button>
             <button
               type="button"
-              className="h-9 rounded-[2px] border border-line px-4 text-[12.5px] text-ink"
+              className="h-9 rounded-[var(--r-sm)] border border-line px-4 text-label text-ink"
               onClick={() => {
                 window.location.hash = "#/settings?section=help";
                 window.location.reload();

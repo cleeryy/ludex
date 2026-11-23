@@ -36,9 +36,9 @@ import {
 import type { DesktopAsset, DesktopPlatform } from "@/lib/types";
 
 const PRIMARY_LINK =
-  "inline-flex h-12 select-none items-center justify-center gap-2 rounded-[2px] border border-signal bg-signal px-5 text-[15px] font-semibold text-on-signal transition-[filter] duration-[120ms] hover:brightness-[1.07] active:brightness-95";
+  "inline-flex h-12 select-none items-center justify-center gap-2 rounded-[var(--r-sm)] border border-signal bg-signal px-5 text-lead font-semibold text-on-signal transition-[filter] duration-[120ms] hover:brightness-[1.07] active:brightness-95";
 const SECONDARY_LINK =
-  "inline-flex h-12 select-none items-center justify-center gap-2 rounded-[2px] border border-line-2 bg-surface px-5 text-sm text-ink transition-colors duration-[120ms] hover:border-ink-3 hover:bg-surface-2";
+  "inline-flex h-12 select-none items-center justify-center gap-2 rounded-[var(--r-sm)] border border-line-2 bg-surface px-5 text-sm text-ink transition-colors duration-[120ms] hover:border-ink-3 hover:bg-surface-2";
 
 function serverAddress(): string {
   if (typeof window === "undefined") return "";
@@ -96,7 +96,7 @@ export function DownloadScreen() {
         <Link to="/" aria-label={t("Ludex home")} className="py-1">
           <Wordmark height={18} />
         </Link>
-        <nav aria-label={t("Account")} className="flex items-center gap-4 text-[12.5px] text-ink-2">
+        <nav aria-label={t("Account")} className="flex items-center gap-4 text-label text-ink-2">
           <Link to={user ? "/" : "/login"} className="underline decoration-line-2 underline-offset-4 hover:text-ink">
             {user ? t("Open the web app") : t("Sign in")}
           </Link>
@@ -105,16 +105,16 @@ export function DownloadScreen() {
 
       <main className="page pb-16">
         <section aria-labelledby="download-heading" className="border-b border-line pb-10 pt-6">
-          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
+          <p className="text-micro uppercase tracking-[0.16em] text-ink-3">
             {t("Ludex desktop · stable channel")}
           </p>
           <h1
             id="download-heading"
-            className="mt-4 max-w-[22ch] text-[clamp(2.4rem,5vw,4.5rem)] font-semibold leading-[0.94] tracking-[-0.035em]"
+            className="mt-4 max-w-[22ch] text-display sm:text-hero font-semibold leading-[0.94] tracking-[-0.035em]"
           >
             {t("Play your library on your PC.")}
           </h1>
-          <p className="measure mt-5 text-[15px] leading-relaxed text-ink-2">
+          <p className="measure mt-5 text-lead leading-relaxed text-ink-2">
             {t(
               "The browser shows your shelf. The desktop app is what installs, launches and updates your games, keeps cloud saves in sync and talks to your controller.",
             )}
@@ -138,7 +138,7 @@ export function DownloadScreen() {
             </Link>
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-3">
+          <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-meta uppercase tracking-[0.06em] text-ink-3">
             {data?.version && <span>{`v${data.version}`}</span>}
             {data?.releasedAt && <span>{t("Released {date}", { date: formatDate(data.releasedAt) })}</span>}
             <span>{t("Stable channel")}</span>
@@ -146,7 +146,7 @@ export function DownloadScreen() {
           </div>
 
           {offline && (
-            <p role="status" className="mt-5 max-w-[68ch] border-l-2 border-line-2 pl-3 text-[12.5px] leading-relaxed text-ink-2">
+            <p role="status" className="mt-5 max-w-[68ch] border-l-2 border-line-2 pl-3 text-label leading-relaxed text-ink-2">
               {t("The release feed is unavailable right now. Download from the release page instead; the links below will fill in once the server can reach it.")}
             </p>
           )}
@@ -157,13 +157,13 @@ export function DownloadScreen() {
             <div className="flex items-start gap-4 border border-line bg-surface p-5">
               <Smartphone className="mt-0.5 size-5 shrink-0 text-ink-3" aria-hidden="true" />
               <div className="min-w-0">
-                <h2 id="mobile-heading" className="text-[15px] font-medium">
+                <h2 id="mobile-heading" className="text-lead font-medium">
                   {t("Installs need a PC")}
                 </h2>
-                <p className="mt-1 max-w-[65ch] text-[12.5px] leading-relaxed text-ink-3">
+                <p className="mt-1 max-w-[65ch] text-label leading-relaxed text-ink-3">
                   {t("Open this address on your computer to install games: the desktop app unpacks archives and launches them, which a phone browser cannot do.")}
                 </p>
-                <code className="mt-3 block overflow-x-auto whitespace-nowrap border border-line bg-bg px-3 py-2 font-mono text-[12px] text-ink-2">
+                <code className="mt-3 block overflow-x-auto whitespace-nowrap border border-line bg-bg px-3 py-2 font-mono text-label text-ink-2">
                   {address}
                 </code>
               </div>
@@ -203,9 +203,9 @@ export function DownloadScreen() {
               <li key={feature.title} className="bg-bg p-5">
                 <div className="flex items-center gap-2.5">
                   <span className="text-ink-3">{feature.icon}</span>
-                  <h3 className="text-[14px] font-medium">{feature.title}</h3>
+                  <h3 className="text-body font-medium">{feature.title}</h3>
                 </div>
-                <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">{feature.body}</p>
+                <p className="mt-2 text-label leading-relaxed text-ink-3">{feature.body}</p>
               </li>
             ))}
           </ul>
@@ -228,7 +228,7 @@ export function DownloadScreen() {
                 <a
                   href={data.checksumsUrl}
                   rel="noreferrer"
-                  className="text-[12.5px] text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink"
+                  className="text-label text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink"
                 >
                   <ExternalLinkNote>{t("SHA256 checksums")}</ExternalLinkNote>
                 </a>
@@ -245,14 +245,14 @@ export function DownloadScreen() {
 
           {release.isError && (
             <div className="border border-line bg-surface p-5">
-              <p className="text-[14px] font-medium">{t("The download service did not answer.")}</p>
-              <p className="mt-1 max-w-[65ch] text-[12.5px] leading-relaxed text-ink-3">
+              <p className="text-body font-medium">{t("The download service did not answer.")}</p>
+              <p className="mt-1 max-w-[65ch] text-label leading-relaxed text-ink-3">
                 {t("Check that the server is reachable, then try again. Downloads only ever come from the release feed, never from this page.")}
               </p>
               <button
                 type="button"
                 onClick={() => void release.refetch()}
-                className={`${SECONDARY_LINK} mt-4 h-9 px-3 text-[13px]`}
+                className={`${SECONDARY_LINK} mt-4 h-9 px-3 text-body`}
               >
                 {t("Try again")}
               </button>
@@ -274,7 +274,7 @@ export function DownloadScreen() {
           )}
 
           {data && platforms.length > 0 && !platforms.includes("macos") && (
-            <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-4 text-meta leading-relaxed text-ink-3">
               {t(
                 "macOS builds are experimental and unsigned; building from source is the supported path for now.",
               )}
@@ -283,18 +283,18 @@ export function DownloadScreen() {
 
           {data && platforms.length === 0 && !release.isError && (
             <div className="border border-line bg-surface p-5">
-              <p className="text-[14px] font-medium">{t("No installer is published for this release yet.")}</p>
-              <p className="mt-1 max-w-[65ch] text-[12.5px] leading-relaxed text-ink-3">
+              <p className="text-body font-medium">{t("No installer is published for this release yet.")}</p>
+              <p className="mt-1 max-w-[65ch] text-label leading-relaxed text-ink-3">
                 {t("The release page is the source of truth: it lists every asset as soon as the build finishes.")}
               </p>
-              <a href={data.releaseUrl} rel="noreferrer" className={`${SECONDARY_LINK} mt-4 h-9 px-3 text-[13px]`}>
+              <a href={data.releaseUrl} rel="noreferrer" className={`${SECONDARY_LINK} mt-4 h-9 px-3 text-body`}>
                 <ExternalLinkNote>{t("Open the release page")}</ExternalLinkNote>
               </a>
             </div>
           )}
 
           {data && (
-            <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="mt-4 text-meta leading-relaxed text-ink-3">
               {t("Links point at the published release assets; this server never proxies the binaries.")}{" "}
               <a
                 href={data.releaseUrl}
@@ -310,11 +310,11 @@ export function DownloadScreen() {
         {data?.notes && (
           <section aria-labelledby="notes-heading" className="border-b border-line py-10">
             <SectionHeader id="notes-heading" title={t("Release notes")} />
-            <p className="measure text-[13.5px] leading-relaxed text-ink-2">{data.notes}</p>
+            <p className="measure text-body leading-relaxed text-ink-2">{data.notes}</p>
             <a
               href={data.releaseUrl}
               rel="noreferrer"
-              className="mt-3 inline-flex items-center gap-1 text-[12.5px] text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink"
+              className="mt-3 inline-flex items-center gap-1 text-label text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink"
             >
               <ExternalLinkNote>{t("Read the full release notes")}</ExternalLinkNote>
             </a>
@@ -324,32 +324,32 @@ export function DownloadScreen() {
         <section aria-labelledby="signin-heading" className="border-b border-line py-10">
           <div className="grid gap-6 sm:grid-cols-2">
             <div>
-              <h2 id="signin-heading" className="flex items-center gap-2 text-[17px] font-semibold tracking-[-0.015em]">
+              <h2 id="signin-heading" className="flex items-center gap-2 text-lead font-semibold tracking-[-0.015em]">
                 <KeyRound className="size-4 text-ink-3" aria-hidden="true" />
                 {t("Already have the desktop app?")}
               </h2>
-              <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+              <p className="mt-2 text-body leading-relaxed text-ink-2">
                 {t("Point it at this server and sign in with the same account; the library shows up as soon as it connects.")}
               </p>
               <Link
                 to={user ? "/" : "/login"}
-                className="mt-4 inline-flex items-center gap-1 text-[13px] text-ink underline decoration-line-2 underline-offset-4 hover:text-ink-2"
+                className="mt-4 inline-flex items-center gap-1 text-body text-ink underline decoration-line-2 underline-offset-4 hover:text-ink-2"
               >
                 {user ? t("Open the web app") : t("Sign in")}
                 <ArrowRight className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
               </Link>
             </div>
             <div>
-              <h2 className="flex items-center gap-2 text-[17px] font-semibold tracking-[-0.015em]">
+              <h2 className="flex items-center gap-2 text-lead font-semibold tracking-[-0.015em]">
                 <Monitor className="size-4 text-ink-3" aria-hidden="true" />
                 {t("Just browsing?")}
               </h2>
-              <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+              <p className="mt-2 text-body leading-relaxed text-ink-2">
                 {t("The web app opens the same library, metadata and progress. No install, no local storage.")}
               </p>
               <Link
                 to={user ? "/" : "/login"}
-                className="mt-4 inline-flex items-center gap-1 text-[13px] text-ink underline decoration-line-2 underline-offset-4 hover:text-ink-2"
+                className="mt-4 inline-flex items-center gap-1 text-body text-ink underline decoration-line-2 underline-offset-4 hover:text-ink-2"
               >
                 {user ? t("Back to the library") : t("Sign in to browse")}
                 <ArrowRight className="rtl:-scale-x-100 size-3.5" aria-hidden="true" />
@@ -360,7 +360,7 @@ export function DownloadScreen() {
 
         <section aria-labelledby="requirements-heading" className="pt-10">
           <SectionHeader id="requirements-heading" title={t("System requirements")} />
-          <dl className="border-t border-line text-[13px]">
+          <dl className="border-t border-line text-body">
             {[
               [t("Windows"), t("Windows 10 or 11, 64-bit")],
               [t("Linux"), t("glibc distribution, AppImage or Debian package, 64-bit")],
@@ -376,7 +376,7 @@ export function DownloadScreen() {
         </section>
       </main>
 
-      <footer className="page flex flex-wrap items-center justify-between gap-3 border-t border-line pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 text-[11.5px] text-ink-3">
+      <footer className="page flex flex-wrap items-center justify-between gap-3 border-t border-line pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 text-meta text-ink-3">
         <span>
           {data?.version ? `Ludex v${data.version}` : "Ludex"} · AGPL-3.0
         </span>
@@ -410,7 +410,7 @@ function PlatformCard({
       className={`border bg-bg p-5 ${highlight ? "border-signal/60" : "border-line"}`}
     >
       <div className="flex items-center justify-between gap-3">
-        <h3 id={`platform-${platform}`} className="text-[15px] font-medium">
+        <h3 id={`platform-${platform}`} className="text-lead font-medium">
           {platformName(platform)}
         </h3>
         {highlight && <Badge tone="signal">{t("Your system")}</Badge>}
@@ -422,20 +422,20 @@ function PlatformCard({
               <a
                 href={asset.url}
                 rel="noreferrer"
-                className="min-w-0 truncate text-[13px] text-ink underline decoration-line-2 underline-offset-4 hover:text-ink-2"
+                className="min-w-0 truncate text-body text-ink underline decoration-line-2 underline-offset-4 hover:text-ink-2"
                 title={asset.name}
               >
                 {assetKindLabel(asset.kind)}
                 {asset === recommended ? ` · ${t("recommended")}` : ""}
               </a>
-              <span className="num shrink-0 text-[11.5px] text-ink-3">{formatBytes(asset.sizeBytes)}</span>
+              <span className="num shrink-0 text-meta text-ink-3">{formatBytes(asset.sizeBytes)}</span>
             </div>
-            <code className="mt-1 block truncate font-mono text-[10.5px] text-ink-3" title={asset.name}>
+            <code className="mt-1 block truncate font-mono text-micro text-ink-3" title={asset.name}>
               {asset.name}
             </code>
             {asset.sha256 && (
               <code
-                className="mt-1 block truncate font-mono text-[10.5px] text-ink-3"
+                className="mt-1 block truncate font-mono text-micro text-ink-3"
                 title={`SHA-256 ${asset.sha256}`}
               >
                 sha256 {shortSha256(asset.sha256)}

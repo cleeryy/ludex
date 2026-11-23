@@ -117,7 +117,7 @@ export function VirusTotalBadge({
         aria-label={t("VirusTotal: {label} ({badge})", { label, badge })}
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          "inline-flex h-5 shrink-0 items-center gap-1.5 rounded-[2px] border px-1.5 text-[11px] font-medium leading-none transition-colors",
+          "inline-flex h-5 shrink-0 items-center gap-1.5 rounded-[var(--r-sm)] border px-1.5 text-meta font-medium leading-none transition-colors",
           tones[tone],
           "hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
           className,
@@ -166,10 +166,10 @@ export function VirusTotalBadge({
 function StatCell({ label, value, tone }: { label: string; value: number; tone?: "danger" | "signal" }) {
   return (
     <div className="bg-surface px-2 py-1.5">
-      <p className={cn("num text-[14px] leading-none", tone === "danger" ? "text-danger" : tone === "signal" ? "text-signal-text" : "text-ink")}>
+      <p className={cn("num text-body leading-none", tone === "danger" ? "text-danger" : tone === "signal" ? "text-signal-text" : "text-ink")}>
         {value}
       </p>
-      <p className="mt-1 text-[10px] text-ink-3">{label}</p>
+      <p className="mt-1 text-micro text-ink-3">{label}</p>
     </div>
   );
 }
@@ -199,8 +199,8 @@ export function VirusTotalDetail({
   if (!report) {
     return (
       <div className="flex flex-col gap-2 p-3.5">
-        <p className="text-[12.5px] text-ink-2">{t("No archive has been checked yet.")}</p>
-        <p className="text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-label text-ink-2">{t("No archive has been checked yet.")}</p>
+        <p className="text-meta leading-relaxed text-ink-3">
           {t("VirusTotal looks files up by SHA-256. An unchecked archive is not a safe archive.")}
         </p>
       </div>
@@ -227,16 +227,16 @@ export function VirusTotalDetail({
           )}
         />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium text-ink">
+          <p className="text-body font-medium text-ink">
             {summary?.label}
             {!inactive && (
-              <span className="num ms-2 text-[11.5px] font-normal text-ink-3">
+              <span className="num ms-2 text-meta font-normal text-ink-3">
                 {summary?.badge}
               </span>
             )}
           </p>
-          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-2">{verdictExplanation(report)}</p>
-          <p className="mt-1 font-mono text-[10px] text-ink-3">
+          <p className="mt-1 text-meta leading-relaxed text-ink-2">{verdictExplanation(report)}</p>
+          <p className="mt-1 font-mono text-micro text-ink-3">
             {t("Checked {date}", { date: formatRelative(report.checkedAt) })}
             {report.source === "cache" ? ` · ${t("from cache")}` : ` · ${t("fresh lookup")}`}
           </p>
@@ -255,11 +255,11 @@ export function VirusTotalDetail({
           </div>
 
           {(report.meaningfulName || report.lastAnalysisDate) && (
-            <dl className="border-b border-line px-3.5 py-2.5 text-[11.5px]">
+            <dl className="border-b border-line px-3.5 py-2.5 text-meta">
               {report.meaningfulName && (
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-ink-3">{t("Known as")}</dt>
-                  <dd className="min-w-0 truncate text-right font-mono text-[10.5px] text-ink-2" title={report.meaningfulName}>
+                  <dd className="min-w-0 truncate text-right font-mono text-micro text-ink-2" title={report.meaningfulName}>
                     {report.meaningfulName}
                   </dd>
                 </div>
@@ -275,14 +275,14 @@ export function VirusTotalDetail({
 
           {detections.length > 0 && (
             <div className="border-b border-line px-3.5 py-2.5">
-              <p className="text-[10.5px] uppercase tracking-[0.08em] text-ink-3">{t("Engine detections")}</p>
+              <p className="text-micro uppercase tracking-[0.08em] text-ink-3">{t("Engine detections")}</p>
               <ul className="mt-1.5 flex flex-col gap-1">
                 {detections.map((hit) => (
-                  <li key={`${hit.engine}-${hit.result ?? ""}`} className="flex items-baseline justify-between gap-3 text-[11.5px]">
+                  <li key={`${hit.engine}-${hit.result ?? ""}`} className="flex items-baseline justify-between gap-3 text-meta">
                     <span className="truncate text-ink-2">{hit.engine}</span>
                     <span
                       className={cn(
-                        "min-w-0 truncate text-right font-mono text-[10.5px]",
+                        "min-w-0 truncate text-right font-mono text-micro",
                         hit.category === "malicious" ? "text-danger" : "text-signal-text",
                       )}
                       title={hit.result ?? undefined}
@@ -298,7 +298,7 @@ export function VirusTotalDetail({
       )}
 
       {report.reason && inactive && (
-        <p className="border-b border-line px-3.5 py-2.5 text-[11.5px] leading-relaxed text-ink-3">{report.reason}</p>
+        <p className="border-b border-line px-3.5 py-2.5 text-meta leading-relaxed text-ink-3">{report.reason}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-1.5 px-3 py-2.5">
@@ -307,7 +307,7 @@ export function VirusTotalDetail({
             href={report.permalink}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-7 items-center gap-1 rounded-[2px] px-2 text-[11.5px] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
+            className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] px-2 text-meta text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
           >
             {t("Open on VirusTotal")}
             <ExternalLink className="size-3" aria-hidden="true" />
@@ -338,7 +338,7 @@ export function VirusTotalDetail({
       </div>
 
       {scan.isError && (
-        <p role="alert" className="border-t border-line px-3.5 py-2 text-[11.5px] text-danger">
+        <p role="alert" className="border-t border-line px-3.5 py-2 text-meta text-danger">
           {errorMessage(scan.error)}
         </p>
       )}
@@ -412,7 +412,7 @@ export function UploadDialog({
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-ink-2">
+      <div className="flex flex-col gap-3 text-label leading-relaxed text-ink-2">
         <p className="flex items-start gap-2 border-l-2 border-danger pl-3 text-danger">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>
@@ -424,7 +424,7 @@ export function UploadDialog({
         <p className="text-ink-3">
           {t("A hash lookup is enough to read a verdict. Upload only when you want new engines to analyse this exact file.")}
         </p>
-        <dl className="flex flex-col gap-1.5 border-t border-line pt-3 text-[12px]">
+        <dl className="flex flex-col gap-1.5 border-t border-line pt-3 text-label">
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-ink-3">{t("Archive size")}</dt>
             <dd className="num text-ink-2">{sizeBytes ? formatBytes(sizeBytes) : "—"}</dd>
@@ -434,10 +434,10 @@ export function UploadDialog({
             <dd className="text-ink-2">{uploadTransportLabel(gate.transport) ?? t("Not possible")}</dd>
           </div>
         </dl>
-        <p className="text-[11.5px] text-ink-3">
+        <p className="text-meta text-ink-3">
           {t("Up to 32 MB goes through a direct upload; up to 650 MB uses an upload URL. Bigger archives cannot be uploaded at all.")}
         </p>
-        <div className="flex items-start gap-2.5 border border-line-2 bg-surface/60 p-3 text-[12px] text-ink-2">
+        <div className="flex items-start gap-2.5 border border-line-2 bg-surface/60 p-3 text-label text-ink-2">
           <Checkbox
             checked={consent}
             onCheckedChange={setConsent}
@@ -452,10 +452,10 @@ export function UploadDialog({
           </button>
         </div>
         {gate.reason && !gate.allowed && (
-          <p className="text-[11.5px] leading-relaxed text-signal-text">{gate.reason}</p>
+          <p className="text-meta leading-relaxed text-signal-text">{gate.reason}</p>
         )}
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}
@@ -520,7 +520,7 @@ export function VirusTotalWarning({
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 text-[11px]",
+          "inline-flex items-center gap-1.5 text-meta",
           verdict === "malicious" ? "text-danger" : verdict === "suspicious" ? "text-signal-text" : "text-ink-3",
           className,
         )}
@@ -535,7 +535,7 @@ export function VirusTotalWarning({
     <div
       role={verdict === "malicious" ? "alert" : undefined}
       className={cn(
-        "flex items-start gap-2 border-l-2 pl-3 text-[11.5px] leading-relaxed",
+        "flex items-start gap-2 border-l-2 pl-3 text-meta leading-relaxed",
         verdict === "malicious"
           ? "border-danger text-danger"
           : verdict === "suspicious"
@@ -613,11 +613,11 @@ export function VirusTotalSummary({
           return (
             <li key={version.id} className="flex items-center justify-between gap-3 border-b border-line py-2.5">
               <div className="min-w-0">
-                <p className="truncate text-[12.5px] text-ink-2">{version.label}</p>
-                <p className="truncate font-mono text-[10px] text-ink-3">{formatBytes(version.sizeBytes)}</p>
+                <p className="truncate text-label text-ink-2">{version.label}</p>
+                <p className="truncate font-mono text-micro text-ink-3">{formatBytes(version.sizeBytes)}</p>
               </div>
               {isPending ? (
-                <span className="h-5 w-14 animate-pulse rounded-[2px] bg-surface-2" aria-hidden="true" />
+                <span className="h-5 w-14 animate-pulse rounded-[var(--r-sm)] bg-surface-2" aria-hidden="true" />
               ) : (
                 <VirusTotalBadge
                   report={report}
@@ -631,7 +631,7 @@ export function VirusTotalSummary({
           );
         })}
       </ul>
-      <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+      <p className="mt-2 text-meta leading-relaxed text-ink-3">
         {t("No verdict is a verdict: an unchecked or unknown archive is not a safe archive.")}
       </p>
     </SettingsGroup>

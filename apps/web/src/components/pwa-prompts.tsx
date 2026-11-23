@@ -22,8 +22,8 @@ export function PwaPrompts() {
         <div className="flex items-start gap-3 border border-line-2 bg-surface p-3.5 text-ink shadow-panel">
           <RefreshCw className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">{t("A new build is ready")}</p>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-body font-medium">{t("A new build is ready")}</p>
+            <p className="mt-1 text-meta leading-relaxed text-ink-3">
               {t("Reload to finish the update. The library stays indexed on the server.")}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -48,8 +48,8 @@ export function PwaPrompts() {
         <div className="flex items-start gap-3 border border-line-2 bg-surface p-3.5 text-ink shadow-panel">
           <Download className="mt-0.5 size-4 shrink-0 text-signal-text" aria-hidden="true" />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">{t("Install Ludex")}</p>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-body font-medium">{t("Install Ludex")}</p>
+            <p className="mt-1 text-meta leading-relaxed text-ink-3">
               {t("Keep the shell on your home screen and open the library full screen, even offline.")}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">

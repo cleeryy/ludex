@@ -95,7 +95,7 @@ export function NotificationBell() {
         <span className="relative inline-flex">
           <Bell className="size-4" aria-hidden="true" />
           {unread > 0 && (
-            <span className="num absolute -right-1.5 -top-1.5 grid min-w-4 place-items-center rounded-full bg-signal px-1 text-[9.5px] leading-4 text-bg">
+            <span className="num absolute -right-1.5 -top-1.5 grid min-w-4 place-items-center rounded-full bg-signal px-1 text-micro leading-4 text-bg">
               {unread > 9 ? "9+" : unread}
             </span>
           )}
@@ -110,20 +110,20 @@ export function NotificationBell() {
         className="w-[min(340px,calc(100vw-24px))] p-0"
       >
         <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2.5">
-          <p className="text-[12.5px] font-medium text-ink">{t("Notifications")}</p>
+          <p className="text-label font-medium text-ink">{t("Notifications")}</p>
           <button
             type="button"
             onClick={() => readAll.mutate()}
             disabled={unread === 0 || readAll.isPending}
-            className="text-[11.5px] text-ink-3 underline-offset-4 transition-colors hover:text-ink hover:underline disabled:opacity-40"
+            className="text-meta text-ink-3 underline-offset-4 transition-colors hover:text-ink hover:underline disabled:opacity-40"
           >
             {t("Mark all read")}
           </button>
         </div>
         {query.isPending ? (
-          <p className="px-3 py-4 text-[12px] text-ink-3">{t("Loading notifications…")}</p>
+          <p className="px-3 py-4 text-label text-ink-3">{t("Loading notifications…")}</p>
         ) : items.length === 0 ? (
-          <p className="px-3 py-6 text-center text-[12px] leading-relaxed text-ink-3">
+          <p className="px-3 py-6 text-center text-label leading-relaxed text-ink-3">
             {t("Nothing new. Friend requests, accepted invites and friend unlocks land here.")}
           </p>
         ) : (
@@ -140,7 +140,7 @@ export function NotificationBell() {
                 >
                   <span
                     className={cn(
-                      "mt-0.5 grid size-6 shrink-0 place-items-center rounded-[2px] border",
+                      "mt-0.5 grid size-6 shrink-0 place-items-center rounded-[var(--r-sm)] border",
                       item.kind === "friend_achievement"
                         ? "border-signal/50 bg-signal/12 text-signal-text"
                         : "border-line-2 bg-surface-2 text-ink-3",
@@ -149,8 +149,8 @@ export function NotificationBell() {
                     <KindIcon kind={item.kind} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[12.5px] leading-snug">{notificationText(item)}</span>
-                    <span className="mt-0.5 block font-mono text-[10px] text-ink-3">{formatRelative(item.createdAt)}</span>
+                    <span className="block text-label leading-snug">{notificationText(item)}</span>
+                    <span className="mt-0.5 block font-mono text-micro text-ink-3">{formatRelative(item.createdAt)}</span>
                   </span>
                   {item.readAt === null && <span className="mt-2 size-1.5 shrink-0 rounded-full bg-signal" aria-hidden="true" />}
                 </button>
@@ -162,7 +162,7 @@ export function NotificationBell() {
           <Link
             to="/community/friends"
             onClick={() => menu.setOpen(false)}
-            className="text-[11.5px] text-ink-3 underline-offset-4 transition-colors hover:text-ink hover:underline"
+            className="text-meta text-ink-3 underline-offset-4 transition-colors hover:text-ink hover:underline"
           >
             {t("Open friends and requests")}
           </Link>

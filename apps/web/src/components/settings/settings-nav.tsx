@@ -68,7 +68,7 @@ export function SettingsNav({
         placeholder={t("Find a setting")}
         autoComplete="off"
         spellCheck={false}
-        className="h-10 w-full rounded-[2px] border border-line bg-surface ps-9 pe-3 text-[13px] text-ink transition-colors placeholder:text-ink-3 focus:border-line-2"
+        className="h-10 w-full rounded-[var(--r-sm)] border border-line bg-surface ps-9 pe-3 text-body text-ink transition-colors placeholder:text-ink-3 focus:border-line-2"
       />
     </div>
   );
@@ -77,7 +77,7 @@ export function SettingsNav({
     <>
       <nav aria-label={t("Settings sections")} className="hidden lg:sticky lg:top-0 lg:block lg:w-[228px] lg:shrink-0">
         {searchField(desktopSearchId, "")}
-        <p className="pb-2 pt-5 text-[10.5px] uppercase tracking-[0.12em] text-ink-3">{t("Categories")}</p>
+        <p className="pb-2 pt-5 text-micro uppercase tracking-[0.12em] text-ink-3">{t("Categories")}</p>
         <ul className="border-t border-line">
           {filtered.map((section) => {
             const current = section.id === active;
@@ -100,7 +100,7 @@ export function SettingsNav({
           })}
         </ul>
         {filtered.length === 0 && (
-          <p className="px-1 py-3 text-[12px] leading-relaxed text-ink-3">{t("No section matches “{query}”.", { query })}</p>
+          <p className="px-1 py-3 text-label leading-relaxed text-ink-3">{t("No section matches “{query}”.", { query })}</p>
         )}
       </nav>
 
@@ -119,7 +119,7 @@ export function SettingsNav({
                   onClick={onSelect}
                   aria-current={current ? "location" : undefined}
                   className={cn(
-                    "flex h-11 items-center gap-1.5 border-b-2 px-2.5 text-[12.5px] transition-colors",
+                    "flex h-11 items-center gap-1.5 border-b-2 px-2.5 text-label transition-colors",
                     current ? "border-signal text-ink" : "border-transparent text-ink-3 hover:text-ink-2",
                   )}
                 >
@@ -131,7 +131,7 @@ export function SettingsNav({
           })}
         </ul>
         {filtered.length === 0 && (
-          <p className="px-3 py-2 text-[12px] leading-relaxed text-ink-3">{t("No section matches “{query}”.", { query })}</p>
+          <p className="px-3 py-2 text-label leading-relaxed text-ink-3">{t("No section matches “{query}”.", { query })}</p>
         )}
       </nav>
     </>

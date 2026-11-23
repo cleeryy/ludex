@@ -147,14 +147,14 @@ function VirusTotalCardBody({
         </Badge>
         {USING_MOCKS && <Badge tone="outline">{t("Demo data")}</Badge>}
         {data.fingerprint && (
-          <span className="font-mono text-[11px] text-ink-3" title={t("Only the last four characters are ever shown")}>
+          <span className="font-mono text-meta text-ink-3" title={t("Only the last four characters are ever shown")}>
             {data.fingerprint}
           </span>
         )}
       </div>
 
       {!configured && (
-        <p className="flex items-start gap-2 border-l-2 border-signal pl-3 text-[12.5px] leading-relaxed text-signal-text">
+        <p className="flex items-start gap-2 border-l-2 border-signal pl-3 text-label leading-relaxed text-signal-text">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>
             {t(
@@ -165,7 +165,7 @@ function VirusTotalCardBody({
       )}
 
       {fromEnv && (
-        <p className="border-l-2 border-line-2 pl-3 text-[12px] leading-relaxed text-ink-3">
+        <p className="border-l-2 border-line-2 pl-3 text-label leading-relaxed text-ink-3">
           {t(
             "This key comes from LUDEX_VIRUSTOTAL_API_KEY. The environment always wins, so the form is read-only here: change the variable and restart the server.",
           )}
@@ -202,7 +202,7 @@ function VirusTotalCardBody({
               disabled={fromEnv}
               onChange={(event) => onApiKeyChange(event.target.value)}
               placeholder={configured ? t("Paste a new key to replace the stored one") : t("Paste your VirusTotal API key")}
-              className="font-mono text-[13px]"
+              className="font-mono text-body"
             />
           </Field>
           <div className="flex flex-wrap items-center gap-2">
@@ -248,10 +248,10 @@ function VirusTotalCardBody({
         />
         <div className="mt-4 max-w-[520px]">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-[12.5px] text-ink-2">
+            <span className="text-label text-ink-2">
               {t("{used} of {limit} used today", { used: data.quota.usedToday, limit: data.quota.dailyLimit })}
             </span>
-            <span className="num text-[12px] text-ink-3">{t("{remaining} left", { remaining: data.quota.remaining })}</span>
+            <span className="num text-label text-ink-3">{t("{remaining} left", { remaining: data.quota.remaining })}</span>
           </div>
           <Progress
             className="mt-2"
@@ -259,7 +259,7 @@ function VirusTotalCardBody({
             tone={quotaPercent >= 80 ? "danger" : "signal"}
             label={t("Daily VirusTotal quota")}
           />
-          <p className="mt-2 font-mono text-[10.5px] text-ink-3">
+          <p className="mt-2 font-mono text-micro text-ink-3">
             {t("Resets {when}", { when: formatRelative(data.quota.resetAt) })}
             {" · "}
             {formatDate(data.quota.resetAt)}
@@ -273,11 +273,11 @@ function VirusTotalCardBody({
         <SectionHeader title={t("Last error")} />
         {data.lastError ? (
           <div className="mt-3 flex max-w-[620px] flex-col gap-1.5 border-l-2 border-danger pl-3">
-            <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink">
+            <p className="flex flex-wrap items-center gap-2 text-label text-ink">
               <Badge tone="danger">{integrationErrorLabel(errorKind) ?? t("Error")}</Badge>
-              <span className="font-mono text-[11px] leading-relaxed text-ink-2">{data.lastError}</span>
+              <span className="font-mono text-meta leading-relaxed text-ink-2">{data.lastError}</span>
             </p>
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               {errorKind === "invalid_key"
                 ? t("VirusTotal rejected the key. Replace it above; scans keep reporting unknown until then.")
                 : errorKind === "quota"
@@ -288,14 +288,14 @@ function VirusTotalCardBody({
             </p>
           </div>
         ) : (
-          <p className="mt-3 flex items-center gap-2 text-[12.5px] text-ink-3">
+          <p className="mt-3 flex items-center gap-2 text-label text-ink-3">
             <ShieldCheck className="size-4 text-ok" aria-hidden="true" />
             {data.lastUsedAt
               ? t("No error recorded on the last call.")
               : t("No call has been made yet.")}
           </p>
         )}
-        <dl className="mt-4 flex max-w-[520px] flex-col gap-1.5 border-t border-line pt-3 text-[12px]">
+        <dl className="mt-4 flex max-w-[520px] flex-col gap-1.5 border-t border-line pt-3 text-label">
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-ink-3">{t("Key added")}</dt>
             <dd className="text-ink-2">{data.addedAt ? formatRelative(data.addedAt) : "—"}</dd>
@@ -309,7 +309,7 @@ function VirusTotalCardBody({
 
       <section>
         <SectionHeader title={t("What scanning does")} />
-        <ul className="mt-3 flex max-w-[620px] flex-col gap-2 text-[12.5px] leading-relaxed text-ink-2">
+        <ul className="mt-3 flex max-w-[620px] flex-col gap-2 text-label leading-relaxed text-ink-2">
           <li className="flex gap-2.5">
             <span className="mt-[7px] size-1.5 shrink-0 bg-signal" aria-hidden="true" />
             <span>{t("A scan looks the archive SHA-256 up. It never uploads, extracts or runs a file.")}</span>
@@ -331,7 +331,7 @@ function VirusTotalCardBody({
           href={VT_DOCS_URL}
           target="_blank"
           rel="noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 text-[12px] text-ink-3 hover:text-ink"
+          className="mt-3 inline-flex items-center gap-1.5 text-label text-ink-3 hover:text-ink"
         >
           {t("VirusTotal API documentation")}
           <ExternalLink className="size-3" aria-hidden="true" />
@@ -444,8 +444,8 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
             label={t("Re-check all archives periodically")}
           />
           <span className="flex flex-col gap-0.5">
-            <span className="text-[12.5px] text-ink">{t("Re-check all archives periodically")}</span>
-            <span className="text-[11.5px] leading-relaxed text-ink-3">
+            <span className="text-label text-ink">{t("Re-check all archives periodically")}</span>
+            <span className="text-meta leading-relaxed text-ink-3">
               {t("Off by default. The pass runs on the server, survives a restart and stops when you disable it.")}
             </span>
           </span>
@@ -463,7 +463,7 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
               value={value.intervalHours}
               onChange={(hours) => update({ intervalHours: hours })}
               options={rescanIntervalOptions()}
-              className="h-9 text-[12.5px]"
+              className="h-9 text-label"
             />
           </Field>
           <div className="flex flex-col justify-end gap-2 pb-1">
@@ -473,9 +473,9 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
                 onCheckedChange={(checked) => update({ includeMalicious: checked })}
                 label={t("Also re-check malicious verdicts")}
               />
-              <span className="text-[12.5px] text-ink">{t("Also re-check malicious verdicts")}</span>
+              <span className="text-label text-ink">{t("Also re-check malicious verdicts")}</span>
             </div>
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               {t("A malicious report is kept for 100 days on purpose: re-checking it spends quota for a verdict that rarely changes.")}
             </p>
           </div>
@@ -508,7 +508,7 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
           </Button>
         </div>
 
-        <dl className="flex max-w-[520px] flex-col gap-1.5 border-t border-line pt-3 text-[12px]">
+        <dl className="flex max-w-[520px] flex-col gap-1.5 border-t border-line pt-3 text-label">
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-ink-3">{t("Last run")}</dt>
             <dd className="text-ink-2">{data.lastRunAt ? formatRelative(data.lastRunAt) : t("Never")}</dd>
@@ -533,14 +533,14 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
           </div>
         </dl>
 
-        <p className="max-w-[620px] border-l-2 border-line-2 pl-3 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="max-w-[620px] border-l-2 border-line-2 pl-3 text-meta leading-relaxed text-ink-3">
           {t(
             "VirusTotal accepts {rate} requests per minute and {daily} per day. A pass paces itself one request per slot and never uploads a file, so a library larger than {daily} archives is drained over several days instead of failing.",
             { rate: VIRUSTOTAL_RATE_PER_MINUTE, daily: VIRUSTOTAL_DAILY_LIMIT },
           )}
         </p>
         {multiDay && (
-          <p className="flex items-start gap-2 border-l-2 border-signal pl-3 text-[11.5px] leading-relaxed text-signal-text">
+          <p className="flex items-start gap-2 border-l-2 border-signal pl-3 text-meta leading-relaxed text-signal-text">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span>
               {t(
@@ -553,16 +553,16 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
 
         {data.lastError ? (
           <div className="flex max-w-[620px] flex-col gap-1.5 border-l-2 border-danger pl-3">
-            <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink">
+            <p className="flex flex-wrap items-center gap-2 text-label text-ink">
               <Badge tone="danger">{integrationErrorLabel(rescanError) ?? t("Error")}</Badge>
-              <span className="font-mono text-[11px] leading-relaxed text-ink-2">{data.lastError}</span>
+              <span className="font-mono text-meta leading-relaxed text-ink-2">{data.lastError}</span>
             </p>
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
+            <p className="text-meta leading-relaxed text-ink-3">
               {t("The schedule keeps running: the next pass retries the outstanding archives once the cause is fixed.")}
             </p>
           </div>
         ) : (
-          <p className="flex items-center gap-2 text-[12.5px] text-ink-3">
+          <p className="flex items-center gap-2 text-label text-ink-3">
             <ShieldCheck className="size-4 text-ok" aria-hidden="true" />
             {data.enabled ? t("No failure recorded on the last pass.") : t("No pass has run yet.")}
           </p>
@@ -608,7 +608,7 @@ function VirusTotalRescanSection({ configured }: { configured: boolean }) {
             { value: "quota_exceeded", label: t("Quota reached") },
             { value: "error", label: t("Check failed") },
           ]}
-          className="h-9 text-[12.5px]"
+          className="h-9 text-label"
         />
       </Field>
     </div>

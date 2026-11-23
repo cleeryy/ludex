@@ -79,8 +79,8 @@ function DisplaySwitch({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <p className="text-[12px] text-ink-2">{label}</p>
-        <p className="mt-0.5 max-w-[70ch] text-[11px] leading-relaxed text-ink-3">
+        <p className="text-label text-ink-2">{label}</p>
+        <p className="mt-0.5 max-w-[70ch] text-meta leading-relaxed text-ink-3">
           {disabled && reason ? reason : hint}
         </p>
       </div>
@@ -412,7 +412,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               href={`https://www.protondb.com/app/${draft.steamAppId}`}
               target="_blank"
               rel="noreferrer noopener"
-              className="text-[11.5px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+              className="text-meta text-ink-3 underline-offset-4 hover:text-ink hover:underline"
             >
               {t("ProtonDB")}
             </a>
@@ -421,7 +421,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
       />
       <div className="border-t border-line pt-4">
         {linux && scan.data && scan.data.tools.length === 0 && (
-          <p className="mb-4 border-l-2 border-signal/60 pl-3 text-[12.5px] leading-relaxed text-ink-2">
+          <p className="mb-4 border-l-2 border-signal/60 pl-3 text-label leading-relaxed text-ink-2">
             {tr("No compatibility tool is installed. A Windows game cannot start until UMU, GE-Proton/Proton or Wine is available. Install one, then rescan in {settings}.", {
               settings: (
                 <Link to="/settings" className="underline underline-offset-4 hover:text-ink">
@@ -436,7 +436,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           <>
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5">
-                <span className="text-[12px] text-ink-3">{t("Launch mode")}</span>
+                <span className="text-label text-ink-3">{t("Launch mode")}</span>
                 <Select
                   label={t("Launch mode")}
                   value={draft.mode}
@@ -446,7 +446,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">{t("Compatibility tool")}</span>
+            <span className="text-label text-ink-3">{t("Compatibility tool")}</span>
             <Select
               label={t("Compatibility tool")}
               value={draft.mode === "native" ? "" : draft.toolId}
@@ -461,7 +461,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                 })),
               ]}
             />
-            <span className="text-[11px] text-ink-3">
+            <span className="text-meta text-ink-3">
               {scan.data?.umu
                 ? t("UMU is preferred, then GE-Proton/Proton, then Wine.")
                 : t("GE-Proton/Proton is preferred, then Wine.")}
@@ -469,7 +469,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">{t("Steam app id")}</span>
+            <span className="text-label text-ink-3">{t("Steam app id")}</span>
             <Input
               value={draft.steamAppId ?? ""}
               onChange={(event) => {
@@ -479,22 +479,22 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               inputMode="numeric"
               placeholder="1145360"
               spellCheck={false}
-              className="h-10 font-mono text-[12px]"
+              className="h-10 font-mono text-label"
             />
-            <span className="text-[11px] text-ink-3">{t("Used for the ProtonDB rating and `GAMEID`. Optional.")}</span>
+            <span className="text-meta text-ink-3">{t("Used for the ProtonDB rating and `GAMEID`. Optional.")}</span>
           </label>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-ink-3">{t("Environment overrides")}</span>
+            <span className="text-label text-ink-3">{t("Environment overrides")}</span>
             <Textarea
               value={envText}
               onChange={(event) => setEnvText(event.target.value)}
               placeholder={"DXVK_HUD=fps\nPROTON_NO_ESYNC=1\nWINEDLLOVERRIDES=d3d11=n"}
               rows={3}
               spellCheck={false}
-              className="min-h-[84px] font-mono text-[11.5px]"
+              className="min-h-[84px] font-mono text-meta"
             />
-            <span className="text-[11px] text-ink-3">{t("One KEY=VALUE per line. PATH, HOME and LD_* are refused.")}</span>
+            <span className="text-meta text-ink-3">{t("One KEY=VALUE per line. PATH, HOME and LD_* are refused.")}</span>
           </div>
         </div>
 
@@ -502,8 +502,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
 
         <div className="mt-6 border-t border-line pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <p className="text-[13px] font-medium text-ink">{t("Display")}</p>
-            <span className="font-mono text-[10.5px] text-ink-3">
+            <p className="text-body font-medium text-ink">{t("Display")}</p>
+            <span className="font-mono text-micro text-ink-3">
               {gamescope
                 ? gamescope.version
                   ? `gamescope ${gamescope.version}`
@@ -511,18 +511,18 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                 : t("gamescope not installed")}
             </span>
           </div>
-          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t(
               "Gamescope runs the game in its own nested window at this resolution. The desktop mode is never changed and the other displays are left alone; closing the game restores nothing because nothing moved.",
             )}
           </p>
           {capabilityLine && (
-            <p className="mt-2 font-mono text-[10.5px] text-ink-3">{capabilityLine}</p>
+            <p className="mt-2 font-mono text-micro text-ink-3">{capabilityLine}</p>
           )}
 
           <div className="mt-4 grid gap-5 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] text-ink-3">{t("Display mode")}</span>
+              <span className="text-label text-ink-3">{t("Display mode")}</span>
               <Select
                 label={t("Display mode")}
                 value={draft.display.mode}
@@ -544,7 +544,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
 
             {draft.display.mode === "gamescope" && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[12px] text-ink-3">{t("Resolution")}</span>
+                <span className="text-label text-ink-3">{t("Resolution")}</span>
                 <div className="flex items-center gap-2">
                   <Input
                     type="number"
@@ -560,9 +560,9 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                         },
                       })
                     }
-                    className="num h-10 w-24 font-mono text-[12px]"
+                    className="num h-10 w-24 font-mono text-label"
                   />
-                  <span className="text-[12px] text-ink-3">×</span>
+                  <span className="text-label text-ink-3">×</span>
                   <Input
                     type="number"
                     inputMode="numeric"
@@ -577,10 +577,10 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                         },
                       })
                     }
-                    className="num h-10 w-24 font-mono text-[12px]"
+                    className="num h-10 w-24 font-mono text-label"
                   />
                 </div>
-                <span className="text-[11px] text-ink-3">{t("Width × height in pixels.")}</span>
+                <span className="text-meta text-ink-3">{t("Width × height in pixels.")}</span>
               </div>
             )}
           </div>
@@ -588,7 +588,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           {draft.display.mode === "gamescope" && (
             <div className="mt-4 grid gap-5 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5">
-                <span className="text-[12px] text-ink-3">{t("Refresh rate")}</span>
+                <span className="text-label text-ink-3">{t("Refresh rate")}</span>
                 <Input
                   type="number"
                   inputMode="numeric"
@@ -602,14 +602,14 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                       },
                     })
                   }
-                  className="num h-10 w-24 font-mono text-[12px]"
+                  className="num h-10 w-24 font-mono text-label"
                 />
-                <span className="text-[11px] text-ink-3">{t("0 keeps the desktop refresh rate.")}</span>
+                <span className="text-meta text-ink-3">{t("0 keeps the desktop refresh rate.")}</span>
               </label>
 
               {filters.length > 0 && (
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[12px] text-ink-3">{t("Scaling filter")}</span>
+                  <span className="text-label text-ink-3">{t("Scaling filter")}</span>
                   <Select
                     label={t("Scaling filter")}
                     value={draft.display.filter}
@@ -656,13 +656,13 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           )}
 
           {draft.display.mode === "gamescope" && displayProfileSummary(draft.display) && (
-            <p className="mt-3 font-mono text-[10.5px] text-ink-3">
+            <p className="mt-3 font-mono text-micro text-ink-3">
               {displayProfileSummary(draft.display)}
             </p>
           )}
 
           {draft.display.mode === "gamescope" && !gamescope && (
-            <p className="mt-3 border-l-2 border-signal/60 pl-3 text-[11.5px] leading-relaxed text-ink-2">
+            <p className="mt-3 border-l-2 border-signal/60 pl-3 text-meta leading-relaxed text-ink-2">
               {tr(
                 "Gamescope is not installed, so {title} launches into the desktop until it is. Install it, then rescan in {settings}.",
                 {
@@ -678,7 +678,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           )}
 
           {draft.display.mode === "gamescope" && (
-            <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+            <p className="mt-2 text-meta leading-relaxed text-ink-3">
               {t(
                 "Ludex never asks Gamescope for exclusive fullscreen, so the desktop layout, the refresh rates and the other outputs are untouched while the game runs.",
               )}
@@ -688,14 +688,14 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
 
         <div className="mt-6 border-t border-line pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <p className="text-[13px] font-medium text-ink">{t("Wine prefix")}</p>
-            <span className="font-mono text-[10.5px] text-ink-3">
+            <p className="text-body font-medium text-ink">{t("Wine prefix")}</p>
+            <span className="font-mono text-micro text-ink-3">
               {savedPrefix?.exists
                 ? `${formatBytes(savedPrefix.sizeBytes)} · ${savedPrefix.custom ? "custom" : "default"}`
                 : t("not created yet")}
             </span>
           </div>
-          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {tr("Each game gets its own prefix. The default lives inside the install folder ({prefix}) and is recreated on the next launch after a reset. Proton uses {pfx} inside it.", {
               prefix: <span className="font-mono">.prefix</span>,
               pfx: <span className="font-mono">pfx</span>,
@@ -707,7 +707,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               onChange={(event) => update({ prefixPath: event.target.value })}
               placeholder={savedPrefix?.path ?? "/path/to/games/.prefix"}
               spellCheck={false}
-              className="h-10 flex-1 font-mono text-[11.5px]"
+              className="h-10 flex-1 font-mono text-meta"
             />
             <div className="flex shrink-0 items-center gap-2">
               <Button variant="default" size="sm" className="h-10" icon={<FolderOpen className="size-3.5" />} onClick={() => void pickPrefix()}>
@@ -737,13 +737,13 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             </div>
           </div>
           {draft.prefixPath !== savedOptions.prefixPath && (
-            <p className="mt-1.5 text-[11px] text-ink-3">{t("Save to apply the new prefix path.")}</p>
+            <p className="mt-1.5 text-meta text-ink-3">{t("Save to apply the new prefix path.")}</p>
           )}
         </div>
 
         <div className="mt-6 border-t border-line pt-4">
-          <p className="text-[13px] font-medium text-ink">{t("Winetricks verbs")}</p>
-          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("Winetricks verbs")}</p>
+          <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t("Installed on demand in this game prefix, with the Proton Wine build when one is selected. Runs can take several minutes.")}
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -756,7 +756,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                   onClick={() => toggleVerb(verb)}
                   aria-pressed={active}
                   className={cn(
-                    "h-7 border px-2 font-mono text-[10.5px] transition-colors",
+                    "h-7 border px-2 font-mono text-micro transition-colors",
                     active
                       ? "border-signal/60 bg-signal/10 text-signal-text"
                       : "border-line-2 text-ink-3 hover:border-line-2 hover:text-ink",
@@ -779,7 +779,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               }}
               placeholder="another-verb"
               spellCheck={false}
-              className="h-9 w-[190px] font-mono text-[11.5px]"
+              className="h-9 w-[190px] font-mono text-meta"
             />
             <Button variant="ghost" size="sm" onClick={addVerb} disabled={!customVerb.trim()}>
               {t("Add")}
@@ -795,12 +795,12 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               {t("Run winetricks")}
             </Button>
             {draft.winetricksVerbs.length > 0 && (
-              <span className="font-mono text-[10.5px] text-ink-3">
+              <span className="font-mono text-micro text-ink-3">
                 {draft.winetricksVerbs.join(" ")}
               </span>
             )}
             {!scan.data?.winetricks && (
-              <span className="text-[11px] text-ink-3">{t("winetricks is not installed.")}</span>
+              <span className="text-meta text-ink-3">{t("winetricks is not installed.")}</span>
             )}
           </div>
 
@@ -811,14 +811,14 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                   {verbReport.success ? t("Done") : verbReport.timedOut ? t("Timed out") : t("Failed")}
                 </Badge>
                 {verbReport.exitCode !== null && (
-                  <span className="num text-[11px] text-ink-3">{t("exit")} {verbReport.exitCode}</span>
+                  <span className="num text-meta text-ink-3">{t("exit")} {verbReport.exitCode}</span>
                 )}
-                <span className="num text-[11px] text-ink-3">
+                <span className="num text-meta text-ink-3">
                   {formatDuration(verbReport.durationMs / 1000)}
                 </span>
               </div>
               {verbReport.output && (
-                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap border border-line bg-surface p-2 font-mono text-[10.5px] leading-relaxed text-ink-3">
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap border border-line bg-surface p-2 font-mono text-micro leading-relaxed text-ink-3">
                   {verbReport.output}
                 </pre>
               )}
@@ -829,8 +829,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
         )}
 
         <div className="mt-6 border-t border-line pt-4">
-          <p className="text-[13px] font-medium text-ink">{t("Working directory")}</p>
-          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("Working directory")}</p>
+          <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t("Folder the game starts in. Empty uses the install folder; an adopted game otherwise starts in its executable's folder.")}
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -839,7 +839,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               onChange={(event) => update({ workingDir: event.target.value })}
               placeholder={t("Automatic")}
               spellCheck={false}
-              className="h-10 flex-1 font-mono text-[11.5px]"
+              className="h-10 flex-1 font-mono text-meta"
             />
             <div className="flex shrink-0 items-center gap-2">
               <Button variant="default" size="sm" className="h-10" icon={<FolderOpen className="size-3.5" />} onClick={() => void pickWorkingDir()}>
@@ -855,8 +855,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
         </div>
 
         <div className="mt-6 border-t border-line pt-4">
-          <p className="text-[13px] font-medium text-ink">{t("Diagnostics")}</p>
-          <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-body font-medium text-ink">{t("Diagnostics")}</p>
+          <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
             {t("Collect the recent launch logs, the resolved plan, the prefix health and the GPU/UMU/Proton versions in one zip. Tokens, passwords and the home folder are removed before it is written.")}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -883,7 +883,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             )}
           </div>
           {bundle && (
-            <p className="mt-2 font-mono text-[10.5px] text-ink-3">
+            <p className="mt-2 font-mono text-micro text-ink-3">
               {bundle.fileName} · {t("plan {hash}", { hash: bundle.planHash.slice(0, 12) })}
             </p>
           )}
@@ -893,9 +893,9 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           <Button variant="primary" size="sm" loading={saving} disabled={!dirty} onClick={() => void save()}>
             {t("Save Linux options")}
           </Button>
-          {dirty && <span className="text-[11.5px] text-ink-3">{t("Unsaved changes")}</span>}
+          {dirty && <span className="text-meta text-ink-3">{t("Unsaved changes")}</span>}
           {linux && (
-            <span className="font-mono text-[10.5px] text-ink-3">
+            <span className="font-mono text-micro text-ink-3">
               {scan.data?.winetricks ? t("winetricks detected") : t("no winetricks")} ·{" "}
               {scan.data?.protonfixes ? t("protonfixes detected") : t("no protonfixes")}
             </span>
@@ -905,8 +905,8 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
         <div className="mt-6 border-t border-line pt-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[13px] font-medium text-ink">{t("Game profile")}</p>
-              <p className="mt-1 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+              <p className="text-body font-medium text-ink">{t("Game profile")}</p>
+              <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-3">
                 {t(
                   "One TOML document for this game: launch plan, display profile and prerequisites, without folders or user names. Export it to share a working setup, or paste one to compare it before anything changes.",
                 )}
@@ -938,7 +938,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
             placeholder={t("Paste a TOML profile here, then preview it.")}
             aria-label={t("Profile document")}
             spellCheck={false}
-            className="mt-3 min-h-[140px] font-mono text-[11px]"
+            className="mt-3 min-h-[140px] font-mono text-meta"
           />
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -971,7 +971,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           </div>
 
           {profileWarnings.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-1 text-[11.5px] text-ink-3">
+            <ul className="mt-3 flex flex-col gap-1 text-meta text-ink-3">
               {profileWarnings.map((warning) => (
                 <li key={`${warning.code}:${warning.detail}`} className="border-l-2 border-line-2 pl-2">
                   {warning.detail}
@@ -983,10 +983,10 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
           {profileProposal && (
             <div className="mt-4 border border-line">
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-3 py-2">
-                <p className="text-[12px] font-medium text-ink">
+                <p className="text-label font-medium text-ink">
                   {profileProposal.title || t("Untitled profile")}
                 </p>
-                <span className="font-mono text-[10.5px] text-ink-3">
+                <span className="font-mono text-micro text-ink-3">
                   {t("schema {schema} · app {version} · rules {rules}", {
                     schema: profileProposal.schemaVersion,
                     version: profileProposal.appVersion,
@@ -996,7 +996,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               </div>
 
               {profileProposal.errors.length > 0 && (
-                <ul className="border-b border-line px-3 py-2 text-[11.5px] text-danger">
+                <ul className="border-b border-line px-3 py-2 text-meta text-danger">
                   {profileProposal.errors.map((error) => (
                     <li key={error} className="border-l-2 border-danger/60 pl-2">
                       {error}
@@ -1006,7 +1006,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
               )}
 
               {profileProposal.warnings.length > 0 && (
-                <ul className="border-b border-line px-3 py-2 text-[11.5px] text-ink-2">
+                <ul className="border-b border-line px-3 py-2 text-meta text-ink-2">
                   {profileProposal.warnings.map((warning) => (
                     <li key={`${warning.code}:${warning.detail}`} className="border-l-2 border-signal/60 pl-2">
                       {warning.detail}
@@ -1022,21 +1022,21 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
                       key={change.field}
                       className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-1.5"
                     >
-                      <span className="w-[190px] shrink-0 font-mono text-[10.5px] text-ink-3">
+                      <span className="w-[190px] shrink-0 font-mono text-micro text-ink-3">
                         {profileFieldLabel(change.field)}
                       </span>
-                      <span className="font-mono text-[11px] text-ink-3 line-through">
+                      <span className="font-mono text-meta text-ink-3 line-through">
                         {profileValue(change.before)}
                       </span>
-                      <span className="text-[11px] text-ink-3">→</span>
-                      <span className="font-mono text-[11px] text-ink">
+                      <span className="text-meta text-ink-3">→</span>
+                      <span className="font-mono text-meta text-ink">
                         {profileValue(change.after)}
                       </span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="px-3 py-2 text-[11.5px] text-ink-3">
+                <p className="px-3 py-2 text-meta text-ink-3">
                   {t("This profile changes nothing.")}
                 </p>
               )}
@@ -1045,7 +1045,7 @@ export function LaunchOptionsPanel({ gameId, title }: { gameId: number; title: s
         </div>
 
         {linux && scan.data && scan.data.warnings.length > 0 && (
-          <ul className="mt-3 flex flex-col gap-1 text-[11.5px] text-ink-3">
+          <ul className="mt-3 flex flex-col gap-1 text-meta text-ink-3">
             {scan.data.warnings.map((warning) => (
               <li key={warning} className="border-l-2 border-line-2 pl-2">
                 {warning}

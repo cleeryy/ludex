@@ -60,15 +60,15 @@ export function ControllerManager() {
 
   return (
     <section
-      className="rounded-[3px] border border-line bg-bg-2/40 p-4 sm:p-5"
+      className="rounded-[var(--r-sm)] border border-line bg-bg-2/40 p-4 sm:p-5"
       aria-label={t("Connected pads")}
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h4 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
+          <h4 className="flex items-center gap-2 text-meta uppercase tracking-[0.12em] text-ink-2">
             <Gamepad2 className="size-3.5" aria-hidden="true" /> {t("Connected pads")}
           </h4>
-          <p className="mt-1 max-w-[62ch] text-[12.5px] leading-relaxed text-ink-3">
+          <p className="mt-1 max-w-[62ch] text-label leading-relaxed text-ink-3">
             {t("Profiles are stored on this device by pad fingerprint. Two identical pads share one profile.")}
           </p>
         </div>
@@ -78,7 +78,7 @@ export function ControllerManager() {
       </header>
 
       {pads.length === 0 ? (
-        <p className="mt-4 rounded-[2px] border border-line/70 bg-bg/40 px-3 py-2 text-[12px] text-ink-3">
+        <p className="mt-4 rounded-[var(--r-sm)] border border-line/70 bg-bg/40 px-3 py-2 text-label text-ink-3">
           {t("Connect a controller and press a button to see it here.")}
         </p>
       ) : (
@@ -99,14 +99,14 @@ export function ControllerManager() {
 
       {remembered.length > 0 && (
         <div className="mt-4">
-          <h5 className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+          <h5 className="mb-2 text-micro uppercase tracking-[0.12em] text-ink-3">
             {t("Remembered pads")}
           </h5>
           <ul className="divide-y divide-line/60 border-y border-line/60">
             {remembered.map((entry) => (
               <li key={entry.identity.fingerprint} className="flex flex-wrap items-center gap-2 py-2">
-                <span className="text-[12px] text-ink-2">{entry.label}</span>
-                <span className="font-mono text-[11px] text-ink-3">
+                <span className="text-label text-ink-2">{entry.label}</span>
+                <span className="font-mono text-meta text-ink-3">
                   {shortFingerprint(entry.identity.fingerprint)}
                 </span>
                 <Badge tone="outline">{t("Not connected")}</Badge>
@@ -150,18 +150,18 @@ function ControllerPadRow({
     <li className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-[13px] text-ink">{label}</span>
+          <span className="truncate text-body text-ink">{label}</span>
           <Badge tone="signal">{t("Connected")}</Badge>
           {last && <Badge tone="outline">{t("Last used")}</Badge>}
           {generic && <Badge tone="danger">{t("Generic — remap if a button is wrong")}</Badge>}
         </div>
-        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] text-ink-3">
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-micro text-ink-3">
           <span title={t("Fingerprint")}>{shortFingerprint(pad.identity.fingerprint)}</span>
           <span className="max-w-[36ch] truncate normal-case tracking-normal" title={pad.id}>
             {pad.id}
           </span>
         </p>
-        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-micro uppercase tracking-[0.08em] text-ink-3">
           <span>{pad.mapping === "standard" ? t("Standard") : t("Mapping")}</span>
           <span>
             {t("Buttons")}: {pad.buttons}

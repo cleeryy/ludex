@@ -110,14 +110,14 @@ export function MoveInstallDialog({
       }
     >
       <div className="flex flex-col gap-4">
-        <dl className="flex flex-col gap-2 text-[12.5px]">
+        <dl className="flex flex-col gap-2 text-label">
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-ink-3">{t("Current folder")}</dt>
-            <dd className="truncate font-mono text-[11px] text-ink-2">{installed.installPath}</dd>
+            <dd className="truncate font-mono text-meta text-ink-2">{installed.installPath}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-ink-3">{t("Size on disk")}</dt>
-            <dd className="num text-[12px] text-ink-2">{formatBytes(installed.sizeBytes)}</dd>
+            <dd className="num text-label text-ink-2">{formatBytes(installed.sizeBytes)}</dd>
           </div>
         </dl>
 
@@ -130,7 +130,7 @@ export function MoveInstallDialog({
               placeholder={installed.installPath.replace(/[\\/][^\\/]+[\\/][^\\/]+$/, "") || "/games"}
               spellCheck={false}
               disabled={busy}
-              className="h-10 font-mono text-[11.5px]"
+              className="h-10 font-mono text-meta"
             />
             <Button
               variant="default"
@@ -148,7 +148,7 @@ export function MoveInstallDialog({
         {busy && (
           <div>
             <Progress value={percent} label={t("Move progress")} />
-            <p className="mt-1.5 font-mono text-[10.5px] text-ink-3">
+            <p className="mt-1.5 font-mono text-micro text-ink-3">
               {progress?.message ?? t("Preparing the move…")}
               {progress && progress.bytesTotal > 0 && (
                 <span>
@@ -161,12 +161,12 @@ export function MoveInstallDialog({
         )}
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
             {error}
           </p>
         )}
 
-        <p className="text-[11.5px] leading-relaxed text-ink-3">
+        <p className="text-meta leading-relaxed text-ink-3">
           {t("Moving to the same drive renames the folder instantly. Moving to another drive copies every file, checks the size, then deletes the old copy. The game cannot be running during the move.")}
         </p>
       </div>

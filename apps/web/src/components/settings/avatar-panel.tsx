@@ -124,7 +124,7 @@ export function AvatarPanel({ displayName }: { displayName: string }) {
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex flex-col items-center gap-2">
           <UserAvatar name={name} src={preview ?? user?.avatarUrl} size={72} />
-          <span className="font-mono text-[10px] text-ink-3">
+          <span className="font-mono text-micro text-ink-3">
             {file ? t("New avatar") : t("Current avatar")}
           </span>
         </div>
@@ -141,12 +141,12 @@ export function AvatarPanel({ displayName }: { displayName: string }) {
               setDragging(false);
               choose(event.dataTransfer.files[0]);
             }}
-            className={`flex flex-wrap items-center gap-3 rounded-[2px] border border-dashed px-3 py-3 transition-colors ${
+            className={`flex flex-wrap items-center gap-3 rounded-[var(--r-sm)] border border-dashed px-3 py-3 transition-colors ${
               dragging ? "border-signal bg-surface" : "border-line bg-surface/40"
             }`}
           >
             <ImagePlus className="size-4 shrink-0 text-ink-3" aria-hidden="true" />
-            <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-ink-3">
+            <p className="min-w-0 flex-1 text-label leading-relaxed text-ink-3">
               {t("Drop an image here, or choose a file. PNG, JPEG or WebP, up to 2 MiB.")}
             </p>
             <input
@@ -163,17 +163,17 @@ export function AvatarPanel({ displayName }: { displayName: string }) {
           </div>
 
           {problem && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
               {problem === "type" ? t("Use a PNG, JPEG or WebP image.") : t("The image must be at most 2 MiB.")}
             </p>
           )}
           {error && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
               {error}
             </p>
           )}
 
-          <p className="text-[11.5px] leading-relaxed text-ink-3">
+          <p className="text-meta leading-relaxed text-ink-3">
             {t("Uploaded images are served from a public media URL: anyone with the link can view them, even when your profile is private.")}
           </p>
 
@@ -193,7 +193,7 @@ export function AvatarPanel({ displayName }: { displayName: string }) {
                 {t("Remove avatar")}
               </Button>
             )}
-            <span className="font-mono text-[10px] text-ink-3">
+            <span className="font-mono text-micro text-ink-3">
               {AVATAR_MAX_BYTES / (1024 * 1024)} MiB
             </span>
           </div>

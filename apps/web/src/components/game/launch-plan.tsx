@@ -174,15 +174,15 @@ export function LaunchPlanPanel({ gameId }: { gameId: number }) {
             <Skeleton className="h-4 w-1/3" />
           </div>
         ) : planQuery.isError ? (
-          <div className="flex items-start gap-2 text-[13px] text-danger">
+          <div className="flex items-start gap-2 text-body text-danger">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <p>{t("Could not read the launch plan")}: {errorMessage(planQuery.error)}</p>
           </div>
         ) : plan && view ? (
           <div className="space-y-4">
-            <p className="max-w-[80ch] text-[14px] leading-relaxed text-ink">{plan.sentence}</p>
+            <p className="max-w-[80ch] text-body leading-relaxed text-ink">{plan.sentence}</p>
 
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] text-ink-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-meta text-ink-3">
               <Badge tone="outline">{runtimeLabel(plan.runtime)}</Badge>
               {plan.source === "manual" ? (
                 <Badge tone="signal">{t("Manual override")}</Badge>
@@ -190,20 +190,20 @@ export function LaunchPlanPanel({ gameId }: { gameId: number }) {
                 <Badge tone="ok">{t("Automatic")}</Badge>
               )}
               {view.stale && <span>{t("The machine changed since this plan was stored; recalculate before playing.")}</span>}
-              <span className="font-mono text-[10.5px]">{plan.rules.join(" · ")}</span>
+              <span className="font-mono text-micro">{plan.rules.join(" · ")}</span>
             </div>
 
             {plan.source === "manual" && (
-              <p className="text-[11.5px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 {t("The saved launch options win; the rules are informational.")}
               </p>
             )}
 
             {plan.prerequisites.length > 0 && (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label text-ink-2">
                 <span className="text-ink-3">{t("Prerequisites")}:</span>
                 {plan.prerequisites.map((prerequisite) => (
-                  <span key={prerequisite.id} className="border border-line-2 px-1.5 py-0.5 text-[11px]">
+                  <span key={prerequisite.id} className="border border-line-2 px-1.5 py-0.5 text-meta">
                     {prerequisite.label}
                   </span>
                 ))}
@@ -214,7 +214,7 @@ export function LaunchPlanPanel({ gameId }: { gameId: number }) {
               <div className="space-y-2">
                 <Progress value={percent} label={t("Prerequisites")} />
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-[12px] text-ink-3">
+                  <p className="text-label text-ink-3">
                     {progress?.message ?? t("Applying the prerequisite recipe…")}
                   </p>
                   <Button variant="ghost" size="sm" icon={<X className="size-3.5" />} onClick={() => void cancelPrerequisites()}>
@@ -227,7 +227,7 @@ export function LaunchPlanPanel({ gameId }: { gameId: number }) {
             {plan.notes.length > 0 && (
               <ul className="space-y-1.5">
                 {plan.notes.map((note) => (
-                  <li key={note} className="flex items-start gap-2 text-[11.5px] text-ink-3">
+                  <li key={note} className="flex items-start gap-2 text-meta text-ink-3">
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-signal-text" aria-hidden="true" />
                     <span>{note}</span>
                   </li>
@@ -237,9 +237,9 @@ export function LaunchPlanPanel({ gameId }: { gameId: number }) {
 
             {lastFailure && failureNumbers && (
               <div className="border-l-2 border-danger/60 pl-3">
-                <p className="text-[12px] font-medium text-danger">{t("The last automatic launch failed")}</p>
-                <p className="mt-0.5 text-[11.5px] text-ink-3">{lastFailure.hint}</p>
-                <p className="mt-1 font-mono text-[10.5px] text-ink-3">
+                <p className="text-label font-medium text-danger">{t("The last automatic launch failed")}</p>
+                <p className="mt-0.5 text-meta text-ink-3">{lastFailure.hint}</p>
+                <p className="mt-1 font-mono text-micro text-ink-3">
                   {t("Budget")}: {failureNumbers.budgetSecs}s · {t("Exited after")}: {failureNumbers.seconds}s ·{" "}
                   {failureNumbers.code}
                 </p>

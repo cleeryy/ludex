@@ -197,7 +197,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
         {busy === "manifest" && (
           <div className="max-w-[520px]">
             <Progress value={manifestPercent} label={t("Manifest progress")} />
-            <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 font-mono text-[10.5px] text-ink-3">
+            <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 font-mono text-micro text-ink-3">
               <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
               <span>{manifestProgress?.message ?? t("Hashing the installed files…")}</span>
               {manifestProgress && manifestProgress.filesTotal > 0 && (
@@ -211,7 +211,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
         {busy && (
           <div className="max-w-[520px]">
             <Progress value={percent} label={t("File check progress")} />
-            <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 font-mono text-[10.5px] text-ink-3">
+            <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 font-mono text-micro text-ink-3">
               <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
               <span>{progress?.message ?? (busy === "verify" ? t("Hashing installed files…") : t("Preparing the repair…"))}</span>
               {progress && progress.filesTotal > 0 && (
@@ -224,7 +224,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
         )}
 
         {!busy && !report && (
-          <p className="text-[12.5px] leading-relaxed text-ink-3">
+          <p className="text-label leading-relaxed text-ink-3">
             {t("Verify reads every installed file and reports missing, damaged or extra ones. Repair restores only the damaged files from the server archive.")}
           </p>
         )}
@@ -235,22 +235,22 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
               <Badge tone={report.status === "ok" ? "ok" : report.status === "issues" ? "danger" : "outline"}>
                 {report.status === "ok" ? t("Verified") : report.status === "issues" ? t("Needs repair") : t("No manifest")}
               </Badge>
-              <span className="num text-[11px] text-ink-3">
+              <span className="num text-meta text-ink-3">
                 {t("{files} · {size} hashed", { files: tn(report.filesChecked, "1 file", "{count} files"), size: formatBytes(report.bytesChecked) })}
               </span>
               {report.extra.length > 0 && (
-                <span className="num text-[11px] text-ink-3">{tn(report.extra.length, "1 extra file", "{count} extra files")}</span>
+                <span className="num text-meta text-ink-3">{tn(report.extra.length, "1 extra file", "{count} extra files")}</span>
               )}
             </div>
 
             {report.status === "noManifest" && (
-              <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-ink-3">
+              <p className="max-w-[70ch] text-label leading-relaxed text-ink-3">
                 {report.message} {t("Build a manifest with the action above, then verify again.")}
               </p>
             )}
 
             {report.status === "ok" && (
-              <p className="text-[12.5px] text-ok">{t("Every file matches the manifest.")}</p>
+              <p className="text-label text-ok">{t("Every file matches the manifest.")}</p>
             )}
 
             {report.status === "issues" && (
@@ -262,15 +262,15 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
 
             {repair && (
               <div className="flex flex-col gap-1.5 border-l-2 border-line-2 pl-3">
-                <p className={cn("text-[12.5px]", repair.fallback ? "text-danger" : "text-ink-2")}>{repair.message}</p>
+                <p className={cn("text-label", repair.fallback ? "text-danger" : "text-ink-2")}>{repair.message}</p>
                 {repair.repaired.length > 0 && (
-                  <p className="font-mono text-[10.5px] text-ink-3">{t("Restored:")} {repair.repaired.join(", ")}</p>
+                  <p className="font-mono text-micro text-ink-3">{t("Restored:")} {repair.repaired.join(", ")}</p>
                 )}
                 {repair.failed.length > 0 && (
-                  <p className="font-mono text-[10.5px] text-danger">{t("Could not restore:")} {repair.failed.join(", ")}</p>
+                  <p className="font-mono text-micro text-danger">{t("Could not restore:")} {repair.failed.join(", ")}</p>
                 )}
                 {repair.fallback && (
-                  <p className="text-[11.5px] text-ink-3">
+                  <p className="text-meta text-ink-3">
                     {t("Use the install action above to download the game again; your playtime and progress stay on the server.")}
                   </p>
                 )}
@@ -278,7 +278,7 @@ export function InstallFiles({ gameId, title }: { gameId: number; title: string 
             )}
 
             {error && (
-              <p role="alert" className="border-l-2 border-danger pl-3 text-[12.5px] text-danger">
+              <p role="alert" className="border-l-2 border-danger pl-3 text-label text-danger">
                 {error}
               </p>
             )}
@@ -294,10 +294,10 @@ function FileList({ title, files, tone }: { title: string; files: string[]; tone
   const shown = files.slice(0, 6);
   return (
     <div>
-      <p className={cn("text-[11px] uppercase tracking-[0.08em]", tone === "danger" ? "text-danger" : "text-ink-3")}>
+      <p className={cn("text-meta uppercase tracking-[0.08em]", tone === "danger" ? "text-danger" : "text-ink-3")}>
         {title} · {files.length}
       </p>
-      <ul className="mt-1 flex flex-col gap-0.5 font-mono text-[10.5px] text-ink-3">
+      <ul className="mt-1 flex flex-col gap-0.5 font-mono text-micro text-ink-3">
         {shown.map((file) => (
           <li key={file} className="truncate" title={file}>
             {file}

@@ -67,13 +67,13 @@ export function RegisterScreen() {
       >
         <div className="flex flex-col gap-4">
           <MailOpen className="size-6 text-ink-3" aria-hidden="true" />
-          <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.03em]">
+          <h1 className="text-display font-semibold leading-tight tracking-[-0.03em]">
             {t("This link is missing its invitation code")}
           </h1>
-          <p className="text-[14px] leading-relaxed text-ink-2">
+          <p className="text-body leading-relaxed text-ink-2">
             {t("Ask an administrator for a fresh invitation link, then open it from the beginning.")}
           </p>
-          <Link className="text-[13px] text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink" to="/login">
+          <Link className="text-body text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink" to="/login">
             {t("Back to sign in")}
           </Link>
         </div>
@@ -84,7 +84,7 @@ export function RegisterScreen() {
   if (preview.isPending) {
     return (
       <AuthLayout statement={t("The shelf you actually own.")} note={t("One last step, then your library is ready.")}>
-        <p className="flex items-center gap-2 text-[13px] text-ink-2" role="status">
+        <p className="flex items-center gap-2 text-body text-ink-2" role="status">
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           {t("Checking the invitation…")}
         </p>
@@ -97,16 +97,16 @@ export function RegisterScreen() {
       <AuthLayout statement={t("The shelf you actually own.")} note={t("Invitation links expire and only work once.")}>
         <div className="flex flex-col gap-4">
           <MailOpen className="size-6 text-danger" aria-hidden="true" />
-          <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.03em]">
+          <h1 className="text-display font-semibold leading-tight tracking-[-0.03em]">
             {t("This invitation cannot be used")}
           </h1>
-          <p role="alert" className="text-[14px] leading-relaxed text-ink-2">
+          <p role="alert" className="text-body leading-relaxed text-ink-2">
             {errorMessage(preview.error)}
           </p>
-          <p className="text-[12.5px] leading-relaxed text-ink-3">
+          <p className="text-label leading-relaxed text-ink-3">
             {t("An administrator can create a new link in Administration → Invitations.")}
           </p>
-          <Link className="text-[13px] text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink" to="/login">
+          <Link className="text-body text-ink-2 underline decoration-line-2 underline-offset-4 hover:text-ink" to="/login">
             {t("Back to sign in")}
           </Link>
         </div>
@@ -124,10 +124,10 @@ export function RegisterScreen() {
     >
       <form onSubmit={submit} className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">
+          <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">
             {t("Create your account")}
           </h1>
-          <p className="text-[13px] leading-relaxed text-ink-3">
+          <p className="text-body leading-relaxed text-ink-3">
             {invitation.email
               ? tr("You were invited as {email}. The link expires on {date}.", {
                   email: <span className="font-mono text-ink-2">{invitation.email}</span>,
@@ -140,13 +140,13 @@ export function RegisterScreen() {
         </div>
 
         {invitation.note && (
-          <p className="border-l-2 border-line-2 pl-3 text-[12.5px] leading-relaxed text-ink-2">
+          <p className="border-l-2 border-line-2 pl-3 text-label leading-relaxed text-ink-2">
             {invitation.note}
           </p>
         )}
 
         {user && (
-          <p className="border-l-2 border-signal pl-3 text-[12.5px] leading-relaxed text-ink-2">
+          <p className="border-l-2 border-signal pl-3 text-label leading-relaxed text-ink-2">
             {tr("You are signed in as {user}; redeeming this invitation replaces the current session.", {
               user: <span className="font-mono text-ink">{user.username}</span>,
             })}
@@ -194,7 +194,7 @@ export function RegisterScreen() {
         </div>
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
             {error}
           </p>
         )}
@@ -210,7 +210,7 @@ export function RegisterScreen() {
         </Button>
 
         {USING_MOCKS && (
-          <p className="text-[12px] leading-relaxed text-ink-3">
+          <p className="text-label leading-relaxed text-ink-3">
             {t("Demo data is on: this form creates a session for the demo account.")}
           </p>
         )}

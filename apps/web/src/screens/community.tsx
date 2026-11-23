@@ -20,8 +20,8 @@ function MemberChip({ profile }: { profile: PublicProfile }) {
     >
       <UserAvatar name={profile.displayName ?? profile.username} src={profile.avatarUrl} size={36} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] text-ink">{profile.displayName ?? profile.username}</span>
-        <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-3">@{profile.username}</span>
+        <span className="block truncate text-body text-ink">{profile.displayName ?? profile.username}</span>
+        <span className="mt-0.5 block truncate font-mono text-micro text-ink-3">@{profile.username}</span>
       </span>
       <ArrowUpRight className="size-3.5 shrink-0 text-ink-3 transition-colors group-hover:text-ink" aria-hidden="true" />
     </Link>
@@ -58,14 +58,14 @@ export function CommunityScreen() {
           <>
             <Link
               to="/community/friends"
-              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
             >
               <Users className="size-3.5" aria-hidden="true" />
               {t("Friends")}
             </Link>
             <Link
               to={user ? `/community/u/${user.id}` : "/settings"}
-              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
             >
               {isPublic ? t("Your public page") : t("Your profile")}
               <ArrowUpRight className="size-3.5" aria-hidden="true" />
@@ -83,10 +83,10 @@ export function CommunityScreen() {
               {isPublic ? <Radio className="size-4" aria-hidden="true" /> : <Settings2 className="size-4" aria-hidden="true" />}
             </span>
             <div>
-              <p className="text-[13.5px] font-medium text-ink">
+              <p className="text-body font-medium text-ink">
                 {isPublic ? t("Your profile is public") : t("Your profile is private")}
               </p>
-              <p className="mt-1 max-w-[62ch] text-[12px] leading-relaxed text-ink-3">
+              <p className="mt-1 max-w-[62ch] text-label leading-relaxed text-ink-3">
                 {isPublic
                   ? t("Your activity appears in the feed, and other accounts can open your page. You can turn this off at any time.")
                   : t("Nothing about your account appears in the community. Turn on a public profile in Settings to join the feed.")}
@@ -95,7 +95,7 @@ export function CommunityScreen() {
           </div>
           <Link
             to="/settings"
-            className="inline-flex h-9 items-center gap-2 border border-line px-3 text-[12.5px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+            className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
           >
             {isPublic ? t("Privacy settings") : t("Make it public")}
             <ArrowUpRight className="size-3.5" aria-hidden="true" />
@@ -109,7 +109,7 @@ export function CommunityScreen() {
           count={publicMembers.length}
           description={t("Accounts with a public profile")}
           actions={
-            <Link to="/settings" className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+            <Link to="/settings" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
               {t("Manage yours")}
             </Link>
           }
@@ -123,7 +123,7 @@ export function CommunityScreen() {
           >
             <Link
               to="/settings"
-              className="inline-flex h-11 items-center gap-2 rounded-[2px] border border-line-2 bg-surface px-4 text-sm text-ink transition-colors hover:border-ink-3 hover:bg-surface-2"
+              className="inline-flex h-11 items-center gap-2 rounded-[var(--r-sm)] border border-line-2 bg-surface px-4 text-sm text-ink transition-colors hover:border-ink-3 hover:bg-surface-2"
             >
               <Users className="size-4" aria-hidden="true" />
               {t("Open settings")}
@@ -163,7 +163,7 @@ export function CommunityScreen() {
         )}
       </section>
 
-      <p className="mt-10 max-w-[70ch] text-[11.5px] leading-relaxed text-ink-3">
+      <p className="mt-10 max-w-[70ch] text-meta leading-relaxed text-ink-3">
         {t("The feed records library additions, installs reported by the desktop app, play sessions, completions and new collections. Playtime totals stay on your account; the feed only shows the session length.")}
         {profile.data?.publicProfile === false
           ? ` ${t("Your own private activity is never shown to anyone else.")}`

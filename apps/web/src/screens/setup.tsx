@@ -138,15 +138,15 @@ function CreateAdminForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">{t("Set up this server")}</h1>
-        <p className="measure text-[13px] leading-relaxed text-ink-3">
+        <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">{t("Set up this server")}</h1>
+        <p className="measure text-body leading-relaxed text-ink-3">
           {t("This is the first run. Create the administrator account; everything else is managed from inside the app.")}
         </p>
       </div>
 
       {desktopHandoff && sso && (
         <div className="flex flex-col gap-3 border border-line bg-surface p-4">
-          <p className="text-[12.5px] leading-relaxed text-ink-3">
+          <p className="text-label leading-relaxed text-ink-3">
             {t("The desktop app opened this page. Sign in with your provider, or create the administrator below; the session returns to the app either way.")}
           </p>
           <Button variant="default" size="lg" className="w-full" icon={<KeyRound className="size-4" />} onClick={startOidc}>
@@ -193,7 +193,7 @@ function CreateAdminForm({
       </div>
 
       {error && (
-        <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+        <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
           {error}
         </p>
       )}
@@ -203,7 +203,7 @@ function CreateAdminForm({
       </Button>
 
       {USING_MOCKS && (
-        <p className="text-[12px] leading-relaxed text-ink-3">
+        <p className="text-label leading-relaxed text-ink-3">
           {t("Demo build. This writes a demo administrator to local storage; nothing leaves the browser.")}
         </p>
       )}
@@ -384,7 +384,7 @@ function DesktopWizard() {
                 >
                   {sso.label}
                 </Button>
-                <p className="text-[11.5px] leading-relaxed text-ink-3">
+                <p className="text-meta leading-relaxed text-ink-3">
                   {t("If you only have an SSO account, an administrator must create it on this server before you can sign in here.")}
                 </p>
               </div>
@@ -402,14 +402,14 @@ function DesktopWizard() {
     >
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">{t("Set up Ludex")}</h1>
-          <p className="text-[13px] leading-relaxed text-ink-3">
+          <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">{t("Set up Ludex")}</h1>
+          <p className="text-body leading-relaxed text-ink-3">
             {stage === "choose" ? t("Choose where the library lives.") : stage === "local" ? t("Point the app at your folders.") : t("Connect to a server you already run.")}
           </p>
         </div>
 
         {stage !== "choose" && (
-          <button type="button" onClick={back} className="flex w-fit items-center gap-1.5 text-[12.5px] text-ink-3 hover:text-ink">
+          <button type="button" onClick={back} className="flex w-fit items-center gap-1.5 text-label text-ink-3 hover:text-ink">
             <ArrowLeft className="rtl:-scale-x-100 size-3.5" />
             {t("Back")}
           </button>
@@ -430,7 +430,7 @@ function DesktopWizard() {
               onClick={() => setStage("remote")}
             />
             {USING_MOCKS && (
-              <p className="pt-2 text-[12px] leading-relaxed text-ink-3">
+              <p className="pt-2 text-label leading-relaxed text-ink-3">
                 {t("Demo build. The embedded server is not running here, so local mode will report that it is unavailable. Remote mode and the browser setup work against the mock API.")}
               </p>
             )}
@@ -485,12 +485,12 @@ function DesktopWizard() {
         )}
 
         {error && (
-          <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+          <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
             {error}
           </p>
         )}
 
-        <p className="border-t border-line pt-4 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="border-t border-line pt-4 text-meta leading-relaxed text-ink-3">
           {tr("{name} stores settings in the desktop app, not in this page. You can change the mode later from Settings.", { name: setup?.serverName ?? "Ludex" })}
         </p>
       </div>
@@ -688,14 +688,14 @@ function SetupSsoPanel({
       </Button>
 
       {view.progress && (
-        <p role="status" className="flex items-center gap-2 text-[12.5px] text-ink-2">
+        <p role="status" className="flex items-center gap-2 text-label text-ink-2">
           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
           {view.progress}
         </p>
       )}
 
       {view.error && (
-        <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+        <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
           {view.error}
         </p>
       )}
@@ -720,7 +720,7 @@ function SetupSsoPanel({
         </div>
       )}
 
-      <p className="text-[11.5px] leading-relaxed text-ink-3">
+      <p className="text-meta leading-relaxed text-ink-3">
         {t("The provider must create the first account with the administrator role (an admin group in the provider settings). If it cannot, create the local administrator below, then add SSO accounts from the app.")}
       </p>
     </div>
@@ -773,17 +773,17 @@ function BrowserSignIn({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">
+        <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">
           {t("Finish signing in in your browser")}
         </h1>
-        <p className="measure text-[13px] leading-relaxed text-ink-3">
+        <p className="measure text-body leading-relaxed text-ink-3">
           {t("The login page opened in your system browser. This window updates itself when you finish there.")}
         </p>
       </div>
 
       {handoff.phase === "error" && (
         <div className="flex flex-col gap-2 border-l-2 border-danger pl-3">
-          <p role="alert" className="text-[13px] text-danger">
+          <p role="alert" className="text-body text-danger">
             {handoff.message}
           </p>
         </div>
@@ -791,14 +791,14 @@ function BrowserSignIn({
 
       <div className="flex flex-col gap-3 border border-line bg-surface p-4">
         {handoff.phase !== "error" && (
-          <p className="flex items-center gap-2 text-[12.5px] text-ink-2" role="status">
+          <p className="flex items-center gap-2 text-label text-ink-2" role="status">
             <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
             {t("Waiting for your browser")}
           </p>
         )}
         <div className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-[0.12em] text-ink-3">{t("Server address")}</span>
-          <span className="break-all font-mono text-[11.5px] text-ink-2">{url}</span>
+          <span className="text-meta uppercase tracking-[0.12em] text-ink-3">{t("Server address")}</span>
+          <span className="break-all font-mono text-meta text-ink-2">{url}</span>
         </div>
       </div>
 
@@ -859,10 +859,10 @@ function ModePlate({
       <span className="mt-0.5 grid size-8 shrink-0 place-items-center border border-line text-ink-2">{icon}</span>
       <span className="flex-1">
         <span className="flex items-center justify-between gap-3">
-          <span className="text-[14.5px] font-medium text-ink">{title}</span>
+          <span className="text-lead font-medium text-ink">{title}</span>
           <ArrowRight className="rtl:-scale-x-100 size-3.5 text-ink-3 transition-transform group-hover:translate-x-0.5" />
         </span>
-        <span className="mt-1 block text-[12.5px] leading-relaxed text-ink-3">{description}</span>
+        <span className="mt-1 block text-label leading-relaxed text-ink-3">{description}</span>
       </span>
     </button>
   );
@@ -882,7 +882,7 @@ function PathPicker({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[13px] font-medium text-ink">{label}</span>
+        <span className="text-body font-medium text-ink">{label}</span>
         {value && <Check className="size-3.5 text-ok" aria-label={t("Selected")} />}
       </div>
       <button
@@ -891,12 +891,12 @@ function PathPicker({
         className="flex h-11 items-center gap-2.5 border border-line bg-surface px-3 text-left transition-colors hover:border-line-2"
       >
         <FolderOpen className="size-4 shrink-0 text-ink-3" aria-hidden="true" />
-        <span className={cn("min-w-0 flex-1 truncate font-mono text-[11.5px]", value ? "text-ink-2" : "text-ink-3")}>
+        <span className={cn("min-w-0 flex-1 truncate font-mono text-meta", value ? "text-ink-2" : "text-ink-3")}>
           {value ?? t("Choose a folder")}
         </span>
-        <span className="shrink-0 text-[12px] text-ink-3">{t("Browse")}</span>
+        <span className="shrink-0 text-label text-ink-3">{t("Browse")}</span>
       </button>
-      <p className="text-[11.5px] leading-relaxed text-ink-3">{hint}</p>
+      <p className="text-meta leading-relaxed text-ink-3">{hint}</p>
     </div>
   );
 }
@@ -940,17 +940,17 @@ function RemoteAuthForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">
+        <h1 className="text-display font-semibold leading-none tracking-[-0.03em]">
           {mode === "create" ? t("Create the administrator") : t("Sign in")}
         </h1>
-        <p className="text-[13px] leading-relaxed text-ink-3">
+        <p className="text-body leading-relaxed text-ink-3">
           {mode === "create" ? `${serverName} has no users yet.` : `Signing in to ${serverName}.`}
         </p>
       </div>
       {sso && (
         <div className="flex flex-col gap-4">
           {sso}
-          <div className="flex items-center gap-3 text-[11.5px] text-ink-3" aria-hidden="true">
+          <div className="flex items-center gap-3 text-meta text-ink-3" aria-hidden="true">
             <span className="h-px flex-1 bg-line" />
             <span>{mode === "create" ? t("or create a local administrator") : t("or use a password")}</span>
             <span className="h-px flex-1 bg-line" />
@@ -971,7 +971,7 @@ function RemoteAuthForm({
         )}
       </div>
       {error && (
-        <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+        <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
           {error}
         </p>
       )}

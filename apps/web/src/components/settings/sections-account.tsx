@@ -127,8 +127,8 @@ export function AccountBody() {
           [t("Member since"), user ? formatDate(user.createdAt) : "—"],
         ].map(([label, value]) => (
           <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-            <dt className="text-[12.5px] text-ink-3">{label}</dt>
-            <dd className="text-[13.5px] text-ink">{value}</dd>
+            <dt className="text-label text-ink-3">{label}</dt>
+            <dd className="text-body text-ink">{value}</dd>
           </div>
         ))}
       </dl>
@@ -170,7 +170,7 @@ export function AccountBody() {
             />
           </Field>
           {error && (
-            <p role="alert" className="border-l-2 border-danger pl-3 text-[13px] text-danger">
+            <p role="alert" className="border-l-2 border-danger pl-3 text-body text-danger">
               {error}
             </p>
           )}
@@ -189,7 +189,7 @@ export function AccountBody() {
           publicProfile ? (
             <Link
               to={`/community/u/${user?.id ?? ""}`}
-              className="text-[12px] text-ink-3 underline-offset-4 hover:text-ink hover:underline"
+              className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline"
             >
               {t("View public page")}
             </Link>
@@ -197,14 +197,14 @@ export function AccountBody() {
         }
       >
         {profileQuery.isPending ? (
-          <p className="text-[13px] text-ink-3">{t("Loading your profile…")}</p>
+          <p className="text-body text-ink-3">{t("Loading your profile…")}</p>
         ) : (
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="flex flex-col gap-4">
               <div className="flex items-start justify-between gap-6 border-b border-line pb-4">
                 <div>
-                  <p className="text-[13px] font-medium text-ink">{t("Public profile")}</p>
-                  <p className="mt-1 max-w-[46ch] text-[11.5px] leading-relaxed text-ink-3">
+                  <p className="text-body font-medium text-ink">{t("Public profile")}</p>
+                  <p className="mt-1 max-w-[46ch] text-meta leading-relaxed text-ink-3">
                     {t("Your display name, bio, library, public collections and activity become visible to other accounts. Playtime totals and private collections stay private.")}
                   </p>
                 </div>
@@ -248,7 +248,7 @@ export function AccountBody() {
                 <Button variant="default" loading={savingProfile} onClick={() => void saveProfile()}>
                   {t("Save profile")}
                 </Button>
-                <span className="text-[11.5px] text-ink-3">
+                <span className="text-meta text-ink-3">
                   {publicProfile ? t("Your page is listed in Community.") : t("Your page is visible to you only.")}
                 </span>
               </div>
@@ -289,7 +289,7 @@ export function AccountBody() {
             />
           </div>
         ) : (
-          <p className="text-[13px] text-ink-3">{t("Loading notification preferences…")}</p>
+          <p className="text-body text-ink-3">{t("Loading notification preferences…")}</p>
         )}
       </SettingsGroup>
 
@@ -383,7 +383,7 @@ export function HelpBody() {
         }
       >
         <GettingStartedCard />
-        <p className="mt-3 text-[11.5px] text-ink-3">
+        <p className="mt-3 text-meta text-ink-3">
           {t("This clears the completed flag and reopens the wizard at the first step.")}
         </p>
       </SettingsGroup>
@@ -395,8 +395,8 @@ export function HelpBody() {
             [t("Server"), setup?.serverName ?? "Ludex"],
           ].map(([label, value]) => (
             <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line py-2.5">
-              <dt className="text-[12.5px] text-ink-3">{label}</dt>
-              <dd className="num text-[12.5px] text-ink">{value}</dd>
+              <dt className="text-label text-ink-3">{label}</dt>
+              <dd className="num text-label text-ink">{value}</dd>
             </div>
           ))}
         </dl>
