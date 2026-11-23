@@ -6,6 +6,12 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- The ingest E2E uses a unique title per attempt and reloads the library once,
+  so a slow index or a Playwright retry no longer leaves two Done jobs (strict
+  mode violation) or fails on a stale library page.
+
 ## [0.4.28] - 2026-11-23
 
 ### Changed

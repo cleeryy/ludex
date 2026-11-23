@@ -9,8 +9,12 @@ test.describe("admin ingest", () => {
 
   test("downloads a local archive, reaches Done and indexes the game", async ({ page, request }) => {
     const ingestUrl = process.env.LUDEX_E2E_INGEST_URL;
-    const ingestTitle = process.env.LUDEX_E2E_INGEST_TITLE;
-    test.skip(!ingestUrl || !ingestTitle, "LUDEX_E2E_INGEST_URL/LUDEX_E2E_INGEST_TITLE not set");
+    const baseTitle = process.env.LUDEX_E2E_INGEST_TITLE;
+    test.skip(!ingestUrl || !baseTitle, "LUDEX_E2E_INGEST_URL/LUDEX_E2E_INGEST_TITLE not set");
+    // A retry reuses the same server: a fixed title leaves two Done jobs and
+    // the History article lookup becomes a strict-mode violation. One title
+    // per attempt keeps every assertion unambiguous.
+    const ingestTitle = `${baseTitle!} ${Date.now().toString(36)}-${test.info().retry}`;
 
     const errors = watchConsole(page);
 
@@ -30,10 +34,16 @@ test.describe("admin ingest", () => {
 
     // The file list refreshes every 10 s; the job also triggers a library scan.
     await expect(page.getByText(`${ingestTitle}.zip`)).toBeVisible({ timeout: 20_000 });
-    await waitForGame(request, ingestTitle!);
+    await waitForGame(request, ingestTitle);
 
-    await page.goto(`/#/library?q=${encodeURIComponent(ingestTitle!)}`);
-    await expect(page.getByRole("link", { name: `Open ${ingestTitle}` })).toBeVisible();
+    await page.goto(`/#/library?q=${encodeURIComponent(ingestTitle)}`);
+    const openLink = page.getByRole("link", { name: `Open ${ingestTitle}` });
+    // The library query can still be serving the previous page while the
+    // ingest finishes indexing; reload once and poll instead of failing at 15 s.
+    if (!(await openLink.isVisible().catch(() => false))) {
+      await page.reload();
+    }
+    await expect(openLink).toBeVisible({ timeout: 30_000 });
 
     errors.assertClean();
   });
