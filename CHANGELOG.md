@@ -6,6 +6,20 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Portable Linux game bundles (#332): an installed Linux game gets
+  `run.sh`, `install.sh`, `ludex-game.json` and `support/README.txt`, so the
+  folder can be moved, renamed or copied to another machine and launched
+  without Ludex. Scripts re-root from their own directory (no absolute Ludex or
+  `$HOME` path), quote spaces/unicode, pick a bundled runtime then umu-run,
+  GE-Proton/Proton or wine, keep the prefix inside `support/`, and refuse a
+  foreign manifest, missing executable or missing runtime (with the exact
+  packages per distro, never a false success). Generated files win over
+  archive-shipped ones; the desktop exposes "Create portable Linux bundle" with
+  a size estimate, destination copy (prefixes skipped) and progress, and new
+  installs generate it automatically. Golden scripts + shellcheck in CI.
+
 ### Fixed
 
 - The ingest E2E uses a unique title per attempt and reloads the library once,
