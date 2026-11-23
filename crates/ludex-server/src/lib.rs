@@ -695,3 +695,36 @@ async fn shutdown_signal() {
 pub fn database_path(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join("ludex.db")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn jwt_secret_is_rejected_when_empty_or_too_short() {
+        // jsonwebtoken 12 refuses empty HMAC keys, so an empty
+        // `LUDEX_JWT_SECRET` must be caught before the server starts rather
+        // than at the first encode/decode.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = Config::for_local(
+            temp.path().join("games"),
+            temp.path().join("data"),
+            temp.path().join("media"),
+        );
+
+        config.jwt_secret = Some(String::new());
+        let error = load_or_create_secret(&config)
+            .await
+            .expect_err("empty secret must be rejected");
+        assert!(error.to_string().contains("at least 16 bytes"), "{error}");
+
+        config.jwt_secret = Some("fifteen-bytes-x".to_string());
+        assert!(load_or_create_secret(&config).await.is_err());
+
+        config.jwt_secret = Some("sixteen-bytes-xx".to_string());
+        assert_eq!(
+            load_or_create_secret(&config).await.expect("valid secret"),
+            b"sixteen-bytes-xx".to_vec()
+        );
+    }
+}

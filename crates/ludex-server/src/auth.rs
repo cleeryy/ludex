@@ -197,12 +197,12 @@ pub fn issue_access_token_with_ttl(
         kind: "access".to_string(),
         jti: Some(jti.clone()),
     };
-    let token = encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(secret),
-    )
-    .map_err(|error| anyhow::anyhow!("encode access token: {error}"))?;
+    // jsonwebtoken 12 rejects empty HMAC secrets; the server refuses to start
+    // with one (`load_or_create_secret`), so this only guards direct callers.
+    let key = EncodingKey::from_secret(secret)
+        .map_err(|error| anyhow::anyhow!("encode access token: {error}"))?;
+    let token = encode(&Header::new(Algorithm::HS256), &claims, &key)
+        .map_err(|error| anyhow::anyhow!("encode access token: {error}"))?;
     Ok(IssuedToken {
         token,
         jti,
@@ -406,12 +406,10 @@ pub fn issue_download_ticket(
         game_id,
         version_id,
     };
-    let token = encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(secret),
-    )
-    .map_err(|error| anyhow::anyhow!("encode download ticket: {error}"))?;
+    let key = EncodingKey::from_secret(secret)
+        .map_err(|error| anyhow::anyhow!("encode download ticket: {error}"))?;
+    let token = encode(&Header::new(Algorithm::HS256), &claims, &key)
+        .map_err(|error| anyhow::anyhow!("encode download ticket: {error}"))?;
     Ok((token, expires_at))
 }
 
@@ -429,8 +427,10 @@ pub struct DownloadTicket {
 /// Decodes and validates a download ticket.
 pub fn decode_download_ticket(secret: &[u8], token: &str) -> Option<DownloadTicket> {
     let validation = Validation::new(Algorithm::HS256);
-    let data =
-        decode::<TicketClaims>(token, &DecodingKey::from_secret(secret), &validation).ok()?;
+    // An empty secret yields no key at all (jsonwebtoken 12), which fails
+    // closed here like any other unverifiable token.
+    let key = DecodingKey::from_secret(secret).ok()?;
+    let data = decode::<TicketClaims>(token, &key, &validation).ok()?;
     if data.claims.kind != "download" {
         return None;
     }
@@ -443,8 +443,8 @@ pub fn decode_download_ticket(secret: &[u8], token: &str) -> Option<DownloadTick
 
 fn decode_access(secret: &[u8], token: &str) -> Option<AccessClaims> {
     let validation = Validation::new(Algorithm::HS256);
-    let data =
-        decode::<AccessClaims>(token, &DecodingKey::from_secret(secret), &validation).ok()?;
+    let key = DecodingKey::from_secret(secret).ok()?;
+    let data = decode::<AccessClaims>(token, &key, &validation).ok()?;
     (data.claims.kind == "access").then_some(data.claims)
 }
 
@@ -668,6 +668,34 @@ mod tests {
         assert_eq!(claims.role, "editor");
         assert_eq!(claims.kind, "access");
         assert!(decode_access(b"other-secret", &token).is_none());
+    }
+
+    #[test]
+    fn legacy_hs256_token_still_decodes() {
+        // Issued by the jsonwebtoken 9 code path: identical header, claims and
+        // HS256 signature format, so sessions issued before the upgrade must
+        // keep working (`exp` is 2100-01-01).
+        const LEGACY_TOKEN: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.\
+             eyJzdWIiOiI0MiIsInJvbGUiOiJlZGl0b3IiLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTYwMDAwMDAwMCwia2luZCI6ImFjY2VzcyJ9.\
+             q_H8scFXRz1V2DEHsGrK2KXXKhJyCYMNOt9aswnaVGo";
+        let claims = decode_access(b"test-secret", LEGACY_TOKEN).expect("legacy claims");
+        assert_eq!(claims.sub, "42");
+        assert_eq!(claims.role, "editor");
+        assert_eq!(claims.kind, "access");
+        assert_eq!(claims.jti, None);
+    }
+
+    #[test]
+    fn empty_hmac_secret_is_rejected() {
+        // jsonwebtoken 12 refuses empty HMAC keys. The server never starts
+        // with one (`load_or_create_secret` enforces 16 bytes), so this only
+        // documents the fail-closed behaviour of direct callers.
+        assert!(issue_access_token(b"", 1, Role::User).is_err());
+        assert!(issue_download_ticket(b"", 1, 2, 3).is_err());
+
+        let token = issue_access_token(b"test-secret", 1, Role::User).expect("token");
+        assert!(decode_access(b"", &token).is_none());
+        assert!(decode_download_ticket(b"", &token).is_none());
     }
 
     #[test]

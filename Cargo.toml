@@ -24,7 +24,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip", "timeout", "limit"] }
 sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "uuid", "macros", "migrate"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "multipart"] }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "12", features = ["aws_lc_rs"] }
 argon2 = "0.5"
 password-hash = { version = "0.5", features = ["rand_core"] }
 zip = "9"
