@@ -867,6 +867,28 @@ mod tests {
         }
     }
 
+    /// Starts the fake wrapper, retrying ETXTBSY: a script written and executed
+    /// immediately can still be held open by the writer on a loaded runner
+    /// (observed once under parallel CI, passes alone).
+    fn start_fake(binary: &Path, message: &str) -> SystemdInhibitor {
+        let mut last = String::from("the fake wrapper never started");
+        for _ in 0..40 {
+            match SystemdInhibitor::start(binary, message) {
+                Ok(inhibitor) => return inhibitor,
+                Err(error) => {
+                    let busy =
+                        error.contains("Text file busy") || error.contains("os error 26");
+                    last = error;
+                    if !busy {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+        panic!("could not start the fake inhibitor: {last}");
+    }
+
     fn poll_until(deadline: Duration, mut check: impl FnMut() -> bool) -> bool {
         let start = Instant::now();
         while start.elapsed() < deadline {
@@ -1145,8 +1167,7 @@ mod tests {
                 .expect("the fake command is on the fake PATH");
             assert!(binary.is_file());
 
-            let inhibitor = SystemdInhibitor::start(&binary, "Ludex is downloading Test Game")
-                .expect("the fake wrapper starts");
+            let inhibitor = start_fake(&binary, "Ludex is downloading Test Game");
             assert!(poll_until(Duration::from_secs(2), || fake.args.is_file()));
             assert_eq!(
                 read_lines(&fake.args),
@@ -1166,8 +1187,7 @@ mod tests {
         fn dropping_the_wrapper_kills_and_reaps_the_child_tree() {
             let fake = fake_inhibitor();
             let binary = resolve_on_path("systemd-inhibit", Some(fake.dir.as_os_str())).unwrap();
-            let inhibitor =
-                SystemdInhibitor::start(&binary, "Ludex is downloading Test Game").unwrap();
+            let inhibitor = start_fake(&binary, "Ludex is downloading Test Game");
             assert!(poll_until(Duration::from_secs(2), || fake.pid.is_file()));
             let pid = std::fs::read_to_string(&fake.pid)
                 .unwrap()

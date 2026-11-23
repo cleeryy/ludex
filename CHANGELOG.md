@@ -6,6 +6,23 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies refreshed as one batch with the required code adaptations:
+  `jsonwebtoken` 9 → 12 (aws-lc-rs crypto provider, `from_secret` now returns a
+  `Result`; legacy HS256 tokens still decode and an empty HMAC secret is
+  rejected), `zip` 9.8.1, `bytes` 1.12.2, `uuid` 1.29.3, `crc32fast` 1.5.5,
+  desktop `tauri` 2.12.7 / `tauri-build` 2.7.6 / `sha2` 0.11, and the web
+  toolchain (`@tauri-apps/api` 2.12.5, `@tauri-apps/cli` 2.12.6,
+  `react-router-dom` 7.18.6, `typescript-eslint` 8.73.0, `vitest` and
+  `@vitest/coverage-v8` 5.1.1); `url` 2.5.9 fixes RUSTSEC-2026-0592. The
+  dependency-review action moves to v5.0.1.
+
+### Fixed
+
+- The fake systemd-inhibit test retries `ETXTBSY` when a freshly written wrapper
+  is still held open, instead of failing the desktop suite on a loaded runner.
+
 ## [0.4.27] - 2026-11-20
 
 ### Added
