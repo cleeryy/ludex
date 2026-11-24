@@ -10,7 +10,7 @@ import { gridStepIndex, stepIndex, type MoveDirection } from "./layout";
    screen renders it; the test suite proves the default and the platform gates.
    -------------------------------------------------------------------------- */
 
-export type PowerActionId = "end-session" | "sleep" | "restart" | "quit" | "quit-game" | "exit";
+export type PowerActionId = "end-session" | "sleep" | "restart" | "quit" | "sign-out" | "quit-game" | "exit";
 
 export interface PowerAction {
   id: PowerActionId;
@@ -104,7 +104,7 @@ export function powerActions(context: PowerContext): PowerAction[] {
 
   actions.push({
     id: "quit",
-    label: `${t("Quit")} Ludex`,
+    label: t("Quit Ludex"),
     detail: context.console
       ? t("Quit to desktop. Downloads stop.")
       : t("Close Ludex. Downloads stop."),
@@ -113,10 +113,18 @@ export function powerActions(context: PowerContext): PowerAction[] {
     reason: context.native ? undefined : DESKTOP_ONLY(),
   });
 
+  actions.push({
+    id: "sign-out",
+    label: t("Sign out"),
+    detail: t("Sign out of this account on this device."),
+    tone: "default",
+    enabled: true,
+  });
+
   if (context.gameTitle) {
     actions.push({
       id: "quit-game",
-      label: `${t("Quit")} ${context.gameTitle}`,
+      label: t("Quit {title}", { title: context.gameTitle }),
       detail: t("Close {title} and return to Console mode.", { title: context.gameTitle }),
       tone: "danger",
       // Closing the game is a native launch-session command; a browser tab has

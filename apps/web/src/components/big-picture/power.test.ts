@@ -33,7 +33,7 @@ describe("power confirmation", () => {
 
   it("only asks again for actions that end something", () => {
     expect(needsPowerConfirm("exit")).toBe(false);
-    for (const id of ["end-session", "sleep", "restart", "quit", "quit-game"] as const) {
+    for (const id of ["end-session", "sleep", "restart", "quit", "sign-out", "quit-game"] as const) {
       expect(needsPowerConfirm(id)).toBe(true);
     }
   });
@@ -42,7 +42,7 @@ describe("power confirmation", () => {
 describe("power actions by platform", () => {
   it("offers End session in a console session and hides Exit Big Picture", () => {
     const actions = powerActions(CONSOLE);
-    expect(actionIds(CONSOLE)).toEqual(["end-session", "sleep", "restart", "quit"]);
+    expect(actionIds(CONSOLE)).toEqual(["end-session", "sleep", "restart", "quit", "sign-out"]);
     expect(actions.every((action) => action.enabled)).toBe(true);
     expect(actions.find((action) => action.id === "quit")?.detail).toBe("Quit to desktop. Downloads stop.");
   });
@@ -52,17 +52,19 @@ describe("power actions by platform", () => {
     expect(quit?.detail).toBe("Close Ludex. Downloads stop.");
     expect(quit?.tone).toBe("danger");
     expect(actionIds(DESKTOP)).toContain("exit");
+    expect(actionIds(DESKTOP)).toContain("sign-out");
     expect(actionIds(DESKTOP)).not.toContain("end-session");
   });
 
   it("keeps browser actions visible but disabled with a reason", () => {
     const actions = powerActions(BROWSER);
-    expect(actionIds(BROWSER)).toEqual(["sleep", "restart", "quit", "exit"]);
-    for (const action of actions.filter((entry) => entry.id !== "exit")) {
+    expect(actionIds(BROWSER)).toEqual(["sleep", "restart", "quit", "sign-out", "exit"]);
+    for (const action of actions.filter((entry) => entry.id !== "exit" && entry.id !== "sign-out")) {
       expect(action.enabled).toBe(false);
       expect(action.reason).toBe("Only available in the desktop app.");
     }
     expect(actions.find((action) => action.id === "exit")?.enabled).toBe(true);
+    expect(actions.find((action) => action.id === "sign-out")?.enabled).toBe(true);
   });
 
   it("only adds Quit game when Big Picture launched a game", () => {

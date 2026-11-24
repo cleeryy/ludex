@@ -162,4 +162,13 @@ describe("the kill list", () => {
     expect(fs.readFileSync(path.join(bigPictureDir, "home-row.tsx"), "utf8")).toContain("bp-band");
     expect(shell).toContain("<HomeBand");
   });
+
+  it("never escapes to desktop dialogs or desktop routes from Console", () => {
+    expect(offenders((source) => /InstallDialog|from "@\/components\/game\/install-dialog"/.test(source))).toEqual([]);
+    expect(
+      offenders((source) =>
+        /navigate\(\s*["'`]\/(?:downloads|collections\/|remote|game\/)/.test(source),
+      ),
+    ).toEqual([]);
+  });
 });

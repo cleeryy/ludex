@@ -31,7 +31,8 @@ import {
   type ConsoleRoomSettings,
 } from "@/theme/console-room";
 import type { ControllerProfile } from "@/lib/types";
-import type { ThemeSelection } from "@/theme/types";
+import { BUILTIN_THEMES } from "@/theme/registry";
+import type { BuiltinThemeId, ThemeSelection } from "@/theme/types";
 import type { ConsoleAudioModel } from "@/components/console/shell/use-console-audio";
 
 /**
@@ -132,11 +133,22 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
     }
   };
 
-  const themeChoices = ["system", "dark", "light"] as const;
-  const themeChoice = theme === "system" ? "system" : resolved === "dark" ? "dark" : "light";
+  const themeChoices: readonly ("system" | BuiltinThemeId)[] = [
+    "system",
+    ...BUILTIN_THEMES.map((entry) => entry.id),
+  ];
+  const currentThemeId: "system" | BuiltinThemeId =
+    theme === "system"
+      ? "system"
+      : typeof theme === "string" && BUILTIN_THEMES.some((entry) => entry.id === theme)
+        ? (theme as BuiltinThemeId)
+        : resolved === "dark"
+          ? "speranza"
+          : "bauhaus";
   const cycleTheme = (delta: -1 | 1) => {
-    const next = themeChoices[wrapIndex(themeChoices.indexOf(themeChoice), delta, themeChoices.length)];
-    setTheme(next === "system" ? "system" : next === "dark" ? "speranza" : "bauhaus");
+    const idx = Math.max(0, themeChoices.indexOf(currentThemeId));
+    const next = themeChoices[wrapIndex(idx, delta, themeChoices.length)] ?? "system";
+    setTheme(next);
   };
 
   const cycleLayout = (delta: -1 | 1) => {
@@ -176,8 +188,9 @@ export function useConsoleSettings(input: ConsoleSettingsInput): ConsoleSettings
       return entries;
     }
     if (section === "appearance") {
+      const activeBuiltin = BUILTIN_THEMES.find((entry) => entry.id === currentThemeId);
       const themeValue =
-        themeChoice === "system" ? t("Follow the system") : themeChoice === "dark" ? t("Dark") : t("Light");
+        currentThemeId === "system" ? t("Follow the system") : activeBuiltin ? activeBuiltin.label : t("Dark");
       const accentNote =
         room.accent === "artwork" && artworkAccent !== null
           ? artworkAccentNote(true)

@@ -20,6 +20,7 @@ const ACTION_GLYPHS: Record<PowerActionId, GlyphName> = {
   sleep: "sleep",
   restart: "restart",
   quit: "power",
+  "sign-out": "signout",
   "quit-game": "play",
   exit: "back",
 };

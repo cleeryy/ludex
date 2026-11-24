@@ -1,22 +1,18 @@
 import { AnimatePresence } from "motion/react";
-import type { GameSummary } from "@/lib/types";
+import type { GameDetail, GameSummary, GameVersion } from "@/lib/types";
 import type { CueId } from "@/lib/ui-sound-specs";
 import { LaunchPlate } from "@/components/big-picture/launch-overlay";
 import type { LaunchPlateStatus, PlateRect } from "@/components/big-picture/launch-plate";
 import { ConfirmPanel } from "@/components/big-picture/overlays";
+import { ConsoleInstallModal } from "@/components/console/surfaces/console-install-modal";
 import type { BigPictureLayout } from "@/components/big-picture/layout";
 import type { PowerAction } from "@/components/big-picture/power";
 import type { PadFamily } from "@/components/big-picture/controller";
 
 /**
- * The Console's two modals (#267, #268): the launch handoff plate and the power
- * confirmation. Nothing else may cover the shell — the command menu, the
- * profile sheet, downloads, search and collections are non-modal overlays or
- * routes. The quick layout switcher is gone: the composition toggle lives in
- * Settings, where a preference belongs.
- *
- * Each modal is a top input scope while it is open (the shell mounts
- * `ConsoleOverlayInputScope` with it).
+ * The Console's modals (#267, #268, #284): the launch handoff plate, the
+ * console-native install confirmation, and the power confirmation. Zero desktop
+ * `InstallDialog` portals or `aria-modal` escapes ever mount inside Console.
  */
 export interface ConsoleDialogsProps {
   layout: BigPictureLayout;
@@ -36,6 +32,9 @@ export interface ConsoleDialogsProps {
   onConfirmPower: (index: number) => void;
   onHighlightPower: (index: number) => void;
   onClosePower: () => void;
+  installModal?: { game: GameDetail; version: GameVersion } | null;
+  onInstalled?: () => void;
+  onCloseInstall?: () => void;
   emit: (cue: CueId | null) => void;
 }
 
@@ -52,6 +51,9 @@ export function ConsoleDialogs({
   onConfirmPower,
   onHighlightPower,
   onClosePower,
+  installModal = null,
+  onInstalled,
+  onCloseInstall,
   emit,
 }: ConsoleDialogsProps) {
   return (
@@ -72,6 +74,23 @@ export function ConsoleDialogs({
               emit("click");
               onDismissPlate();
             }}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {installModal && onInstalled && onCloseInstall && (
+          <ConsoleInstallModal
+            key={`install-${installModal.game.id}-${installModal.version.id}`}
+            game={installModal.game}
+            version={installModal.version}
+            layout={layout}
+            connected={connected}
+            family={family}
+            swapAB={swapAB}
+            reduceMotion={reduceMotion}
+            instant={instant}
+            onInstalled={onInstalled}
+            onClose={onCloseInstall}
           />
         )}
       </AnimatePresence>

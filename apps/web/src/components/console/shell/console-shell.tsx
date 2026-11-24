@@ -24,7 +24,8 @@ import { useActiveCount, useJobPhases, useTitleFor } from "@/state/downloads";
 import { useSettings } from "@/state/settings";
 import { useInstallAction } from "@/lib/use-install-action";
 import { Wordmark } from "@/components/brand";
-import { InstallDialog } from "@/components/game/install-dialog";
+import { installBridge } from "@/lib/install";
+import { ConsoleGameSurface } from "@/components/console/surfaces/console-game-surface";
 import { Button } from "@/components/ui/controls";
 import { Glyph } from "@/components/big-picture/glyphs";
 import { useConsoleNotice } from "@/components/console/surfaces/console-notice";
@@ -224,7 +225,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   useDocumentTitle(t("Console"));
   const debug = gamepadDebugEnabled();
   const { notify: push } = useConsoleNotice();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { deviceOverride } = useI18n();
   const { theme, resolved, setTheme, tokens: themeTokens } = useSettings();
   const queryClient = useQueryClient();
@@ -1055,6 +1056,9 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
             throw cause;
           }
           return;
+        case "sign-out":
+          await signOut();
+          return;
         case "quit-game":
           if (!runningGame) return;
           await native.stopGame(runningGame.sessionId);
@@ -1305,15 +1309,28 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         const collection = collections[index];
         if (!collection) return;
         emit("confirm");
-        closeOverlay(false);
-        navigate(`/collections/${collection.id}`);
+        closeOverlay();
+        void api
+          .collectionGames(collection.id, 1, 1)
+          .then((list) => {
+            const first = list.items[0];
+            if (first) {
+              const target = findGameShelf(shelves, first.id);
+              if (target) nav.selectGame(target.shelf, target.index);
+            }
+            push({
+              title: collection.name,
+              description: tn(collection.gameCount, "1 game", "{count} games"),
+            });
+          })
+          .catch(() => {
+            push({ title: collection.name });
+          });
         return;
       }
       case "downloads":
-        // Leaving the route is deliberate: pausing and retrying live there, and
-        // the queue keeps running either way.
-        emit("confirm");
-        navigate("/downloads");
+        // Stays inside Console Downloads — never escapes to the desktop route.
+        emit("click");
         return;
       case "profiles": {
         const option = profileChoices[index];
@@ -1654,7 +1671,11 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     emit,
     pulse: (cue) => pulseRef.current(cue),
     openProfiles: () => openOverlay("profiles"),
-    openRemotePlay: () => navigate("/remote"),
+    openRemotePlay: () =>
+      push({
+        title: t("Remote play"),
+        description: t("Manage Sunshine and Moonlight pairing from the desktop host settings."),
+      }),
     audio,
   });
   const settingsRows = settings.rows;
@@ -2048,7 +2069,11 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
       settled={entranceDone || layoutTouched}
     />
   );
-  const bandVisible = level.kind === "library";
+  const gameSurfaceTarget =
+    surface === "game"
+      ? (games.find((entry) => entry.id === gameId) ?? selected ?? null)
+      : null;
+  const bandVisible = level.kind === "library" && !gameSurfaceTarget;
   // One hint strip at a time: a sheet owns the strip while it is open, and the
   // launch plate owns the screen.
   const footerVisible = !overlay && !pendingPower && !launchPlate;
@@ -2100,8 +2125,8 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
           <div
             className="absolute inset-0 flex min-h-0 flex-col"
             data-bp-screen="library"
-            aria-hidden={level.kind === "app" ? true : undefined}
-            inert={level.kind === "app" ? true : undefined}
+            aria-hidden={level.kind === "app" || Boolean(gameSurfaceTarget) ? true : undefined}
+            inert={level.kind === "app" || Boolean(gameSurfaceTarget) ? true : undefined}
           >
             <motion.div
               key={layout}
@@ -2117,6 +2142,57 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
               {body}
             </motion.div>
           </div>
+          <AnimatePresence initial={false}>
+            {gameSurfaceTarget && level.kind === "library" && (
+              <motion.div
+                key={`game-${gameSurfaceTarget.id}`}
+                className="bp-app-screen absolute inset-0 z-10 flex min-h-0 flex-col"
+                data-bp-screen="game"
+                {...transitionOf("gameDetail", { reduce: reduceMotion, instant: instantMotion })}
+                {...exitOf("screenPop", { reduce: reduceMotion, instant: instantMotion })}
+              >
+                <ConsoleGameSurface
+                  game={gameSurfaceTarget}
+                  detail={detail.data}
+                  installed={installed.get(gameSurfaceTarget.id)}
+                  primaryLabel={
+                    installed.has(gameSurfaceTarget.id)
+                      ? t("Play")
+                      : installAction.intent === "open-downloads" || installAction.intent === "resume-install"
+                        ? t("Downloads")
+                        : isNative()
+                          ? t("Install")
+                          : t("Download")
+                  }
+                  primaryGlyph={
+                    installed.has(gameSurfaceTarget.id)
+                      ? "play"
+                      : installAction.intent === "open-downloads" || installAction.intent === "resume-install"
+                        ? "downloads"
+                        : "install"
+                  }
+                  onPrimary={confirm}
+                  onOpenProfiles={() => openOverlay("profiles")}
+                  onOpenFolder={
+                    installed.get(gameSurfaceTarget.id)?.installPath
+                      ? () => {
+                          const path = installed.get(gameSurfaceTarget.id)?.installPath;
+                          if (path) void installBridge.openPath(path);
+                        }
+                      : undefined
+                  }
+                  onBack={() => {
+                    emit("closeGroup");
+                    navigate(consolePathFor("library"), { replace: true });
+                    window.setTimeout(() => navRef.current.focusSelected(), 0);
+                  }}
+                  profile={activeProfile}
+                  padFamilyName={padFamilyLabel(padFamilyName)}
+                  online={online}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
           <AnimatePresence initial={false}>
             {level.kind === "app" && (
               <motion.div
@@ -2224,12 +2300,19 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         onConfirmPower={chooseConfirm}
         onHighlightPower={(index) => setPendingPower((current) => (current ? { ...current, index } : current))}
         onClosePower={() => setPendingPower(null)}
+        installModal={
+          installOpen && version && detail.data
+            ? { game: detail.data, version }
+            : null
+        }
+        onInstalled={() => {
+          setInstallOpen(false);
+          openOverlay("downloads");
+        }}
+        onCloseInstall={() => setInstallOpen(false)}
         emit={emit}
       />
 
-      {version && detail.data && (
-        <InstallDialog open={installOpen} onOpenChange={setInstallOpen} game={detail.data} version={version} />
-      )}
       {debug && <GamepadDebugPanel info={gamepad.debug} />}
       {debugMotion && <MotionProbe transitions={transitions} />}
     </div>
