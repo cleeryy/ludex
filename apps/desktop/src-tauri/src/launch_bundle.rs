@@ -547,6 +547,7 @@ fn report_markdown(input: &BundleInput, plan_hash: &str, manifest: &Value) -> St
          `launch-*.log` files, with tokens, passwords and the home path\n\
          removed. It contains no game files and no saves.\n",
         version = input.app_version,
+        plan_hash = plan_hash,
         platform = std::env::consts::OS,
         arch = std::env::consts::ARCH,
         distro = host.distro,

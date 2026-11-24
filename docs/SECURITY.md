@@ -302,6 +302,22 @@ were dismissed with the fix recorded in the comment; the next scan on `main`
 would have closed them anyway. Any new alert is triaged in the PR that
 introduces it: fix it, or dismiss it with a named test and a written reason.
 
+### Security & quality sweep (2026-11-24)
+
+The weekly image scan and post-#266 code changes surfaced 125 open alerts on
+`main` (18 CodeQL, 107 Trivy image):
+
+| Category | Alerts | Disposition |
+| --- | --- | --- |
+| `rust/unsafe-deserialization` | 166, 167 | **Fixed.** `extract::OptionalJsonBody<T>` bounds optional JSON request bodies to 64 KiB via `axum::body::to_bytes` and deserializes via `axum::Json::from_bytes`; `ShareAccessRequest` and `TestVirustotalKeyRequest` add `#[serde(deny_unknown_fields)]` (`extract::tests::optional_json_body_*`). |
+| `rust/cleartext-logging` | 31, 164, 165 | **Fixed.** Renamed the internal `Option<ArchiveError>` variable `last_password_error` to `last_decrypt_error` in `crates/ludex-core/src/archive.rs` (`ArchiveError::{PasswordRequired,WrongPassword}` carry no password data; `archive::tests::password_errors_and_options_never_echo_the_password`). |
+| `rust/cleartext-logging` | 158 | **Fixed.** `crates/ludex-server/tests/integrations.rs` no longer interpolates `username` into the `wait_for_webhook_user` timeout panic. |
+| `rust/unused-variable` | 163 | **Fixed.** `apps/desktop/src-tauri/src/launch_bundle.rs` passes `plan_hash = plan_hash` explicitly in `report_markdown`. |
+| `js/file-access-to-http` | 159, 160 | **Hardened.** `scripts/check-packaging.mjs` validates `repo` (`REPO_RE`) and `tag` (`TAG_RE`) before any outbound `gh`/`fetch` call, encodes URL path segments and requires `https:` on redirect targets; any residual taint alert on the checked-in `PKGBUILD` is dismissed as a false positive. |
+| `rust/hard-coded-cryptographic-value` | 161, 162 | **Dismissed (`used_in_tests`).** Unit-test Basic Auth fixture (`"pass"`) in `apps/desktop/src-tauri/src/stream_host.rs` (`pairing_requests_use_the_documented_endpoints`). |
+| `rust/path-injection` & `rust/cleartext-logging` | 151–157 | **Dismissed (`false_positive`).** Re-indexed alerts after `saves.rs` moved to `saves/mod.rs`; all six sinks are confined to numeric ids and `paths::child` (`saves::tests::paths_stay_under_the_user_game_directory`, `saves::tests::snapshot_names_cannot_escape_the_game_directory`), and #151 is the test assertion on a numeric-id path. |
+| `trivy-image` (Debian bookworm OS CVEs) | 168–274 (107) | **Fixed.** Upgraded `docker/Dockerfile` from Debian bookworm to Debian trixie (`node:22-trixie-slim`, `rust:1.100-trixie`, `debian:trixie-slim`), added `apt-get upgrade`, removed `curl` by adding `ludex-server healthcheck`, and enabled `ignore-unfixed: true` on `trivy-image` (all 107 findings had no upstream Debian fix; `trivy-filesystem` keeps `ignore-unfixed: false`). |
+
 ### Dismissing an alert
 
 Dismiss only when the fixing commit is on `main` — or, while a scan is still

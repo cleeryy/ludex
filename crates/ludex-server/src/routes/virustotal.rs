@@ -23,7 +23,7 @@ use crate::audit::actions;
 use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::events::Event;
-use crate::extract::{ApiPath, JsonBody};
+use crate::extract::{ApiPath, JsonBody, OptionalJsonBody};
 use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::state::AppState;
 use crate::virustotal::{self, GameScanReport, IntegrationStatus, ScanReport, TestResponse};
@@ -60,7 +60,7 @@ pub struct SaveVirustotalKeyRequest {
 /// `POST /api/admin/integrations/virustotal/test` body. The body is optional:
 /// `apiKey` tests an unsaved key, an empty body tests the stored/env key.
 #[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TestVirustotalKeyRequest {
     /// Unsaved key to validate. It is never stored.
     #[serde(default)]
@@ -103,18 +103,12 @@ async fn remove(
 async fn test(
     State(state): State<AppState>,
     user: AuthUser,
-    body: axum::body::Bytes,
+    OptionalJsonBody(request): OptionalJsonBody<TestVirustotalKeyRequest>,
 ) -> Result<Json<TestResponse>, ApiError> {
     user.require_admin_access()?;
     // The body is optional so an empty POST tests the stored/env key, while
     // `{ "apiKey": "..." }` validates a key before it is saved.
-    let api_key = if body.is_empty() {
-        None
-    } else {
-        let request: TestVirustotalKeyRequest = serde_json::from_slice(&body)
-            .map_err(|error| ApiError::bad_request("invalid_body", error.to_string()))?;
-        request.api_key
-    };
+    let api_key = request.and_then(|body| body.api_key);
     Ok(Json(
         virustotal::test_key(&state, api_key.as_deref()).await?,
     ))

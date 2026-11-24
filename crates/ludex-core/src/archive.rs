@@ -1190,28 +1190,28 @@ fn extract_rar(
     let (entries_total, bytes_total) = rar_totals(path, opts)?;
     let mut sink = Sink::new(progress, entries_total, bytes_total);
 
-    let mut last_password_error: Option<ArchiveError> = None;
+    let mut last_decrypt_error: Option<ArchiveError> = None;
     for password in password_candidates(opts) {
         sink.reset();
         match extract_rar_pass(path, dest, password, opts, &mut sink) {
             Ok(report) => return Ok(report),
-            Err(error) if error.is_password_error() => last_password_error = Some(error),
+            Err(error) if error.is_password_error() => last_decrypt_error = Some(error),
             Err(error) => return Err(error),
         }
     }
-    Err(last_password_error.unwrap_or(ArchiveError::PasswordRequired))
+    Err(last_decrypt_error.unwrap_or(ArchiveError::PasswordRequired))
 }
 
 fn rar_totals(path: &Path, opts: &ExtractOptions) -> Result<(usize, u64), ArchiveError> {
-    let mut last_password_error: Option<ArchiveError> = None;
+    let mut last_decrypt_error: Option<ArchiveError> = None;
     for password in password_candidates(opts) {
         match rar_listing(path, password) {
             Ok(totals) => return Ok(totals),
-            Err(error) if error.is_password_error() => last_password_error = Some(error),
+            Err(error) if error.is_password_error() => last_decrypt_error = Some(error),
             Err(error) => return Err(error),
         }
     }
-    Err(last_password_error.unwrap_or(ArchiveError::PasswordRequired))
+    Err(last_decrypt_error.unwrap_or(ArchiveError::PasswordRequired))
 }
 
 fn rar_listing(path: &Path, password: Option<&str>) -> Result<(usize, u64), ArchiveError> {
@@ -1399,7 +1399,7 @@ fn extract_seven_zip(
         }
     }
 
-    let mut last_password_error: Option<ArchiveError> = None;
+    let mut last_decrypt_error: Option<ArchiveError> = None;
 
     for password in password_candidates(opts) {
         sink.reset();
@@ -1412,7 +1412,7 @@ fn extract_seven_zip(
             Err(error) => {
                 let error = map_seven_zip_error(error);
                 if error.is_password_error() {
-                    last_password_error = Some(error);
+                    last_decrypt_error = Some(error);
                     continue;
                 }
                 return Err(error);
@@ -1442,7 +1442,7 @@ fn extract_seven_zip(
             (_, Some(error)) => {
                 let error = normalize_seven_zip_error(error, encrypted, password.is_some());
                 if error.is_password_error() {
-                    last_password_error = Some(error);
+                    last_decrypt_error = Some(error);
                     continue;
                 }
                 return Err(error);
@@ -1454,7 +1454,7 @@ fn extract_seven_zip(
                     password.is_some(),
                 );
                 if error.is_password_error() {
-                    last_password_error = Some(error);
+                    last_decrypt_error = Some(error);
                     continue;
                 }
                 return Err(error);
@@ -1463,7 +1463,7 @@ fn extract_seven_zip(
         }
     }
 
-    Err(last_password_error.unwrap_or(ArchiveError::PasswordRequired))
+    Err(last_decrypt_error.unwrap_or(ArchiveError::PasswordRequired))
 }
 
 /// Opens 7z metadata with the first password that works.
@@ -1471,15 +1471,15 @@ fn open_seven_zip_for_extraction(
     path: &Path,
     opts: &ExtractOptions,
 ) -> Result<SevenZipArchive, ArchiveError> {
-    let mut last_password_error: Option<ArchiveError> = None;
+    let mut last_decrypt_error: Option<ArchiveError> = None;
     for password in password_candidates(opts) {
         match open_seven_zip_metadata(path, password) {
             Ok(archive) => return Ok(archive),
-            Err(error) if error.is_password_error() => last_password_error = Some(error),
+            Err(error) if error.is_password_error() => last_decrypt_error = Some(error),
             Err(error) => return Err(error),
         }
     }
-    Err(last_password_error.unwrap_or(ArchiveError::PasswordRequired))
+    Err(last_decrypt_error.unwrap_or(ArchiveError::PasswordRequired))
 }
 
 /// Rejects unsafe names and link entries before a backend writes anything.

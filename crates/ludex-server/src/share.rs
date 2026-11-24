@@ -83,7 +83,7 @@ pub struct CreateShareRequest {
 
 /// Body of `POST /api/share/{token}/access`.
 #[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ShareAccessRequest {
     /// Password when the link is protected.
     #[serde(default)]
