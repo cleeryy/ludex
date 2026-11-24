@@ -2,7 +2,7 @@
 
 **Baseline:** v0.4.17 + #237 (`5406405`), 2026-11-16. Read-only research; no code was changed by the audit.
 
-This is the source of truth for the Console 2.0 / rebrand work. The short contract lives in [`.opencode/skills/console-mode-ui/SKILL.md`](../../.opencode/skills/console-mode-ui/SKILL.md).
+This directory is the source of truth for the Console 2.0 / rebrand work.
 
 | Research | What it covers |
 |---|---|
@@ -238,5 +238,5 @@ that is the acceptance this document records.
 ## Notes for agents
 
 - #237 already landed Studio default, 24/28/48u scale, downloads selector, memoised cards and lazy routes; #268 replaced the Studio/Soft presets with rooms and cut the registry to three compositions. Do not reintroduce a preset picker.
-- The skill `console-mode-ui` is the short contract; update it and this directory together when a rule changes.
+- Update this directory when a Console 2.0 rule changes.
 - Old `docs/big-picture/` specs are legacy; this directory supersedes them.
