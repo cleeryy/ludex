@@ -2425,7 +2425,6 @@
   "Paste your VirusTotal API key": "VirusTotal API anahtarınızı yapıştırın",
   "Paths stay on this machine. Automatic promotion never archives a drive root, your home folder, a symlink or a folder above the size limit.": "Yollar bu makinede kalır. Otomatik yükseltme hiçbir zaman bir sürücü kökünü, ana klasörünüzü, bir sembolik bağlantıyı veya boyut sınırının üzerindeki bir klasörü arşivlemez.",
   "Pause": "Duraklat",
-  "Pause, resume or clear finished installs.": "Tamamlanan kurulumları duraklat, sürdür veya temizle.",
   "Paused": "Duraklatıldı",
   "Peak disk use": "En yüksek disk kullanımı",
   "Peak disk use on this volume: {peak} (archive {archive} + extracted about {extracted} + {margin} safety margin).": "Bu birimdeki en yüksek disk kullanımı: {peak} (arşiv {archive} + çıkarılan yaklaşık {extracted} + {margin} güvenlik payı).",

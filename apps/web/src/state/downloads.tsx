@@ -348,6 +348,11 @@ export function useActiveJobs(): InstallJob[] {
   return useDownloadsSelector((snapshot) => snapshot.active);
 }
 
+/** Finished, failed or cancelled installs in history order. */
+export function useHistoryJobs(): InstallJob[] {
+  return useDownloadsSelector((snapshot) => snapshot.history);
+}
+
 /** The active job of one game, if it has one. */
 export function useJob(gameId: number): InstallJob | undefined {
   return useDownloadsSelector((snapshot) => snapshot.active.find((job) => job.gameId === gameId));

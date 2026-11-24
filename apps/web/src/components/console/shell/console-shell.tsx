@@ -604,11 +604,22 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
   const collectionsQuery = useQuery({
     queryKey: qk.collections.root,
     queryFn: () => api.listCollections(),
-    enabled: level.kind === "library" || overlay === "collections",
+    enabled: online && (level.kind === "library" || overlay === "collections"),
     staleTime: 60_000,
     retry: 1,
   });
   const collections = collectionsQuery.data ?? [];
+
+  const notificationsQuery = useQuery({
+    queryKey: qk.notifications.bell(),
+    queryFn: () => api.notifications(10),
+    enabled: online && Boolean(user),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const notifications = notificationsQuery.data?.items ?? [];
+  const unreadNotifications = notificationsQuery.data?.unreadCount ?? 0;
+  const visibleNotifications = notifications.slice(0, 3);
 
   // The controller profiles (#51) that drive navigation. The automatic choice
   // is what the library screen resolves (account, then per-game override); an
@@ -705,15 +716,19 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         ? 2
         : overlay === "downloads"
           ? activeCount + 1
-          : overlay === "profiles"
-            ? profileChoices.length + 2
-            : overlay === "collections"
-              ? collectionsQuery.isError
-                ? 1
-                : collections.length
-              : overlay === "search"
-                ? cells.length
-                : 0;
+          : overlay === "notifications"
+            ? notificationsQuery.isError
+              ? 1
+              : visibleNotifications.length + (unreadNotifications > 0 && visibleNotifications.length > 0 ? 1 : 0)
+            : overlay === "profiles"
+              ? profileChoices.length + 2
+              : overlay === "collections"
+                ? collectionsQuery.isError
+                  ? 1
+                  : collections.length
+                : overlay === "search"
+                  ? cells.length
+                  : 0;
 
   // A download completing or a profile list changing can shorten an overlay
   // under the highlight; never leave the ring on a row that no longer exists.
@@ -1130,10 +1145,18 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         openOverlay("downloads");
         break;
       case "install":
+        if (!online) {
+          refuse(t("This device is offline. Installed games still play."));
+          break;
+        }
         emit("confirm");
         setInstallOpen(true);
         break;
       case "download":
+        if (!online) {
+          refuse(t("This device is offline. Installed games still play."));
+          break;
+        }
         emit("confirm");
         void download();
         break;
@@ -1257,6 +1280,8 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
             return openOverlay("search");
           case "downloads":
             return openOverlay("downloads");
+          case "notifications":
+            return openOverlay("notifications");
           case "profiles":
             return openOverlay("profiles");
           case "diagnostics": {
@@ -1329,9 +1354,44 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         return;
       }
       case "downloads":
-        // Stays inside Console Downloads — never escapes to the desktop route.
+        // Managed by ConsoleDownloadsOverlay's own input scope; stays inside Console.
         emit("click");
         return;
+      case "notifications": {
+        if (notificationsQuery.isError) {
+          emit("confirm");
+          void notificationsQuery.refetch();
+          return;
+        }
+        if (index === visibleNotifications.length && unreadNotifications > 0) {
+          emit("confirm");
+          void api
+            .readAllNotifications()
+            .then(() => queryClient.invalidateQueries({ queryKey: qk.notifications.root }))
+            .catch(() => undefined);
+          return;
+        }
+        const item = visibleNotifications[index];
+        if (!item) return;
+        emit("confirm");
+        if (item.readAt === null) {
+          void api
+            .readNotification(item.id)
+            .then(() => queryClient.invalidateQueries({ queryKey: qk.notifications.root }))
+            .catch(() => undefined);
+        }
+        if (item.game?.id) {
+          closeOverlay(false);
+          navigate(consolePathFor("game", { gameId: item.game.id }));
+          return;
+        }
+        if (item.kind === "collection_share") {
+          openOverlay("collections");
+          return;
+        }
+        closeOverlay();
+        return;
+      }
       case "profiles": {
         const option = profileChoices[index];
         if (option) {
@@ -1975,12 +2035,15 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     options: consoleInputOptions,
   });
 
+  const offlineBlockedPrimary =
+    !online && (installAction.intent === "install" || installAction.intent === "download");
   const primary = !selected ? null : (
     <Button
       variant={installAction.intent === "open-downloads" || installAction.intent === "resume-install" ? "default" : "primary"}
       size="lg"
       className="bp-button"
-      disabled={installAction.disabled}
+      disabled={installAction.disabled || offlineBlockedPrimary}
+      title={offlineBlockedPrimary ? t("This device is offline. Installed games still play.") : undefined}
       icon={
         <Glyph
           name={installAction.kind === "play" || installAction.kind === "resume" ? "play" : "install"}
@@ -2085,7 +2148,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
       style={cssVarsFor(cabinet)}
       {...consoleRoomAttributes(room)}
     >
-      {(overlay || pendingPower || launchPlate) && (
+      {((overlay && overlay !== "downloads") || pendingPower || launchPlate) && (
         <ConsoleOverlayInputScope
           onAction={onGamepad}
           onKey={onConsoleKey}
@@ -2111,7 +2174,30 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         padCharging={padBattery?.charging ?? false}
         refreshing={!isPending && isFetching}
         consoleActive={consoleActive}
+        unreadNotifications={unreadNotifications}
+        onOpenNotifications={() => openOverlay("notifications")}
       />
+
+      {!online && (
+        <div
+          role="status"
+          data-bp-offline="true"
+          className="relative z-20 flex shrink-0 items-center gap-2 border-b border-line bg-surface py-1.5 text-bp-meta text-warn bp-pad-x"
+        >
+          <span className="bp-dot bg-warn" aria-hidden="true" />
+          <span className="truncate">
+            {installed.size > 0
+              ? t("Offline · {summary}", {
+                  summary: tn(
+                    installed.size,
+                    "1 installed game still plays",
+                    "{count} installed games still play",
+                  ),
+                })
+              : t("Offline · Connect to the server to download games.")}
+          </span>
+        </div>
+      )}
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col">
         {/*
@@ -2270,6 +2356,13 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
         instant={instantMotion}
         downloads={activeCount}
         titleFor={titleFor}
+        emit={emit}
+        online={online}
+        notifications={notifications}
+        unreadNotifications={unreadNotifications}
+        notificationsLoading={notificationsQuery.isPending}
+        notificationsError={notificationsQuery.isError ? notificationsQuery.error : null}
+        onNotificationsRetry={() => void notificationsQuery.refetch()}
         profileOptions={profileChoices}
         selectedProfileId={selectedProfileId}
         profile={padResolutionNow.profile}

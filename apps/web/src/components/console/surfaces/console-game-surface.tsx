@@ -75,6 +75,7 @@ export function ConsoleGameSurface({
     retry: 0,
   });
 
+  const offlineBlocked = !online && !installed && primaryGlyph !== "downloads";
   const secondaryActions: { id: string; label: string; onClick: () => void }[] = [
     ...(installed && onOpenFolder
       ? [{ id: "folder", label: t("Open folder"), onClick: onOpenFolder }]
@@ -198,6 +199,7 @@ export function ConsoleGameSurface({
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <button
               type="button"
+              disabled={offlineBlocked}
               data-gamepad-focus={focusArea === "actions" && actionIndex === 0 ? "true" : undefined}
               onPointerEnter={() => {
                 setFocusArea("actions");
@@ -206,7 +208,9 @@ export function ConsoleGameSurface({
               onClick={onPrimary}
               className={cn(
                 "bp-button inline-flex min-h-[calc(var(--bp-u)*72)] items-center gap-3 rounded-[var(--bp-radius-object)] px-7 text-bp-body font-semibold",
-                "bg-signal text-on-signal",
+                offlineBlocked
+                  ? "cursor-not-allowed bg-surface-2 text-ink-3 opacity-60"
+                  : "bg-signal text-on-signal",
               )}
             >
               <Glyph name={primaryGlyph} className="size-[calc(var(--bp-u)*28)] shrink-0" />
@@ -237,6 +241,11 @@ export function ConsoleGameSurface({
               );
             })}
           </div>
+          {offlineBlocked && (
+            <p className="text-bp-meta text-warn">
+              {t("Offline · Connect to the server to install.")}
+            </p>
+          )}
         </div>
       </div>
 

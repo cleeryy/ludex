@@ -144,4 +144,32 @@ describe("console boot and gates", () => {
     // honest: it must stay far below the 1.2 s boot budget.
     expect(elapsed).toBeLessThan(500);
   });
+
+  it("boots into Console Home when offline and already signed in so installed games still play", () => {
+    const spy = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      auth.value = {
+        ...auth.value,
+        ready: true,
+        bootError: null,
+        user: { id: 1, username: "tester" },
+      };
+      renderConsole();
+      expect(screen.getByTestId("console-home")).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "This device is offline." })).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps the offline gate when offline and signed out", () => {
+    const spy = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      signedOut();
+      renderConsole();
+      expect(screen.getByRole("heading", { name: "This device is offline." })).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

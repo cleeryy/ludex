@@ -2425,7 +2425,6 @@
   "Paste your VirusTotal API key": "VirusTotal API キーを貼り付け",
   "Paths stay on this machine. Automatic promotion never archives a drive root, your home folder, a symlink or a folder above the size limit.": "パスはこのマシン上に残ります。自動プロモーションでは、ドライブ ルート、ホーム フォルダー、シンボリックリンク、またはサイズ制限を超えるフォルダーがアーカイブされることはありません。",
   "Pause": "一時停止",
-  "Pause, resume or clear finished installs.": "完了したインストールを一時停止・再開・削除します。",
   "Paused": "一時停止中",
   "Peak disk use": "最大ディスク使用量",
   "Peak disk use on this volume: {peak} (archive {archive} + extracted about {extracted} + {margin} safety margin).": "このボリュームの最大ディスク使用量: {peak}（アーカイブ {archive} + 展開後 約 {extracted} + 安全マージン {margin}）。",

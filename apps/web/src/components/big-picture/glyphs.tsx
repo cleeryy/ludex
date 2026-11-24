@@ -27,7 +27,8 @@ export type GlyphName =
   | "sleep"
   | "restart"
   | "signout"
-  | "bundle";
+  | "bundle"
+  | "bell";
 
 function shape(name: GlyphName): ReactNode {
   switch (name) {
@@ -145,6 +146,13 @@ function shape(name: GlyphName): ReactNode {
         <>
           <path d="M14 4H5v16h9" />
           <path d="M12 12h9M17.5 7.5 22 12l-4.5 4.5" />
+        </>
+      );
+    case "bell":
+      return (
+        <>
+          <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4s2-1.5 2-6.5" />
+          <path d="M10 19a2 2 0 0 0 4 0" />
         </>
       );
   }

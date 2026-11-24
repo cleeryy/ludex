@@ -72,7 +72,9 @@ export function ConsoleApp() {
   if (!ready) return <ConsoleBoot />;
   if (bootError) return <ConsoleNoServer message={bootError} />;
   if (setup?.needsSetup) return <ConsoleNeedsSetup />;
-  if (!online) return <ConsoleOffline onRetry={retryBoot} />;
+  // When signed in, allow booting into Console Home offline so locally
+  // installed games still play; cold signed-out offline stays on the gate.
+  if (!online && !user) return <ConsoleOffline onRetry={retryBoot} />;
   if (!user) return <ConsoleSignedOut />;
 
   return (

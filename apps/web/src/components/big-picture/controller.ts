@@ -107,6 +107,7 @@ export type HintContext =
   | "exit"
   | "profiles"
   | "downloads"
+  | "notifications"
   | "collections"
   | "search";
 
@@ -314,6 +315,12 @@ export function hintsFor(context: HintContext, { layout, family, connected, swap
         { id: "close", keys: keys("back") },
       ];
     case "downloads":
+      return [
+        { id: "choose", keys: keys("navigate") },
+        { id: "open", keys: keys("confirm") },
+        { id: "close", keys: keys("back") },
+      ];
+    case "notifications":
       return [
         { id: "choose", keys: keys("navigate") },
         { id: "open", keys: keys("confirm") },

@@ -2425,7 +2425,6 @@
   "Paste your VirusTotal API key": "粘贴你的 VirusTotal API 密钥",
   "Paths stay on this machine. Automatic promotion never archives a drive root, your home folder, a symlink or a folder above the size limit.": "路径保留在本机上。自动升级永远不会归档驱动器根目录、主文件夹、符号链接或超过大小限制的文件夹。",
   "Pause": "暂停",
-  "Pause, resume or clear finished installs.": "暂停、恢复或清除已完成的安装。",
   "Paused": "已暂停",
   "Peak disk use": "磁盘峰值占用",
   "Peak disk use on this volume: {peak} (archive {archive} + extracted about {extracted} + {margin} safety margin).": "此卷的磁盘峰值占用：{peak}（压缩包 {archive} + 解压后约 {extracted} + {margin} 安全余量）。",

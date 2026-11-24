@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
-import { formatPercent } from "@/lib/format";
+import { formatPercent, formatSpeed } from "@/lib/format";
 import { t, tn } from "@/lib/i18n";
 import { jobProgressPercent } from "@/lib/install-phase";
 import type { Collection, InstallJob } from "@/lib/types";
-import { Progress } from "@/components/ui/controls";
+import type { QueueSummary } from "@/state/downloads";
+import { SegmentedGauge } from "@/components/ui/controls";
 import type { HintContext, PadFamily } from "./controller";
 import type { BigPictureLayout } from "./layout";
 import { MOTION_DURATION, REDUCED_FADE, exitOf, transitionOf } from "./motion";
@@ -152,6 +153,7 @@ export type CommandId =
   | "game"
   | "search"
   | "downloads"
+  | "notifications"
   | "profiles"
   | "diagnostics"
   | "settings"
@@ -193,6 +195,12 @@ export const COMMAND_ITEMS: readonly CommandDefinition[] = [
     glyph: "downloads",
     label: () => t("Downloads"),
     detail: () => t("Downloads keep running while this is open."),
+  },
+  {
+    id: "notifications",
+    glyph: "bell",
+    label: () => t("Notifications"),
+    detail: () => t("Recent activity from your library and friends."),
   },
   {
     id: "profiles",
@@ -402,16 +410,103 @@ const PHASE_COPY: Record<InstallJob["phase"], () => string> = {
   interrupted: () => t("Interrupted"),
 };
 
+export type DownloadJobActionId =
+  | "pause"
+  | "resume"
+  | "retry"
+  | "cancel"
+  | "open-folder"
+  | "remove"
+  | "back";
+
+export interface DownloadJobAction {
+  id: DownloadJobActionId;
+  label: string;
+  detail?: string;
+  tone?: "danger";
+}
+
+const FAILED_OR_STOPPED_PHASES: ReadonlySet<InstallJob["phase"]> = new Set([
+  "error",
+  "cancelled",
+  "interrupted",
+]);
+
+const TERMINAL_PHASES: ReadonlySet<InstallJob["phase"]> = new Set([
+  "done",
+  "error",
+  "cancelled",
+  "interrupted",
+]);
+
+/** Console-native per-job actions for the inline Downloads action sheet. */
+export function downloadRowActions(job: InstallJob): DownloadJobAction[] {
+  const list: DownloadJobAction[] = [];
+  if (job.phase === "paused") {
+    list.push({ id: "resume", label: t("Resume"), detail: t("Continue from the saved checkpoint.") });
+  } else if (!TERMINAL_PHASES.has(job.phase)) {
+    list.push({ id: "pause", label: t("Pause"), detail: t("Keep downloaded bytes for later.") });
+  }
+  if (FAILED_OR_STOPPED_PHASES.has(job.phase)) {
+    list.push({ id: "retry", label: t("Retry"), detail: t("Restart this install in the queue.") });
+  }
+  if (!TERMINAL_PHASES.has(job.phase)) {
+    list.push({
+      id: "cancel",
+      label: t("Cancel"),
+      detail: t("Stop and remove this queued install."),
+      tone: "danger",
+    });
+  }
+  if (job.installPath) {
+    list.push({ id: "open-folder", label: t("Open folder"), detail: job.installPath });
+  }
+  if (TERMINAL_PHASES.has(job.phase)) {
+    list.push({
+      id: "remove",
+      label: t("Remove"),
+      detail: t("Clear this entry from history. Installed files stay."),
+    });
+  }
+  list.push({ id: "back", label: t("Back"), detail: t("Return to the download queue.") });
+  return list;
+}
+
+export type DownloadOverlayEntry =
+  | { kind: "active"; job: InstallJob }
+  | { kind: "pause-all" }
+  | { kind: "clear-finished" }
+  | { kind: "history"; job: InstallJob };
+
+/** Flat deterministic row order for pad/keyboard indexing in Console Downloads. */
+export function downloadOverlayEntries(
+  jobs: readonly InstallJob[],
+  history: readonly InstallJob[],
+): DownloadOverlayEntry[] {
+  const entries: DownloadOverlayEntry[] = jobs.map((job) => ({ kind: "active", job }));
+  if (jobs.some((job) => job.phase !== "paused")) {
+    entries.push({ kind: "pause-all" });
+  }
+  if (history.length > 0) {
+    entries.push({ kind: "clear-finished" });
+    for (const job of history) entries.push({ kind: "history", job });
+  }
+  return entries;
+}
+
 /**
- * The queue, without leaving the game. It only reads the download provider, so
- * progress keeps moving behind the panel; A opens the full Downloads screen
- * (and leaves Big Picture) when a job needs pausing or a failed retry.
+ * Full Console Downloads surface: dual-color segmented gauge (signal + info),
+ * live speed/ETA header, per-row inline action sheet (Pause/Resume/Retry/
+ * Cancel/Open folder/Remove), bulk Pause all & Clear finished, and history.
  */
 export function DownloadsOverlay({
   active,
   onChoose,
   onHighlight,
   jobs,
+  history = [],
+  summary,
+  selectedJob = null,
   titleFor,
   reduceMotion,
   instant,
@@ -421,62 +516,215 @@ export function DownloadsOverlay({
   onChoose: (index: number) => void;
   onHighlight: (index: number) => void;
   jobs: readonly InstallJob[];
+  history?: readonly InstallJob[];
+  summary?: QueueSummary | null;
+  selectedJob?: InstallJob | null;
   titleFor: (job: InstallJob) => string;
 } & Omit<Parameters<typeof OverlayShell>[0], "children" | "title" | "subtitle">) {
+  const entries = downloadOverlayEntries(jobs, history);
+  const jobActions = selectedJob ? downloadRowActions(selectedJob) : null;
+  const activeSpeed = summary?.speedBps ?? jobs.reduce((sum, job) => sum + (job.phase === "downloading" ? job.speedBps : 0), 0);
+  const summaryPercent =
+    summary?.percent ??
+    (() => {
+      const first = jobs[0];
+      return first ? jobProgressPercent(first) : null;
+    })();
+  const isTransferLive = jobs.some(
+    (job) =>
+      job.phase === "downloading" ||
+      job.phase === "verifying" ||
+      job.phase === "extracting" ||
+      job.phase === "finalizing",
+  );
+
   return (
     <OverlayShell
-      title={t("Downloads")}
-      subtitle={t("Downloads keep running while this is open.")}
+      title={selectedJob ? titleFor(selectedJob) : t("Downloads")}
+      subtitle={
+        selectedJob
+          ? PHASE_COPY[selectedJob.phase]()
+          : t("Downloads keep running while this is open.")
+      }
       reduceMotion={reduceMotion}
       instant={instant}
+      wide
       {...shell}
     >
-      {jobs.length === 0 ? (
-        <p className="px-3 py-6 text-center text-bp-body text-ink-3">{t("No downloads running.")}</p>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {jobs.map((job, index) => {
-            // #225: the shared rule keeps verifying/finalizing indeterminate instead of
-            // freezing the bar at 100 % while the local work runs.
-            const percent = jobProgressPercent(job);
-            return (
-              // #229: a queue row is a surface too — it lands on its own
-              // `.26/bounce 0` spring and never overshoots a progress value.
-              <motion.li key={job.jobId} {...transitionOf("queueRow", { reduce: reduceMotion, instant })}>
+      {selectedJob && jobActions ? (
+        <div className="flex flex-col gap-3 px-1 py-1">
+          {!TERMINAL_PHASES.has(selectedJob.phase) && (
+            <div className="rounded-[var(--bp-radius-object)] border border-line bg-surface-2 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 text-bp-meta text-ink-2">
+                <span>{PHASE_COPY[selectedJob.phase]()}</span>
+                <span className="flex items-center gap-3">
+                  {selectedJob.phase === "downloading" && selectedJob.speedBps > 0 && (
+                    <span className="num text-info">{formatSpeed(selectedJob.speedBps)}</span>
+                  )}
+                  {jobProgressPercent(selectedJob) !== null && (
+                    <span className="num text-ink">{formatPercent(jobProgressPercent(selectedJob))}</span>
+                  )}
+                </span>
+              </div>
+              <SegmentedGauge
+                value={jobProgressPercent(selectedJob)}
+                active={selectedJob.phase !== "paused" && selectedJob.phase !== "queued" && selectedJob.phase !== "waitingForSpace"}
+                segments={16}
+                size="sm"
+                className="mt-2"
+                label={`${titleFor(selectedJob)} ${PHASE_COPY[selectedJob.phase]()}`}
+              />
+            </div>
+          )}
+          <ul className="flex flex-col gap-0.5">
+            {jobActions.map((action, index) => (
+              <li key={action.id}>
                 <OverlayRow
                   active={index === active}
                   onChoose={() => onChoose(index)}
                   onHighlight={() => onHighlight(index)}
-                  icon={<Glyph name="downloads" className="size-[calc(var(--bp-u)*26)]" />}
-                  label={titleFor(job)}
-                  detail={
-                    <span className="flex items-center gap-2">
-                      <span>{PHASE_COPY[job.phase]()}</span>
-                      {percent !== null && <span className="num">{formatPercent(percent)}</span>}
-                    </span>
-                  }
+                  label={action.label}
+                  detail={action.detail}
+                  tone={action.tone}
                 />
-                {percent !== null && (
-                  <Progress
-                    value={percent}
-                    className="mt-1 h-1"
-                    label={`${titleFor(job)} ${formatPercent(percent)}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : entries.length === 0 ? (
+        <p className="px-3 py-6 text-center text-bp-body text-ink-3">{t("No downloads running.")}</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {jobs.length > 0 && (
+            <div className="mx-1 rounded-[var(--bp-radius-object)] border border-line bg-surface-2 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-bp-meta">
+                <span className="text-ink-2">
+                  {tn(jobs.length, "1 active download", "{count} active downloads")}
+                </span>
+                <span className="flex items-center gap-3">
+                  {activeSpeed > 0 && <span className="num text-info">{formatSpeed(activeSpeed)}</span>}
+                  {summary?.eta && <span className="num text-ink-2">{summary.eta}</span>}
+                  {summaryPercent !== null && (
+                    <span className="num text-ink">{formatPercent(summaryPercent)}</span>
+                  )}
+                </span>
+              </div>
+              <SegmentedGauge
+                value={summaryPercent}
+                active={isTransferLive}
+                segments={16}
+                size="sm"
+                className="mt-2"
+                label={t("Overall download progress")}
+              />
+            </div>
+          )}
+
+          <ul className="flex flex-col gap-1">
+            {entries.map((entry, index) => {
+              if (entry.kind === "active") {
+                const { job } = entry;
+                const percent = jobProgressPercent(job);
+                const live =
+                  job.phase === "downloading" ||
+                  job.phase === "verifying" ||
+                  job.phase === "extracting" ||
+                  job.phase === "finalizing";
+                return (
+                  <motion.li
+                    key={job.jobId}
+                    {...transitionOf("queueRow", { reduce: reduceMotion, instant })}
+                  >
+                    <OverlayRow
+                      active={index === active}
+                      onChoose={() => onChoose(index)}
+                      onHighlight={() => onHighlight(index)}
+                      icon={<Glyph name="downloads" className="size-[calc(var(--bp-u)*26)]" />}
+                      label={titleFor(job)}
+                      detail={
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span>{PHASE_COPY[job.phase]()}</span>
+                          {percent !== null && <span className="num">{formatPercent(percent)}</span>}
+                          {job.phase === "downloading" && job.speedBps > 0 && (
+                            <span className="num text-info">{formatSpeed(job.speedBps)}</span>
+                          )}
+                        </span>
+                      }
+                      trailing={t("Actions")}
+                    />
+                    <div className="px-3 pb-1.5 pt-0.5">
+                      <SegmentedGauge
+                        value={percent}
+                        active={live}
+                        segments={16}
+                        size="sm"
+                        label={
+                          percent !== null
+                            ? `${titleFor(job)} ${formatPercent(percent)}`
+                            : `${titleFor(job)} ${PHASE_COPY[job.phase]()}`
+                        }
+                      />
+                    </div>
+                  </motion.li>
+                );
+              }
+
+              if (entry.kind === "pause-all") {
+                return (
+                  <li key="bulk-pause-all" className="mt-1 border-t border-line pt-1">
+                    <OverlayRow
+                      active={index === active}
+                      onChoose={() => onChoose(index)}
+                      onHighlight={() => onHighlight(index)}
+                      label={t("Pause all")}
+                      detail={t("Pause every active download.")}
+                    />
+                  </li>
+                );
+              }
+
+              if (entry.kind === "clear-finished") {
+                return (
+                  <li key="bulk-clear-finished" className={jobs.some((job) => job.phase !== "paused") ? undefined : "mt-1 border-t border-line pt-1"}>
+                    <OverlayRow
+                      active={index === active}
+                      onChoose={() => onChoose(index)}
+                      onHighlight={() => onHighlight(index)}
+                      label={t("Clear finished")}
+                      detail={t("Remove completed and failed entries from history.")}
+                    />
+                  </li>
+                );
+              }
+
+              const { job } = entry;
+              const isFirstHistory =
+                index > 0 && entries[index - 1]?.kind !== "history";
+              return (
+                <li key={job.jobId} className={isFirstHistory ? "mt-2 border-t border-line pt-2" : undefined}>
+                  {isFirstHistory && (
+                    <p className="px-3 pb-1 text-bp-meta text-ink-3">{t("History")}</p>
+                  )}
+                  <OverlayRow
+                    active={index === active}
+                    onChoose={() => onChoose(index)}
+                    onHighlight={() => onHighlight(index)}
+                    icon={
+                      <Glyph
+                        name={job.phase === "done" ? "check" : "downloads"}
+                        className="size-[calc(var(--bp-u)*24)]"
+                      />
+                    }
+                    label={titleFor(job)}
+                    detail={job.message ? `${PHASE_COPY[job.phase]()} · ${job.message}` : PHASE_COPY[job.phase]()}
+                    trailing={t("Actions")}
                   />
-                )}
-              </motion.li>
-            );
-          })}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
-      <div className="mt-2 border-t border-line pt-2">
-        <OverlayRow
-          active={active === jobs.length}
-          onChoose={() => onChoose(jobs.length)}
-          onHighlight={() => onHighlight(jobs.length)}
-          label={t("Open downloads")}
-          detail={t("Pause, resume or clear finished installs.")}
-        />
-      </div>
     </OverlayShell>
   );
 }

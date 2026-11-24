@@ -2425,7 +2425,6 @@
   "Paste your VirusTotal API key": "Pega tu clave de API de VirusTotal",
   "Paths stay on this machine. Automatic promotion never archives a drive root, your home folder, a symlink or a folder above the size limit.": "Los caminos permanecen en esta máquina. La promoción automática nunca archiva la raíz de una unidad, su carpeta de inicio, un enlace simbólico o una carpeta que supere el límite de tamaño.",
   "Pause": "Pausa",
-  "Pause, resume or clear finished installs.": "Pausa, reanuda o borra las instalaciones terminadas.",
   "Paused": "En pausa",
   "Peak disk use": "Uso máximo de disco",
   "Peak disk use on this volume: {peak} (archive {archive} + extracted about {extracted} + {margin} safety margin).": "Uso máximo de disco en este volumen: {peak} (archivo {archive} + extraído unos {extracted} + {margin} de margen de seguridad).",

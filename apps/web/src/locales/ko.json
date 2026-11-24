@@ -2425,7 +2425,6 @@
   "Paste your VirusTotal API key": "VirusTotal API 키를 붙여넣으세요",
   "Paths stay on this machine. Automatic promotion never archives a drive root, your home folder, a symlink or a folder above the size limit.": "경로는 이 머신에 유지됩니다. 자동 승격은 드라이브 루트, 홈 폴더, 심볼릭 링크 또는 크기 제한을 초과하는 폴더를 보관하지 않습니다.",
   "Pause": "정지시키다",
-  "Pause, resume or clear finished installs.": "완료된 설치를 일시정지, 재개 또는 지웁니다.",
   "Paused": "일시중지됨",
   "Peak disk use": "최대 디스크 사용량",
   "Peak disk use on this volume: {peak} (archive {archive} + extracted about {extracted} + {margin} safety margin).": "이 볼륨의 최대 디스크 사용량: {peak}(아카이브 {archive} + 압축 해제 약 {extracted} + 안전 여유 {margin}).",

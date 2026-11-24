@@ -12,7 +12,14 @@ import type { MoveDirection } from "./layout";
    suite covers every context without a DOM.
    -------------------------------------------------------------------------- */
 
-export type BigPictureOverlay = "menu" | "search" | "profiles" | "downloads" | "exit" | "collections";
+export type BigPictureOverlay =
+  | "menu"
+  | "search"
+  | "profiles"
+  | "downloads"
+  | "notifications"
+  | "exit"
+  | "collections";
 
 /** Steps the on-screen keyboard understands beyond the printable keys. */
 export type SearchStep = "space" | "backspace" | "clear" | "submit";
@@ -196,6 +203,9 @@ export function routeKey(overlay: BigPictureOverlay | null, key: string): BigPic
     case "d":
     case "D":
       return { type: "open", overlay: "downloads" };
+    case "n":
+    case "N":
+      return { type: "open", overlay: "notifications" };
     case "g":
     case "G":
       return { type: "game" };

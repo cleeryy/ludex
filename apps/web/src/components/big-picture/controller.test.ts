@@ -133,6 +133,7 @@ describe("contextual button hints", () => {
     expect(hintsFor("exit", base).map((hint) => hint.id)).toEqual(["choose", "select", "close"]);
     expect(hintsFor("profiles", base).map((hint) => hint.id)).toEqual(["choose", "apply", "close"]);
     expect(hintsFor("downloads", base).map((hint) => hint.id)).toEqual(["choose", "open", "close"]);
+    expect(hintsFor("notifications", base).map((hint) => hint.id)).toEqual(["choose", "open", "close"]);
     expect(hintsFor("actions", base).map((hint) => hint.id)).toEqual(["navigate", "select", "back"]);
   });
 

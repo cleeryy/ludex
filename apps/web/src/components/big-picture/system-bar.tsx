@@ -35,6 +35,8 @@ export interface SystemBarProps {
   downloadsPercent?: number | null;
   refreshing: boolean;
   consoleActive: boolean;
+  unreadNotifications?: number;
+  onOpenNotifications?: () => void;
 }
 
 /** The clock lands on the next minute boundary instead of drifting by 30 s. */
@@ -97,6 +99,8 @@ export function SystemBar({
   downloadsPercent: downloadsPercentProp,
   refreshing,
   consoleActive,
+  unreadNotifications = 0,
+  onOpenNotifications,
 }: SystemBarProps) {
   const { meta } = useI18n();
   const clock = useMinuteClock(meta.intl);
@@ -130,15 +134,49 @@ export function SystemBar({
       <div className="ms-auto flex min-w-0 shrink-0 items-stretch divide-x divide-line">
         {name && (
           <Slot className="max-w-[30ch]" title={t("Signed in as {name}", { name })}>
-            <UserAvatar name={name} src={user?.avatarUrl} size={22} />
-            <span className="hidden min-w-0 flex-col justify-center leading-tight sm:flex">
-              <span className="truncate text-bp-meta text-ink-2">@{user?.username}</span>
-              {serverLabel && (
-                <span className="hidden max-w-[16ch] truncate text-bp-meta text-ink-3 lg:block">
-                  {serverLabel}
+            {onOpenNotifications ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={onOpenNotifications}
+                aria-label={
+                  unreadNotifications > 0
+                    ? t("Notifications ({count} unread)", { count: unreadNotifications })
+                    : t("Notifications")
+                }
+                className="flex min-w-0 items-center gap-2 text-start text-ink-2 transition-colors hover:text-ink"
+              >
+                <span className="relative shrink-0">
+                  <UserAvatar name={name} src={user?.avatarUrl} size={22} />
+                  {unreadNotifications > 0 && (
+                    <span
+                      className="bp-dot absolute -end-1 -top-1"
+                      aria-hidden="true"
+                    />
+                  )}
                 </span>
-              )}
-            </span>
+                <span className="hidden min-w-0 flex-col justify-center leading-tight sm:flex">
+                  <span className="truncate text-bp-meta text-ink-2">@{user?.username}</span>
+                  {serverLabel && (
+                    <span className="hidden max-w-[16ch] truncate text-bp-meta text-ink-3 lg:block">
+                      {serverLabel}
+                    </span>
+                  )}
+                </span>
+              </button>
+            ) : (
+              <>
+                <UserAvatar name={name} src={user?.avatarUrl} size={22} />
+                <span className="hidden min-w-0 flex-col justify-center leading-tight sm:flex">
+                  <span className="truncate text-bp-meta text-ink-2">@{user?.username}</span>
+                  {serverLabel && (
+                    <span className="hidden max-w-[16ch] truncate text-bp-meta text-ink-3 lg:block">
+                      {serverLabel}
+                    </span>
+                  )}
+                </span>
+              </>
+            )}
           </Slot>
         )}
 

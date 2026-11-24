@@ -52,7 +52,7 @@ describe("library routing", () => {
 
 describe("overlay routing", () => {
   it("gives the pad to the overlay and never navigates behind it", () => {
-    for (const overlay of ["menu", "profiles", "downloads", "exit", "collections"] as const) {
+    for (const overlay of ["menu", "profiles", "downloads", "notifications", "exit", "collections"] as const) {
       expect(routeGamepadAction(overlay, "up")).toEqual({ type: "highlight", direction: "up" });
       expect(routeGamepadAction(overlay, "left")).toEqual({ type: "highlight", direction: "up" });
       expect(routeGamepadAction(overlay, "down")).toEqual({ type: "highlight", direction: "down" });
@@ -107,6 +107,7 @@ describe("keyboard parity", () => {
     expect(routeKey(null, "m")).toEqual({ type: "open", overlay: "menu" });
     expect(routeKey(null, "p")).toEqual({ type: "open", overlay: "profiles" });
     expect(routeKey(null, "d")).toEqual({ type: "open", overlay: "downloads" });
+    expect(routeKey(null, "n")).toEqual({ type: "open", overlay: "notifications" });
     expect(routeKey(null, "g")).toEqual({ type: "game" });
   });
 
