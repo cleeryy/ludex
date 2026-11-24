@@ -867,7 +867,7 @@ mod tests {
         let file = std::fs::File::open(&bundle.path).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();
         let mut names: Vec<String> = (0..archive.len())
-            .map(|index| archive.by_index(index).unwrap().name().to_string())
+            .map(|index| archive.by_index(index).unwrap().name().unwrap().to_string())
             .collect();
         names.sort();
         assert_eq!(
