@@ -47,7 +47,6 @@ encoding_rs = "0.8"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
-tokio-tar = "0.3"
 tokio-stream = "0.1"
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = [
@@ -57,7 +56,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "gzip",
   "multipart",
 ] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 discord-rich-presence = "1.1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
@@ -71,7 +70,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Save snapshots (#108): Ludex writes stored entries, while deflate keeps
 # manually uploaded snapshots readable on restore. Bounded in saves_sync.rs.
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # Guided runtime installer (#178): every archive is verified by size and
 # SHA-256 before these crates see it; extraction has its own path guards.

@@ -22,7 +22,9 @@ tokio = { version = "1", features = ["full"] }
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip", "timeout", "limit"] }
-sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "uuid", "macros", "migrate"] }
+# 0.9.1 is the first release whose sqlite driver accepts libsqlite3-sys 0.40
+# (RUSTSEC-2026-0459); 0.9.0 pins it below 0.38 and re-resolves to 0.30.
+sqlx = { version = "0.9.1", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "uuid", "macros", "migrate"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "multipart"] }
 jsonwebtoken = { version = "12", features = ["aws_lc_rs"] }
 argon2 = "0.5"

@@ -2568,7 +2568,10 @@ pub(crate) fn extract_archive(archive: &Path, rows: &[SavePathRecord]) -> Result
             .by_index(index)
             .map_err(|e| format!("Could not read the save archive: {e}"))?;
         let is_dir = entry.is_dir();
-        let raw_name = entry.name().to_string();
+        let raw_name = entry
+            .name()
+            .map_err(|e| format!("Could not read the save archive: {e}"))?
+            .to_string();
         let name = if is_dir {
             raw_name.trim_end_matches('/').to_string()
         } else {
@@ -3074,7 +3077,7 @@ mod tests {
         let mut zip = ZipArchive::new(file).unwrap();
         let mut names = Vec::new();
         for index in 0..zip.len() {
-            names.push(zip.by_index(index).unwrap().name().to_string());
+            names.push(zip.by_index(index).unwrap().name().unwrap().to_string());
         }
         assert!(names.contains(&"saves/00/slot-1/save.dat".to_string()));
         assert!(names.contains(&"saves/00/settings.ini".to_string()));
@@ -3171,7 +3174,10 @@ mod tests {
 
         let file = File::open(&archive.path).unwrap();
         let mut zip = ZipArchive::new(file).unwrap();
-        assert_eq!(zip.by_index(0).unwrap().name(), "saves/00/profile.sav");
+        assert_eq!(
+            zip.by_index(0).unwrap().name().unwrap(),
+            "saves/00/profile.sav"
+        );
     }
 
     #[test]
@@ -3527,7 +3533,7 @@ mod tests {
         let mut zip = ZipArchive::new(file).unwrap();
         for index in 0..zip.len() {
             let mut entry = zip.by_index(index).unwrap();
-            if entry.name() == wanted {
+            if entry.name().unwrap().as_ref() == wanted {
                 let mut contents = String::new();
                 entry.read_to_string(&mut contents).unwrap();
                 return Some(contents);

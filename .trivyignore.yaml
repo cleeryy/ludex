@@ -9,36 +9,10 @@
 # A finding listed here is filtered out of the SARIF report, so it never
 # reaches the Security tab. Review this file with every dependency pull
 # request; an expired entry turns the scan green-to-red on its own.
+#
+# Empty since #345: the desktop zip 2.6.1 finding is gone (the crate now runs
+# zip 9.8.1, same as the workspace) and tokio-tar 0.3.1 was dropped from the
+# lockfile — it had been an unused direct dependency since the installer moved
+# to the synchronous tar crate, and no tauri crate pulls it in anymore.
 
-vulnerabilities:
-  # The desktop lockfile still resolves zip 2.6.1 while the workspace already
-  # moved to zip 9 (which is where the fix lives). Upgrading the desktop crate
-  # needs the same code adaptation that landed for the server, which is a
-  # dependency task, not a CI task.
-  - id: CVE-2026-115905
-    paths:
-      - apps/desktop/src-tauri/Cargo.lock
-    statement: >-
-      zip 2.6.1 in the desktop lockfile. Fixed in zip 9.0.5; the workspace
-      already runs zip 9, the desktop crate upgrade is tracked with the pending
-      desktop dependency refresh.
-    expired_at: 2026-12-15
-
-  - id: CVE-2026-115909
-    paths:
-      - apps/desktop/src-tauri/Cargo.lock
-    statement: >-
-      zip 2.6.1 in the desktop lockfile. Fixed in zip 9.0.0; same upgrade as
-      CVE-2026-115905.
-    expired_at: 2026-12-15
-
-  # tokio-tar ships inside the Tauri updater stack; no fixed release is
-  # published yet (Trivy reports an empty "fixed version" column).
-  - id: CVE-2025-62518
-    paths:
-      - apps/desktop/src-tauri/Cargo.lock
-    statement: >-
-      tokio-tar 0.3.1 PAX header desynchronisation, no upstream fix published.
-      Ludex extracts archives it already knows the hash of, and the updater
-      only consumes signed tarballs from its own release channel.
-    expired_at: 2027-01-15
+vulnerabilities: []
