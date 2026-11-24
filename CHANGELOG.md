@@ -6,6 +6,22 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Generalized design system (#333): the whole app now uses the ARC x Swiss/
+  Bauhaus x shadcn system — eight presets (speranza default, bauhaus, braun,
+  telemetry, blueprint, olive, kyoto, studio) with the five new tokens
+  (`info` and the four-band hardware stripe), dual C1/C2 custom pickers with
+  contrast validation and `.ludex-theme` compatibility, Inter/Instrument Sans
+  with JetBrains Mono strictly reserved for numeric/technical data, 1px borders
+  and surface-luminance depth (no glow, no heavy glass), an app-wide type scale,
+  Swiss tables, segmented gauges, telemetry strips, a 236px sidebar and clean
+  game covers. Console 2.0 follows the same tokens with one focus-mark owner,
+  TV remote keys, the native game surface, install modal, power sign-out, a
+  full downloads surface, a notifications sheet and an honest offline mode;
+  TV baselines are captured at 720p/1080p/4K and the new strings are translated
+  for the nine top-10 locales.
+
 ## [0.4.29] - 2026-11-23
 
 ### Added
