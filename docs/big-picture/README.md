@@ -7,6 +7,5 @@ The six-layout registry no longer exists: the Console ships three compositions â
 is history, not a target.
 
 - [Console 2.0 + rebrand](../console/README.md)
-- Console 2.0 skill contract: `.opencode/skills/console-mode-ui/SKILL.md` (outside this repository)
 
 Do not use these as the target for new work. Console 2.0 keeps the motion/sound/controller kit but replaces the shell, IA, layout set and visual system.

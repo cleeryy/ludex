@@ -1,6 +1,6 @@
 # Ludex Console 2.0 + rebrand — architecture review
 
-**Baseline:** HEAD `1a32205` (`chore(release): v0.4.17`, 2026-11-16) **plus an uncommitted working tree observed during the review**. The tree is dirty and moving: a downloads-selector lane is staged, route-level lazy loading is in progress, the mock/ESLint work is staged, and `.opencode/skills/console-mode-ui/SKILL.md` now defines the Console 2.0 contract. Line numbers are from the current files; the selector work is treated as **landing**, not as a recommendation.
+**Baseline:** HEAD `1a32205` (`chore(release): v0.4.17`, 2026-11-16) **plus an uncommitted working tree observed during the review**. The tree is dirty and moving: a downloads-selector lane is staged, route-level lazy loading is in progress, the mock/ESLint work is staged, and ``docs/console/README.md` defines the Console 2.0 contract. Line numbers are from the current files; the selector work is treated as **landing**, not as a recommendation.
 
 **Scope:** `apps/web` (React shell, Console, providers, data), `apps/desktop/src-tauri` (console mode, window/power, Sunshine, overlay), console-relevant server surfaces.
 **Method:** code reading, the existing 2026-11-16 audit, the current tests, and the new `console-mode-ui` skill. No hardware, Tauri build, or screen reader was available; native/streaming claims are from code and the repo's own tests.
@@ -900,8 +900,7 @@ A rule without a test will be gone in three releases.
 | Brand wordmark | `apps/web/src/components/brand.tsx:1-45` |
 | Admin-only user list | `apps/web/src/lib/api.ts:692` |
 | No public profiles/switch | `crates/ludex-server/src/routes/auth.rs:40-56`; `community.rs:63-67` |
-| New skill contract | `.opencode/skills/console-mode-ui/SKILL.md` (current working tree) |
-| Missing blueprint | `docs/console/` referenced by the skill, absent from the tree |
+| Console blueprint | `docs/console/README.md` (current tree) |
 
 ---
 

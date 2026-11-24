@@ -5,9 +5,7 @@
 > wins over the earlier Cabinet warm-amber cast and `6/14/20/24u` radii: Console
 > now uses the exact active #333 palette (all 8 presets, `info` C2, `stripe-1..4`),
 > Inter/Instrument Sans + JetBrains Mono (data only), `8/10/12/14u` radii scaled
-> by `--bp-u`, and 7:1 contrast via `cabinetSafe()`. Read [the blueprint](../README.md)
-> and [`.opencode/skills/console-mode-ui/SKILL.md`](../../../.opencode/skills/console-mode-ui/SKILL.md)
-> for the active contract.
+> by `--bp-u`, and 7:1 contrast via `cabinetSafe()`. Read [the blueprint](../README.md) for the active contract.
 
 **Author:** Designer (read-only turn). No repository files were modified.
 **Date:** 2026-11-16. **Repo:** `7199a2c` + `#237` merged (Studio default, 10-foot type, pad escape).
