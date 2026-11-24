@@ -6,9 +6,7 @@ layout in Chromium. This checklist proves the **shipped Windows build** under
 because it needs a real GPU, a real controller, a real stream and a real
 borderless game.
 
-**Status: not run.** No Windows host, no Sunshine host and no controller were
-available to this lane. Every row is unchecked on purpose; a checked row
-without an attached recording or log is not evidence.
+**Status: not run (verified still unrun on 2026-11-24 after #333 + Console 2.0 B1–B4).** No Windows host, no Sunshine host, no Rust/Cargo toolchain, and no physical controller were available to this lane. Every row is unchecked on purpose; a checked row without an attached recording or log is not evidence.
 
 ## What you need
 

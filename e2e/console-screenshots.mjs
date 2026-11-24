@@ -154,6 +154,12 @@ function commit() {
 
 /** Seeds the demo session and the Cabinet room, scoped per server like the app. */
 function seedRoom({ room = "night", layout = "shelf" } = {}) {
+  // Keep online state deterministic across sandboxed/offline hosts, just like the fixed clock.
+  try {
+    Object.defineProperty(navigator, "onLine", { get: () => true, configurable: true });
+  } catch {
+    /* read-only in some engines */
+  }
   localStorage.setItem("ludex.token", "mock.1.0");
   localStorage.setItem("ludex.locale", "en");
   localStorage.setItem("ludex.pwa.installDismissedAt", "1");

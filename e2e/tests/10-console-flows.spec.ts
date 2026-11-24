@@ -136,20 +136,15 @@ test.describe("console player flows (#302)", () => {
     await selectSeedGame(page);
 
     // A desktop build installs: Play becomes Install and the shell opens the
-    // install dialog (one of the two allowed Console modals).
+    // Console-native install sheet (zero desktop InstallDialog).
     const primary = page.locator("[data-bp-action='true']").getByRole("button", { name: "Install", exact: true });
     await expect(primary).toBeVisible();
     await pad.tap("a");
 
-    const dialog = page.getByRole("dialog", { name: `Install ${gameTitle()}` });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: "Install", exact: true }).click();
-
-    // The dialog switches to the live job; continuing in background keeps the
-    // install running while the player browses.
-    await expect(dialog.getByRole("button", { name: "Continue in background" })).toBeVisible();
-    await dialog.getByRole("button", { name: "Continue in background" }).click();
-    await expect(dialog).toHaveCount(0);
+    const installSheet = page.getByRole("group", { name: `Install ${gameTitle()}` });
+    await expect(installSheet).toBeVisible();
+    await installSheet.getByRole("button", { name: /^Install/ }).click();
+    await expect(installSheet).toHaveCount(0);
 
     expect(await bridge.jobs()).toHaveLength(1);
 
@@ -163,9 +158,7 @@ test.describe("console player flows (#302)", () => {
     const [job] = await bridge.jobs();
     await bridge.emit("install://progress", { ...job, bytesDone: 1_800_000 });
 
-    // Downloads is a console surface, reachable from the band.
-    const downloads = page.locator("[data-bp-band-item='true'][aria-label^='Downloads']");
-    await downloads.click();
+    // ConsoleInstallModal opens the Console Downloads surface directly.
     const sheet = page.locator("[data-big-picture-overlay='downloads']");
     await expect(sheet).toBeVisible();
     await expect(sheet).toContainText(gameTitle());

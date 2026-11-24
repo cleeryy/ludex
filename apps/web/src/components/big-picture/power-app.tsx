@@ -63,7 +63,9 @@ export function PowerApp({
                 aria-current={selected ? "true" : undefined}
                 aria-disabled={action.enabled ? undefined : "true"}
                 aria-label={`${action.label} — ${action.enabled ? action.detail : action.reason ?? action.detail}`}
-                onPointerEnter={() => onHighlight(index)}
+                onPointerMove={() => {
+                  if (!selected) onHighlight(index);
+                }}
                 onClick={() => onChoose(index)}
                 className={cn(
                   "bp-row relative mb-1 flex min-h-[calc(var(--bp-u)*88)] w-full items-center gap-5 px-4 py-3 text-start",

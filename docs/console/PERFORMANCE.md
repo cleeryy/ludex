@@ -30,7 +30,7 @@ false pass; the native process budget is in
 | < 380 MB RSS at UHD | **No** — same distinction | same | documented, native checklist item |
 | One static blur layer, no animated filters | **Yes**, as a source/DOM rule, not a frame bisect | `styles/console-material.test.ts`, `console-backdrop.test.tsx`, long-task counts | met |
 | Artwork decode off the focus path | **Partly**: the wall plate follows the settled selection (160 ms), pinned by unit tests; the frame tables include a settled plate, they do not isolate decode | `lib/wall-plate.ts` tests | documented, no A/B |
-| Download progress does not re-render the library | **By construction**, selector split in the downloads store; no frame-level A/B | `state/downloads.test.tsx` | documented, no A/B |
+| Download progress does not re-render the library | **By construction**, selector split in the downloads store; unit-tested render isolation in `state/downloads.test.tsx` (`useActiveCount` / `useJobPhases` do not repaint on byte progress ticks); no frame-level A/B | `state/downloads.test.tsx` | met (unit), documented (frame A/B) |
 | `console_v2` toggling does not mount a second library render | **Yes**, as a mount/query count | `components/console/console-flag-mount.test.tsx` | met: 1 mount, 1 query set after on → off → on |
 
 The distinction is deliberate: "measured" is a number on this page,

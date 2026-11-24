@@ -153,6 +153,35 @@ Tuned and run on the CT 119 host (`ANGLE`/SwiftShader, Chromium headless) on
 | Hero title moved 12 px | 1.052 % | fail |
 | Band label hidden | 0.639 % | fail |
 
+### Design System #333 + Console 2.0 re-approval (2026-11-24)
+
+After unifying Console 2.0 on the #333 ARC × Swiss token system (removing the
+warm-amber `warmTokens` cast, adding the 3 px `.arc-stripe` header, aligning
+radii to `--r-xs/sm/md/lg` scaled by `--bp-u`, adding Power → `Sign out`,
+console-native Game/Install/Downloads/Notifications surfaces, and honest
+Offline mode), all 15 baselines (5 views × 3 TV resolutions + 5 % overscan
+crops) were regenerated and verified with Chromium 158 headless:
+
+- **Visual baselines**: `LUDEX_VISUAL_UPDATE=1 node e2e/console-screenshots.mjs`
+  — 15 captures (720p, 1080p, 4K + 5 % overscan), **0 overscan violations**,
+  0 page errors.
+- **Visual pixel gate**: `node e2e/console-screenshots.mjs --gate --skip-build`
+  — **12/12 gated frames PASS**, worst frame **0.010 %** (`stage-720-overscan`,
+  `wall-720-overscan`, vs 0.5 % limit).
+- **Asset budget**: `node scripts/check-assets.mjs` — PASS (all screenshots
+  under 300 KB).
+- **Playwright fake-pad & DOM gates** (against `VITE_USE_MOCKS=true` demo
+  build):
+  - `06-console.spec.ts` (6/6 PASS: direct boot, deep link + Escape, root back,
+    fake pad input loop, 1080p evidence frame, overlay single-dispatch).
+  - `07-console-visual.spec.ts` (3/3 PASS: 720p / 1080p / 4K + 5 % overscan).
+  - `08-console-antislop.spec.ts` (3/3 PASS: 24u type floor at 1080p, Cabinet
+    rules, zero desktop leaks).
+  - `10-console-flows.spec.ts`: settings reload persistence and Power → Sleep
+    confirmation verified against the demo build; full server-backed install
+    and launch flows (`09-console-perf.spec.ts` and server-seeded `10` flows)
+    remain gated on a host with `cargo` / Rust server (`scripts/e2e.sh`).
+
 The gate is **not wired into the PR jobs**. Two reasons, both documented rather
 than hidden: the demo build overwrites `apps/web/dist` with a different adapter
 than the E2E job needs, and GitHub's runner image is not the machine the
