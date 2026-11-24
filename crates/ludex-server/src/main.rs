@@ -234,7 +234,8 @@ async fn healthcheck() -> anyhow::Result<()> {
         .context("healthcheck timed out connecting")?
         .with_context(|| format!("healthcheck could not connect to {target}"))?;
 
-    let request = format!("GET /api/health HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
+    let request =
+        format!("GET /api/health HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
     tokio::time::timeout(timeout, stream.write_all(request.as_bytes()))
         .await
         .context("healthcheck timed out writing request")?
