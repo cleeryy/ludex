@@ -169,7 +169,7 @@ trivy fs --scanners vuln,secret,misconfig \
 
 # image: the artifact operators actually run (weekly)
 docker pull ghcr.io/cleeryy/ludex:latest
-trivy image --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml \
+trivy image --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml \
   --exit-code 1 ghcr.io/cleeryy/ludex:latest
 ```
 
@@ -177,6 +177,13 @@ Both runs write SARIF and `github/codeql-action/upload-sarif` publishes it to
 the **Security → Code scanning** tab, so a finding has a home beyond the job
 log. `limit-severities-for-sarif: true` keeps the SARIF at HIGH/CRITICAL too —
 without it the action widens the report back to every severity.
+
+The image scan runs with `--ignore-unfixed` (`ignore-unfixed: true`) because
+Debian intentionally leaves non-applicable or low-impact OS CVEs (such as
+MiniZip `CVE-2023-45853` in `zlib1g`) unfixed forever; any fixable HIGH/CRITICAL
+OS advisory still fails the job and uploads SARIF. The filesystem scan keeps
+`ignore-unfixed: false` so every unfixed Rust or npm advisory is triaged
+explicitly.
 
 The image scan is weekly on purpose: the `ci.yml` Docker job builds the image on
 every pull request but never pushes it, and a second 8-minute Docker build for a

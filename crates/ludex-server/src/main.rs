@@ -37,6 +37,9 @@ async fn async_main() -> anyhow::Result<()> {
                 std::io::stdout().flush()?;
                 return Ok(());
             }
+            "healthcheck" => {
+                return healthcheck().await;
+            }
             "--help" | "-h" | "help" => {
                 print_help();
                 return Ok(());
@@ -59,6 +62,7 @@ fn print_help() {
 
 Usage:
   ludex-server                         start the HTTP server (LUDEX_* environment)
+  ludex-server healthcheck             probe GET /api/health on LUDEX_BIND
   ludex-server openapi                 print the OpenAPI document as JSON
   ludex-server import-gamevault --dump <file> [--dry-run] [--json]
                                        import a GameVault JSON export (#6)
@@ -195,5 +199,76 @@ fn print_report(report: &gamevault::ImportReport) {
     }
     if report.dry_run {
         println!("Run again without --dry-run to apply these changes.");
+    }
+}
+
+fn healthcheck_target(bind: &str) -> anyhow::Result<std::net::SocketAddr> {
+    let addr: std::net::SocketAddr = bind
+        .trim()
+        .parse()
+        .with_context(|| format!("invalid LUDEX_BIND address '{bind}'"))?;
+    let host = match addr.ip() {
+        std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+        }
+        std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
+            std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+        }
+        other => other,
+    };
+    Ok(std::net::SocketAddr::new(host, addr.port()))
+}
+
+async fn healthcheck() -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    let bind = std::env::var("LUDEX_BIND")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| ludex_server::config::DEFAULT_BIND.to_string());
+    let target = healthcheck_target(&bind)?;
+    let timeout = std::time::Duration::from_secs(4);
+    let mut stream = tokio::time::timeout(timeout, TcpStream::connect(target))
+        .await
+        .context("healthcheck timed out connecting")?
+        .with_context(|| format!("healthcheck could not connect to {target}"))?;
+
+    let request = format!("GET /api/health HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
+    tokio::time::timeout(timeout, stream.write_all(request.as_bytes()))
+        .await
+        .context("healthcheck timed out writing request")?
+        .context("healthcheck failed to send request")?;
+
+    let mut response = [0_u8; 64];
+    let read = tokio::time::timeout(timeout, stream.read(&mut response))
+        .await
+        .context("healthcheck timed out reading response")?
+        .context("healthcheck failed to read response")?;
+    let status_line = std::str::from_utf8(&response[..read])
+        .unwrap_or("")
+        .lines()
+        .next()
+        .unwrap_or("");
+    if status_line.starts_with("HTTP/1.1 200") || status_line.starts_with("HTTP/1.0 200") {
+        Ok(())
+    } else {
+        bail!("unhealthy response from {target}: {status_line}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::healthcheck_target;
+
+    #[test]
+    fn healthcheck_maps_unspecified_bind_addresses_to_loopback() {
+        let ipv4 = healthcheck_target("0.0.0.0:8080").expect("ipv4");
+        assert_eq!(ipv4.to_string(), "127.0.0.1:8080");
+        let ipv6 = healthcheck_target("[::]:9090").expect("ipv6");
+        assert_eq!(ipv6.to_string(), "[::1]:9090");
+        let explicit = healthcheck_target("127.0.0.1:8081").expect("explicit");
+        assert_eq!(explicit.to_string(), "127.0.0.1:8081");
+        assert!(healthcheck_target("not-an-address").is_err());
     }
 }

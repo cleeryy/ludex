@@ -15,7 +15,7 @@ three directories (plus `/tmp`).
 
 - Docker Engine 24+ with Compose v2, or a Linux host with glibc 2.39+ for the
   GNU binary (Ubuntu 24.04+, Debian 13+). On older distributions, use the Docker
-  image; it is built on Debian bookworm.
+  image; it is built on Debian trixie.
 - A reverse proxy for TLS if the server is reachable from the internet.
 - Optional: IGDB credentials (see below) for richer metadata.
 - Optional: PostgreSQL 14+ instead of the default SQLite file (see
@@ -395,9 +395,10 @@ automatic rollback, systemd timer), see [`GITOPS.md`](GITOPS.md).
 ## Healthcheck and monitoring
 
 - Endpoint: `GET /api/health` → `{"status":"ok","version":"...","uptimeSeconds":...}`.
-- Compose: `docker compose ps` shows `healthy`; the image healthcheck uses
-  `curl` against `127.0.0.1:8080`.
-- If you change `LUDEX_BIND`'s port, override the healthcheck accordingly.
+- Compose: `docker compose ps` shows `healthy`; the image healthcheck runs
+  `ludex-server healthcheck`, which probes `GET /api/health` on `LUDEX_BIND`
+  (loopback when bound to `0.0.0.0` or `::`), so `curl` is not shipped in the
+  runtime image.
 - Logs are JSON-free structured `tracing` output on stdout; `RUST_LOG` controls
   verbosity. `RUST_LOG=ludex_server=debug` for troubleshooting.
 

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Web UI ---------------------------------------------------------------
-FROM node:22-bookworm-slim AS web-builder
+FROM node:22-trixie-slim AS web-builder
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -29,7 +29,7 @@ COPY apps/web ./apps/web
 RUN pnpm --filter @ludex/web build
 
 # ---- Rust server ----------------------------------------------------------
-FROM rust:1.100-bookworm AS rust-builder
+FROM rust:1.100-trixie AS rust-builder
 
 WORKDIR /build
 
@@ -69,7 +69,7 @@ RUN if [ -f Cargo.lock ]; then \
     fi
 
 # ---- Runtime --------------------------------------------------------------
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 LABEL org.opencontainers.image.title="Ludex" \
       org.opencontainers.image.description="Self-hosted game library server" \
@@ -77,9 +77,9 @@ LABEL org.opencontainers.image.title="Ludex" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
-      curl \
       tini \
       libstdc++6 \
       zlib1g \
@@ -108,8 +108,7 @@ VOLUME ["/data", "/games", "/media"]
 EXPOSE 8080
 STOPSIGNAL SIGTERM
 
-# Override this if you change LUDEX_BIND's port.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8080/api/health || exit 1
+  CMD ["/usr/local/bin/ludex-server", "healthcheck"]
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/ludex-server"]
