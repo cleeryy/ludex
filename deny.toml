@@ -19,6 +19,11 @@ yanked = "warn"
 ignore = [
   { id = "RUSTSEC-2026-0543", reason = "chrono 0.4.45 is flagged unmaintained. It is a direct dependency of ludex-core/ludex-server and the desktop crate, and is pulled in by object_store 0.14.2 and sqlx-core/sqlx-sqlite/sqlx-postgres 0.9.1, so replacing it is a cross-workspace migration to time/jiff with a serialization-format risk. No CVE, no soundness issue; still blocked upstream on sqlx and object_store. Review by 2027-04-15." },
   { id = "RUSTSEC-2026-0542", reason = "humantime 2.4.0 is flagged unmaintained and only enters through object_store 0.14.2 (server object storage; the desktop lockfile inherits it through ludex-server). object_store owns the dependency edge and 0.14.2 is the newest release; we do not call humantime directly. Re-evaluate when object_store bumps or drops it. Review by 2027-04-15." },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4 is unmaintained; desktop-only, reached through glib-macros 0.18.5 <- glib 0.18.5 <- gtk 0.18.2 <- tauri 2.12.7. Build-time proc macro, no runtime code. Fix = tauri moving off gtk 0.18. Review by 2027-04-15." },
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml 0.2.11 is unmaintained; desktop-only, reached through serde_yaml 0.9.34+deprecated (the newest release). It parses the user-supplied Ludusavi manifest only. Fix = migrate to another YAML parser. Review by 2027-04-15." },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant 5.15.1 is unmaintained; desktop-only, reached through zbus 5.19.0 <- tauri-plugin-notification/opener/single-instance 2.x, which all pin zbus ^5. Fix = tauri-plugin 3.0. Review by 2027-04-15." },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names 4.3.5 is unmaintained; same zbus 5.19.0 edge as RUSTSEC-2026-0370, desktop-only. Review by 2027-04-15." },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5.15.1 is unmaintained; same zbus 5.19.0 edge as RUSTSEC-2026-0370, desktop-only. Build-time derive only. Review by 2027-04-15." },
 ]
 
 [licenses]

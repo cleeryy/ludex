@@ -8,6 +8,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ### Security
 
+- Expiring accepted risks closed (#345): desktop `zip` 2.6.1 → 9.8.1
+  (CVE-2026-115905/115909), `libsqlite3-sys` 0.30.1 → 0.40.0 via `sqlx` 0.9.1
+  and desktop `rusqlite` 0.43 (RUSTSEC-2026-0459), `tokio-tar` 0.3.1 removed as
+  an unused dependency (CVE-2025-62518) and `cookie` 0.18.3
+  (RUSTSEC-2026-0594). `.trivyignore.yaml` is empty; the desktop advisory job
+  is blocking again, with `chrono`/`humantime` and five desktop-only
+  unmaintained build/toolkit advisories accepted until 2027-04-15.
+
+### Security
+
 - Security and quality sweep: bounded optional JSON bodies on the share-access
   and VirusTotal test endpoints to 64 KiB via `OptionalJsonBody<T>` with
   `deny_unknown_fields`, validated repository/tag inputs and HTTPS redirects in

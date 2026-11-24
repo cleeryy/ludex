@@ -217,11 +217,14 @@ database with a second ignore list, and two lists that must stay in sync is how
 you end up ignoring an advisory forever; `cargo deny check advisories` is the
 supported path here.
 
-**Desktop advisories are informational.** The desktop lockfile still resolves
-`zip 2.6.1` and `tokio-tar 0.3.1`; both need a dependency refresh (the workspace
-already runs `zip 9`) and are recorded in `.trivyignore.yaml` with an expiry
-date. Until that lands, the desktop advisories step reports instead of blocking,
-and the license/bans/sources checks on the same crate stay blocking.
+**Desktop advisories block since #345.** The desktop lockfile carries no
+accepted vulnerability: `zip` is 9.8.1 in both graphs (CVE-2026-115905/115909
+closed), `tokio-tar` 0.3.1 was removed because it was an unused direct
+dependency, and `cookie` is 0.18.3 (RUSTSEC-2026-0594). `.trivyignore.yaml`
+therefore lists no vulnerabilities: a new finding must either upgrade or be
+re-accepted with a new `expired_at`. `deny.toml` still accepts `chrono` and
+`humantime` (unmaintained, no upstream fix) plus five desktop-only build/toolkit
+advisories until 2027-04-15.
 
 ### `pnpm audit`
 

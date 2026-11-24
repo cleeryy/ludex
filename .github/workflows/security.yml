@@ -177,11 +177,11 @@ jobs:
         working-directory: apps/desktop/src-tauri
         run: cargo deny check bans licenses sources
 
-      # Advisory until the pending zip 2.x -> 9.x / tokio-tar upgrade lands in
-      # the desktop lockfile (#263). Reported, never blocks a pull request.
-      - name: cargo deny advisories (desktop, advisory)
+      # Blocking since #345: zip 9 and the tokio-tar removal closed the expiring
+      # findings, and the five remaining desktop-only unmaintained advisories are
+      # accepted in deny.toml with review dates.
+      - name: cargo deny advisories (desktop)
         id: desktop-advisories
-        continue-on-error: true
         working-directory: apps/desktop/src-tauri
         run: cargo deny check advisories
 
