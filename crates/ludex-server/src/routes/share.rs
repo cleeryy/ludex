@@ -6,7 +6,6 @@
 
 use std::net::{IpAddr, SocketAddr};
 
-use axum::body::Bytes;
 use axum::extract::{ConnectInfo, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
@@ -20,7 +19,7 @@ use crate::collection_share::{self, CollectionShareView};
 use crate::db;
 use crate::error::ApiError;
 use crate::events::{Actor, Event};
-use crate::extract::{ApiPath, JsonBody};
+use crate::extract::{ApiPath, JsonBody, OptionalJsonBody};
 use crate::openapi::{body, ok, route, Auth, Payload, RouteDoc};
 use crate::share::{
     self, CreateShareRequest, ShareAccessRequest, ShareAccessResponse, ShareDenial, ShareLink,
@@ -242,7 +241,7 @@ async fn access(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     ApiPath(token): ApiPath<String>,
-    body: Bytes,
+    OptionalJsonBody(body): OptionalJsonBody<ShareAccessRequest>,
 ) -> Result<Json<ShareAccessResponse>, ApiError> {
     let ip = Some(peer.ip());
     let token_hash = share::hash_token(&token);
@@ -252,7 +251,7 @@ async fn access(
             "Too many access attempts; retry in a minute",
         ));
     }
-    let password = parse_password(&body)?;
+    let password = body.and_then(|request| request.password);
     let now = db::now();
 
     let link = share::find_by_token(&state.core.pool, &token_hash).await?;
@@ -361,7 +360,7 @@ async fn collection_access(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     ApiPath(token): ApiPath<String>,
-    body: Bytes,
+    OptionalJsonBody(body): OptionalJsonBody<ShareAccessRequest>,
 ) -> Result<Json<CollectionShareView>, ApiError> {
     let ip = Some(peer.ip());
     let token_hash = collection_share::hash_token(&token);
@@ -371,7 +370,7 @@ async fn collection_access(
             "Too many access attempts; retry in a minute",
         ));
     }
-    let password = parse_password(&body)?;
+    let password = body.and_then(|request| request.password);
     let link = collection_share::find_by_token(&state.core.pool, &token_hash).await?;
     let password_ok = collection_share::verify_access(link.as_ref(), password.as_deref());
     let Some(link) = link else {
@@ -415,19 +414,6 @@ fn record_collection_denied(
             .metadata(json!({ "reason": reason })),
     };
     state.core.events.emit(event.ip(ip));
-}
-
-fn parse_password(body: &Bytes) -> Result<Option<String>, ApiError> {
-    if body.is_empty() {
-        return Ok(None);
-    }
-    let request: ShareAccessRequest = serde_json::from_slice(body).map_err(|_| {
-        ApiError::bad_request(
-            "invalid_body",
-            "Expected a JSON object with an optional password",
-        )
-    })?;
-    Ok(request.password)
 }
 
 fn record_denied(state: &AppState, share: Option<&ShareLinkRow>, reason: &str, ip: Option<IpAddr>) {

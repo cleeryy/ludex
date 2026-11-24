@@ -67,7 +67,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      test: ["CMD", "/usr/local/bin/ludex-server", "healthcheck"]
       interval: 30s
       timeout: 5s
       start_period: 30s

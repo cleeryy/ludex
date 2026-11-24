@@ -301,7 +301,7 @@ async fn wait_for_webhook_user(receiver: &ReceiverState, username: &str) -> Hit 
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("no webhook delivery for user {username}");
+    panic!("no webhook delivery for the expected user");
 }
 
 async fn wait_for_hits(state: &ReceiverState, count: usize) {

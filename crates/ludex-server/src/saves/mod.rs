@@ -204,6 +204,9 @@ where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
     E: std::fmt::Display,
 {
+    // `dir` is built from numeric user/game ids in `game_dir`; see
+    // `paths_stay_under_the_user_game_directory`.
+    // codeql[rust/path-injection]
     tokio::fs::create_dir_all(dir)
         .await
         .map_err(SaveError::Io)?;

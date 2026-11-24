@@ -37,6 +37,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_PKGBUILD = join(ROOT, "packaging/aur/ludex-bin/PKGBUILD");
 const SHA_RE = /^[0-9a-f]{64}$/;
 const STABLE_VERSION_RE = /^\d+\.\d+\.\d+$/;
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const TAG_RE = /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9._-]+)?$/;
 
 const failures = [];
 const verbose = process.argv.includes("--verbose");
@@ -318,6 +320,15 @@ function which(name) {
  * @returns {Promise<string>} the file contents
  */
 async function fetchSums({ repo, tag }) {
+  if (!REPO_RE.test(repo) || repo.includes("..")) {
+    throw new Error(`refusing to fetch release sums for invalid repository ${JSON.stringify(repo)}`);
+  }
+  if (!TAG_RE.test(tag) || tag.includes("..")) {
+    throw new Error(`refusing to fetch release sums for invalid tag ${JSON.stringify(tag)}`);
+  }
+  const [owner, name] = repo.split("/");
+  const safeRepo = `${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  const safeTag = encodeURIComponent(tag);
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
   if (which("gh")) {
     const dir = mkdtempSync(join(tmpdir(), "ludex-sums-"));
@@ -337,10 +348,10 @@ async function fetchSums({ repo, tag }) {
     }
   }
 
-  const assetUrl = `https://github.com/${repo}/releases/download/${tag}/SHA256SUMS`;
+  const assetUrl = `https://github.com/${safeRepo}/releases/download/${safeTag}/SHA256SUMS`;
   if (token) {
     // The API hands out a signed redirect; the token stays on api.github.com.
-    const release = await fetch(`https://api.github.com/repos/${repo}/releases/tags/${tag}`, {
+    const release = await fetch(`https://api.github.com/repos/${safeRepo}/releases/tags/${safeTag}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
     });
     if (release.status === 404) throw new Error(`release ${tag} not found in ${repo}`);
@@ -354,7 +365,11 @@ async function fetchSums({ repo, tag }) {
     if (first.status >= 300 && first.status < 400) {
       const location = first.headers.get("location");
       if (!location) throw new Error("the SHA256SUMS download redirected without a Location header");
-      const second = await fetch(location);
+      const redirectUrl = new URL(location);
+      if (redirectUrl.protocol !== "https:") {
+        throw new Error(`refusing non-HTTPS redirect for SHA256SUMS (${redirectUrl.protocol})`);
+      }
+      const second = await fetch(redirectUrl.toString());
       if (!second.ok) throw new Error(`downloading SHA256SUMS returned ${second.status}`);
       return second.text();
     }
@@ -542,6 +557,10 @@ async function main() {
 
   if (options.offline) {
     console.log(`  skip release check (--offline): ${repo} ${tag}`);
+  } else if (!REPO_RE.test(repo) || repo.includes("..")) {
+    fail(`invalid GitHub repository ${JSON.stringify(repo)}; skipping release lookup`);
+  } else if (!TAG_RE.test(tag) || tag.includes("..")) {
+    fail(`invalid release tag ${JSON.stringify(tag)}; skipping release lookup`);
   } else {
     let sumsText;
     try {

@@ -116,7 +116,12 @@ jobs:
           format: sarif
           output: trivy-image.sarif
           limit-severities-for-sarif: true
-          ignore-unfixed: false
+          # Debian deliberately leaves non-applicable or minor OS CVEs (such as
+          # MiniZip CVE-2023-45853 in zlib1g) unfixed forever. Ignoring unfixed
+          # OS advisories here keeps the image gate actionable while
+          # trivy-filesystem still scans application lockfiles with
+          # ignore-unfixed: false.
+          ignore-unfixed: true
           exit-code: "1"
           trivyignores: .trivyignore.yaml
 

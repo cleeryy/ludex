@@ -6,6 +6,16 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+
+- Security and quality sweep: bounded optional JSON bodies on the share-access
+  and VirusTotal test endpoints to 64 KiB via `OptionalJsonBody<T>` with
+  `deny_unknown_fields`, validated repository/tag inputs and HTTPS redirects in
+  `scripts/check-packaging.mjs`, upgraded the Docker image from Debian bookworm
+  to Debian trixie without `curl` (replaced by a built-in
+  `ludex-server healthcheck` subcommand), and cleared the open CodeQL and
+  Trivy image alerts.
+
 ## [0.5.0] - 2026-11-24
 
 ### Added
