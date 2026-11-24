@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-24
+
 ### Security
 
 - Expiring accepted risks closed (#345): desktop `zip` 2.6.1 → 9.8.1
