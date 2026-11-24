@@ -24,7 +24,6 @@ import {
   sanitizeConsoleRoom,
   soundEnabled,
   soundReduced,
-  warmTokens,
   withConsoleRoom,
   writeConsoleRoom,
   type ConsoleRoomSettings,
@@ -91,8 +90,8 @@ describe("Cabinet rooms", () => {
         ["corners", "density", "haptics", "motion", "sound", "wall"].sort(),
       );
       const design = CONSOLE_ROOM_DESIGN[room];
-      expect(design.warm).toBeGreaterThanOrEqual(0);
-      expect(design.warm).toBeLessThanOrEqual(0.12);
+      expect(design.toBlack).toBeGreaterThanOrEqual(0);
+      expect(design.toBlack).toBeLessThanOrEqual(1);
       expect(design.wallBlur).toBeGreaterThanOrEqual(0);
     }
     // Night is the Cabinet: art wall, soft corners, 26u of blur.
@@ -242,13 +241,22 @@ describe("Cabinet tokens", () => {
   const darkBase = builtinTheme("speranza").tokens;
   const lightBase = builtinTheme("bauhaus").tokens;
 
-  it("casts the app's surfaces warm instead of shipping a palette", () => {
-    const warm = warmTokens(darkBase, 0.035);
-    const channel = (hex: string) => [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
-    const [r0, , b0] = channel(darkBase.surface);
-    const [r1, , b1] = channel(warm.surface);
-    // Warmer means more red than blue than the original step.
-    expect(r1 - b1).toBeGreaterThan(r0 - b0);
+  it("preserves the exact active #333 surfaces, info and stripe tokens without a warm amber cast on Night", () => {
+    const tokens = cabinetTokens({
+      settings: { ...DEFAULT_CONSOLE_ROOM, room: "night" },
+      tokens: darkBase,
+      lightTokens: lightBase,
+      darkTokens: darkBase,
+      mode: "dark",
+    });
+    expect(tokens.bg).toBe(darkBase.bg);
+    expect(tokens["bg-deep"]).toBe(darkBase["bg-deep"]);
+    expect(tokens.surface).toBe(darkBase.surface);
+    expect(tokens["stripe-1"]).toBe(darkBase["stripe-1"]);
+    expect(tokens["stripe-2"]).toBe(darkBase["stripe-2"]);
+    expect(tokens["stripe-3"]).toBe(darkBase["stripe-3"]);
+    expect(tokens["stripe-4"]).toBe(darkBase["stripe-4"]);
+    expect(tokens.info).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it("keeps the dark rooms dark when the desktop is light", () => {

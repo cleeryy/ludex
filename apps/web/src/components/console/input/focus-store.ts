@@ -73,3 +73,35 @@ export function restoreFocus(
   }
   return true;
 }
+
+/**
+ * Single focus-mark owner (#267): move the gamepad focus ring to `target`,
+ * clearing any stale mark across the document first. Surfaces never run
+ * ad-hoc `querySelectorAll("[data-gamepad-focus]")` loops themselves.
+ */
+export function setFocusMark(
+  target: HTMLElement | null,
+  options: { focus?: boolean } = {},
+  doc: Document | null = typeof document === "undefined" ? null : document,
+): boolean {
+  if (!doc || !isConnected(target)) return false;
+  clearFocusMarks("[data-gamepad-focus]", doc);
+  target.setAttribute("data-gamepad-focus", "true");
+  if (options.focus !== false) {
+    try {
+      target.focus({ preventScroll: true });
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Remove gamepad focus marks matching `selector` (default: all marks). */
+export function clearFocusMarks(
+  selector = "[data-gamepad-focus]",
+  doc: Document | null = typeof document === "undefined" ? null : document,
+): void {
+  if (!doc) return;
+  doc.querySelectorAll(selector).forEach((element) => element.removeAttribute("data-gamepad-focus"));
+}

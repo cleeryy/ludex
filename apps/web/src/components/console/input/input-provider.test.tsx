@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { InputProvider, useInputScope } from "@/components/console/input/input-provider";
+import { InputProvider, useInput, useInputScope } from "@/components/console/input/input-provider";
 import { ConsoleOverlayInputScope } from "@/components/console/input/overlay-scope";
 
 /**
@@ -278,5 +278,40 @@ describe("one input owner", () => {
     expect(card.hasAttribute("data-gamepad-focus")).toBe(false);
 
     vi.useRealTimers();
+  });
+
+  it("tracks lastInput across pad, keyboard and pointer, and maps TV remote keys", () => {
+    const log: string[] = [];
+    function Probe() {
+      const { lastInput } = useInput();
+      useInputScope({
+        id: "console",
+        onAction: (action) => log.push(`action:${action}`),
+      });
+      return <span data-testid="modality">{lastInput}</span>;
+    }
+
+    harness(<Probe />);
+    expect(screen.getByTestId("modality").textContent).toBe("pad");
+
+    act(() => {
+      fireEvent.pointerDown(window);
+    });
+    expect(screen.getByTestId("modality").textContent).toBe("pointer");
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "GoBack" });
+      fireEvent.keyDown(window, { key: "MediaPlayPause" });
+    });
+    expect(screen.getByTestId("modality").textContent).toBe("keyboard");
+    expect(log).toEqual(["action:back", "action:confirm"]);
+
+    act(() => {
+      press(0, true);
+      step();
+      press(0, false);
+      step();
+    });
+    expect(screen.getByTestId("modality").textContent).toBe("pad");
   });
 });

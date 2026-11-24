@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/controls";
 import { Glyph } from "@/components/big-picture/glyphs";
 import { useConsoleNotice } from "@/components/console/surfaces/console-notice";
 import { useInput, useInputScope, type InputScopeOptions } from "@/components/console/input/input-provider";
+import { clearFocusMarks, setFocusMark } from "@/components/console/input/focus-store";
 import { ConsoleOverlayInputScope } from "@/components/console/input/overlay-scope";
 import { consolePathFor, type ConsoleSurface } from "@/components/console/routes/surface";
 import { useConsoleSession } from "@/components/console/shell/use-console-session";
@@ -815,9 +816,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     if (!element) return;
     // One ring at a time: the game card keeps its selected ring, not the
     // gamepad outline it wore before the zone step.
-    document.querySelectorAll("[data-gamepad-focus]").forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
-    element.setAttribute("data-gamepad-focus", "true");
-    element.focus({ preventScroll: true });
+    setFocusMark(element);
   }, []);
 
   /* ------------------------------ zone focus ------------------------------- */
@@ -1453,9 +1452,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     // `pointerdown` clears every mark, and React will not rewrite an unchanged
     // attribute; re-marking here keeps the ring visible after a mouse click.
     // The library card or action keeps its selected state, not the outline.
-    document.querySelectorAll("[data-gamepad-focus]").forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
-    active.setAttribute("data-gamepad-focus", "true");
-    if (overlay !== "search") active.focus({ preventScroll: true });
+    setFocusMark(active, { focus: overlay !== "search" });
   }, [overlay, overlayIndex]);
 
   useEffect(() => {
@@ -1723,11 +1720,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
    * unmounting the screen.
    */
   useEffect(() => {
-    const clear = () => {
-      document
-        .querySelectorAll("[data-bp-card][data-gamepad-focus]")
-        .forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
-    };
+    const clear = () => clearFocusMarks("[data-bp-card][data-gamepad-focus]");
     clear();
     return clear;
   }, [layout, nav.shelfIndex, zone, level, overlay]);
@@ -1757,9 +1750,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     confirmWasOpen.current = true;
     const active = document.querySelector<HTMLElement>("[data-overlay-active='true']");
     if (!active) return;
-    document.querySelectorAll("[data-gamepad-focus]").forEach((marked) => marked.removeAttribute("data-gamepad-focus"));
-    active.setAttribute("data-gamepad-focus", "true");
-    active.focus({ preventScroll: true });
+    setFocusMark(active);
   }, [pendingPower, level, focusSurface]);
 
   /**
@@ -2076,6 +2067,7 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
           options={consoleInputOptions}
         />
       )}
+      <div className="arc-stripe relative z-20" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
       <ConsoleBackdrop
         wall={room.wall}

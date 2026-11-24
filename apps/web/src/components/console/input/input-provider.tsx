@@ -68,6 +68,8 @@ interface RegisteredScope {
   snapshot: FocusSnapshot;
 }
 
+export type LastInputSource = "pad" | "keyboard" | "pointer";
+
 export interface InputApi extends GamepadHandle {
   /** Dispatch a logical action to the top scope (tests and remote bridges). */
   dispatch: (action: GamepadAction, source?: ActionSource | null, repeated?: boolean) => void;
@@ -77,14 +79,24 @@ export interface InputApi extends GamepadHandle {
   refresh: () => void;
   /** The top enabled scope's id, or `null` when no surface wants input. */
   activeScope: string | null;
+  /** Most recent input modality so hints can match controller, keyboard or pointer. */
+  lastInput: LastInputSource;
 }
 
 const InputContext = createContext<InputApi | null>(null);
+
+/** TV remote / media keys normalized to logical gamepad actions. */
+function remoteActionForKey(key: string): GamepadAction | null {
+  if (key === "GoBack" || key === "BrowserBack") return "back";
+  if (key === "MediaPlayPause") return "confirm";
+  return null;
+}
 
 export function InputProvider({ children }: { children: ReactNode }) {
   const controllerProfile = useControllerProfile();
   const scopesRef = useRef<RegisteredScope[]>([]);
   const [topVersion, setTopVersion] = useState(0);
+  const [lastInput, setLastInput] = useState<LastInputSource>("pad");
   const debug = gamepadDebugEnabled();
 
   const topScope = useCallback((): RegisteredScope | null => {
@@ -97,6 +109,7 @@ export function InputProvider({ children }: { children: ReactNode }) {
 
   const dispatch = useCallback(
     (action: GamepadAction, source: ActionSource | null = null, repeated = false) => {
+      setLastInput("pad");
       const top = topScope();
       top?.scope.current.onAction?.(action, source, repeated);
     },
@@ -156,16 +169,29 @@ export function InputProvider({ children }: { children: ReactNode }) {
   );
 
   // One keyboard/remote listener. Only a scope that asked for keys sees them,
-  // so a desktop screen's own shortcuts keep working untouched.
+  // so a desktop screen's own shortcuts keep working untouched. TV remote keys
+  // (`GoBack`, `BrowserBack`, `MediaPlayPause`) fall back to the logical action
+  // when the scope did not consume the raw key.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      setLastInput("keyboard");
       const current = topScope();
       const handler = current?.scope.current.onKey;
-      if (!handler) return;
-      handler(event);
+      const consumed = handler ? handler(event) === true : false;
+      if (consumed || event.defaultPrevented) return;
+      const remote = remoteActionForKey(event.key);
+      if (remote && current?.scope.current.onAction) {
+        event.preventDefault();
+        current.scope.current.onAction(remote, null, event.repeat);
+      }
     };
+    const onPointerDown = () => setLastInput("pointer");
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [topScope]);
 
   const api = useMemo<InputApi>(
@@ -175,8 +201,9 @@ export function InputProvider({ children }: { children: ReactNode }) {
       pushScope,
       refresh,
       activeScope: top?.id ?? null,
+      lastInput,
     }),
-    [gamepad, dispatch, pushScope, refresh, top?.id],
+    [gamepad, dispatch, pushScope, refresh, top?.id, lastInput],
   );
 
   return <InputContext.Provider value={api}>{children}</InputContext.Provider>;

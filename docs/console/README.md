@@ -76,13 +76,16 @@ AppProviders (QueryClient, Settings, Toast, Auth, Preferences, I18n, Update)
 - **Search/OSK, notifications, downloads, offline** are console surfaces, not desktop routes.
 - Exactly **two modals**: install and power. Everything else is a non-modal sheet; B restores focus.
 
-## Cabinet
+## Visual System (#333 × Console 2.0)
 
-- Warm charcoal, matte anodised panels, one lit object, 6/14/20/24u radii, one blurred wallpaper layer, signal yellow only.
-- The **dot** is the only ornament: cursor, progress head, unread badge, wordmark full stop.
-- Type: 24u floor, 28u body/actions, 48u+ hero; mono only for numerals/units/shortcuts. 7:1 contrast.
+> **Supersedes the earlier "Cabinet warm amber cast" note:** GitHub issue #333 ("ARC × Swiss/Bauhaus × shadcn/ui") is the single app-wide token source for both Desktop and Console.
+
+- **Exact #333 tokens, no warm brown/amber cast:** `theme/console-room.ts` uses the active #333 preset (`speranza`, `bauhaus`, `braun`, `telemetry`, `blueprint`, `olive`, `kyoto`, `studio`) plus `info` (C2 network/stream telemetry) and `stripe-1..4` (3px `.arc-stripe`, toggled via `data-stripe="on|off"`). `warmTokens()` is removed; Console achieves 7:1 contrast on every foreground (`ink`, `ink-2`, `ink-3`, `signal-text`, `info`, `danger`, `ok`, `warn`) via `cabinetSafe()` without altering desktop base tokens.
+- **Restrained radii scaled by `--bp-u`:** `8 / 10 / 12 / 14u` default (`2 / 4 / 6 / 8u` sharp, `10 / 14 / 18 / 20u` round; never above `24u`).
+- **One baked wallpaper layer on Night** (solid on Projector/Daylight/Arcade and `prefers-reduced-transparency`); zero `backdrop-filter` on panels. Depth = luminance step + 1px rim, never a drop shadow.
+- Type: 24u floor, 28u body/actions, 34u surface title, 48u+ hero; Inter/Instrument Sans for all words, JetBrains Mono strictly for numerals/units/shortcuts.
 - No six-tile grids, `01–06`, uppercase mono words, layout picker, Soft/pastels, toasts in Console, desktop dialogs.
-- Customization: 4 rooms × 8 knobs, live preview, “from artwork” accent validated at 7:1, device-local; no CSS injection.
+- Customization: 4 rooms × 8 knobs + all 8 #333 themes, live preview, "from artwork" accent validated at 7:1, device-local; no CSS injection.
 
 ## Shipped in #268
 

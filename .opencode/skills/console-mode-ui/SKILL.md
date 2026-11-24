@@ -3,21 +3,20 @@ name: console-mode-ui
 description: Design and build the 10-foot, gamepad-first Ludex Console 2.0 UI/UX.
 ---
 
-# Ludex Console 2.0 — UI/UX Rules (Cabinet)
+# Ludex Console 2.0 — UI/UX Rules (#333 × Console 2.0)
 
-These rules supersede the v0.4 "Big Picture" assumptions. They are product rules, not suggestions.
+These rules supersede the v0.4 "Big Picture" and earlier warm-amber Cabinet palette assumptions. #333 ("ARC × Swiss/Bauhaus × shadcn/ui") is the single app-wide token source; Console reuses the exact same tokens with 10-foot IA and input rules.
 
 ## 1. One identity, two densities
 - Keep the name **Ludex** and the drawn wordmark. Console is a *device room*, not a second brand.
-- Desktop stays dense (archive/hairlines/small meta); Console is dark-first, one object at a time, ten times the air.
-- Shared: name, wordmark, dot, signal yellow, type families, semantic tokens, motion/sound vocabulary.
+- Desktop uses the #333 ARC × Swiss/Bauhaus × shadcn/ui language; Console uses the **exact same #333 tokens** (8 presets, `signal` C1, `info` C2, `stripe-1..4`, Inter/Instrument Sans + JetBrains Mono for data only) at 10-foot scale.
+- Shared: name, wordmark, 3px `.arc-stripe` (respects `data-stripe="on|off"`), semantic tokens, type families, motion/sound vocabulary.
 - Console bar carries the **monogram** (chamfered D + dot) at 28u, never a 17px wordmark. Wordmark only at boot, About, and empty/error walls (≥40u, Console cut: heavier stroke, larger dot).
 
-## 2. Visual direction: Cabinet
-- Warm charcoal, matte anodised panels, one lit object per screen, radii **6/14/20/24u**, depth by luminance — a sheet is a lighter step with a 1px ring, never a 40u shadow.
-- **One** blurred layer: the wallpaper behind the shell. No blur on panels; never animate `backdrop-filter`.
-- **Signal yellow is the only chromatic event.** No Soft preset, no pastel accent list. `theme/console-room.ts` owns the material.
-- The dot is the only ornament: cursor, progress head, unread badge, wordmark full stop.
+## 2. Visual direction: #333 tokens at 10-foot scale
+- Matte industrial surfaces from the active #333 preset (zero warm brown/amber `warmTokens` cast), one lit object per screen, restrained radii **8/10/12/14u** (`2/4/6/8u` sharp, `10/14/18/20u` round; never above `24u`), depth by luminance — a sheet is a lighter step with a 1px ring, never a drop shadow.
+- **One** blurred layer: the baked wallpaper on Night (solid on Projector/Daylight/Arcade and `prefers-reduced-transparency`). Zero `backdrop-filter` on panels; never animate `backdrop-filter`.
+- **Two purposeful chromatic roles:** `signal` (primary/focus) and `info` (network/stream telemetry), plus `warn`/`ok`/`danger`. No Soft preset, no pastel accent list. `theme/console-room.ts` owns room polarity/black-step/7:1 `cabinetSafe()`.
 - No six equal KPI tiles, no `01–06` indexes, no uppercase tracked mono labels, no gradient SaaS surfaces, no glass everywhere.
 
 ## 3. 10-foot hierarchy

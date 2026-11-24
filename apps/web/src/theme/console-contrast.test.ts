@@ -70,6 +70,8 @@ describe("console contrast", () => {
       ["ink-3", "surface-2"],
       ["signal-text", "bg-deep"],
       ["signal-text", "surface"],
+      ["info", "bg-deep"],
+      ["info", "surface"],
       ["danger", "bg-deep"],
       ["ok", "bg-deep"],
     ];

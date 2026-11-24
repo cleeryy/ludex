@@ -112,7 +112,10 @@ export const INSTANT_HOLD_MS = 120;
 
 export type MotionKind =
   | "boot"
+  | "bootMark"
   | "focus"
+  | "press"
+  | "detent"
   | "shelf"
   | "page"
   | "layout"
@@ -129,7 +132,10 @@ export type MotionKind =
 
 export const MOTION_KINDS = [
   "boot",
+  "bootMark",
   "focus",
+  "press",
+  "detent",
   "shelf",
   "page",
   "layout",
@@ -154,7 +160,10 @@ export const MOTION_KINDS = [
  */
 export const REDUCED_MOTION: Record<MotionKind, "fade" | "none"> = {
   boot: "fade",
+  bootMark: "fade",
   focus: "none",
+  press: "none",
+  detent: "none",
   shelf: "fade",
   page: "fade",
   layout: "fade",
@@ -215,6 +224,16 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     cue: null,
     cueAt: "start",
   },
+  bootMark: {
+    duration: MOTION_DURATION.slow,
+    exit: MOTION_DURATION.exit,
+    ease: EASE_OUT,
+    scale: 0.96,
+    opacity: 0,
+    reduced: REDUCED_MOTION.bootMark,
+    cue: null,
+    cueAt: "start",
+  },
   focus: {
     // The rail card and the home tile do their own CSS move (120 ms, ease-out);
     // this entry is the shared decision, not a second tween.
@@ -223,6 +242,24 @@ export const MOTION: Record<MotionKind, MotionSpec> = {
     ease: EASE_OUT,
     reduced: REDUCED_MOTION.focus,
     cue: "move",
+    cueAt: "start",
+  },
+  press: {
+    duration: MOTION_DURATION.fast,
+    exit: 0.1,
+    ease: EASE_OUT,
+    scale: 0.98,
+    reduced: REDUCED_MOTION.press,
+    cue: null,
+    cueAt: "start",
+  },
+  detent: {
+    duration: MOTION_DURATION.fast,
+    exit: 0.1,
+    ease: EASE_OUT,
+    x: 6,
+    reduced: REDUCED_MOTION.detent,
+    cue: null,
     cueAt: "start",
   },
   shelf: {

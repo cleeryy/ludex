@@ -1,10 +1,13 @@
 # Ludex Console 2.0 — brand and UX blueprint
 
-> **Status:** the Cabinet system shipped in #268. Rooms replaced presets, the
-> six layouts became Stage / Wall / List, and the 20u type step is gone. Read
-> "Shipped in #268" in [the blueprint](../README.md) before quoting a preset or
-> a layout from this research record; the decisions here are the rationale, not
-> the current API.
+> **Status:** The Console shell shipped in #267–#270 and was unified with the
+> **#333 Generalized Design System (ARC × Swiss/Bauhaus × shadcn/ui)**. #333
+> wins over the earlier Cabinet warm-amber cast and `6/14/20/24u` radii: Console
+> now uses the exact active #333 palette (all 8 presets, `info` C2, `stripe-1..4`),
+> Inter/Instrument Sans + JetBrains Mono (data only), `8/10/12/14u` radii scaled
+> by `--bp-u`, and 7:1 contrast via `cabinetSafe()`. Read [the blueprint](../README.md)
+> and [`.opencode/skills/console-mode-ui/SKILL.md`](../../../.opencode/skills/console-mode-ui/SKILL.md)
+> for the active contract.
 
 **Author:** Designer (read-only turn). No repository files were modified.
 **Date:** 2026-11-16. **Repo:** `7199a2c` + `#237` merged (Studio default, 10-foot type, pad escape).

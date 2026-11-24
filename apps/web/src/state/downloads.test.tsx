@@ -265,4 +265,47 @@ describe("Downloads screen (issue 237)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     expect(bridge.pause).toHaveBeenCalledWith("job_1");
   });
+
+  it("isolates install://progress ticks so unrelated game subscribers do not re-render", async () => {
+    bridge.list.mockResolvedValue([job({ gameId: 7, bytesDone: 100, bytesTotal: 1000 })]);
+    const { useInstallingPercent } = await import("@/state/downloads");
+    let targetRenders = 0;
+    let unrelatedRenders = 0;
+
+    function TargetCard() {
+      targetRenders += 1;
+      const pct = useInstallingPercent(7);
+      return <span data-testid="target">{pct ?? "idle"}</span>;
+    }
+
+    function UnrelatedCard() {
+      unrelatedRenders += 1;
+      const pct = useInstallingPercent(99);
+      return <span data-testid="unrelated">{pct ?? "idle"}</span>;
+    }
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DownloadsProvider>
+          <TargetCard />
+          <UnrelatedCard />
+        </DownloadsProvider>
+      </QueryClientProvider>,
+    );
+    await flush();
+
+    const baselineTarget = targetRenders;
+    const baselineUnrelated = unrelatedRenders;
+
+    bridge.list.mockResolvedValue([job({ gameId: 7, bytesDone: 750, bytesTotal: 1000 })]);
+    await act(async () => {
+      for (const listener of bridge.listeners) listener();
+    });
+    await flush();
+
+    expect(screen.getByTestId("target").textContent).toBe("75");
+    expect(targetRenders).toBeGreaterThan(baselineTarget);
+    expect(unrelatedRenders).toBe(baselineUnrelated);
+  });
 });

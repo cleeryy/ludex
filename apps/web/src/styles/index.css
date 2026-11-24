@@ -143,20 +143,17 @@
   --bp-text-meta: calc(var(--bp-u) * 24);
 
   /*
-   * Cabinet materials (#268). Warm charcoal, matte anodised panels, depth by
-   * luminance: a sheet is a lighter step with a 1px warm rim, never a drop
-   * shadow. `console-room.ts` puts `data-console-*` on the console root; the
-   * rules below only relocate these tokens, so every colour still comes from
-   * the active theme (a room casts it warm, never replaces it).
+   * Console materials (#268, #333). Uses the exact active #333 palette (no warm
+   * amber cast) plus restrained radii scaled by `--bp-u`: 8/10/12/14u by default
+   * (aligned to #333 geometry), never exceeding 24u. Depth is luminance + 1px rim.
    *
-   * Blur budget: one layer, the wallpaper. `.bp-chrome`, `.bp-tile`,
-   * `.bp-sheet` and `.bp-panel` never carry `backdrop-filter`, because a
-   * material that blurs its own backdrop cannot be moved or scrolled cheaply.
+   * Blur budget: one layer, the baked wallpaper on Night. `.bp-chrome`, `.bp-tile`,
+   * `.bp-sheet` and `.bp-panel` never carry `backdrop-filter`.
    */
-  --bp-radius-cover: calc(var(--bp-u) * 6);
-  --bp-radius-object: calc(var(--bp-u) * 14);
-  --bp-radius-surface: calc(var(--bp-u) * 20);
-  --bp-radius-sheet: calc(var(--bp-u) * 24);
+  --bp-radius-cover: calc(var(--bp-u) * 8);
+  --bp-radius-object: calc(var(--bp-u) * 10);
+  --bp-radius-surface: calc(var(--bp-u) * 12);
+  --bp-radius-sheet: calc(var(--bp-u) * 14);
   --bp-radius-pill: 999px;
   --bp-material-filter: none;
   --bp-material-shadow: none;
@@ -204,19 +201,19 @@
   );
 }
 
-/* Cabinet corners: 6/14/20/24u by default, never above 24u. */
+/* Console corners (#333-aligned): 8/10/12/14u default, never above 24u. */
 .bp-root[data-console-corners="sharp"] {
   --bp-radius-cover: calc(var(--bp-u) * 2);
-  --bp-radius-object: calc(var(--bp-u) * 6);
-  --bp-radius-surface: calc(var(--bp-u) * 10);
-  --bp-radius-sheet: calc(var(--bp-u) * 14);
+  --bp-radius-object: calc(var(--bp-u) * 4);
+  --bp-radius-surface: calc(var(--bp-u) * 6);
+  --bp-radius-sheet: calc(var(--bp-u) * 8);
 }
 
 .bp-root[data-console-corners="round"] {
   --bp-radius-cover: calc(var(--bp-u) * 10);
-  --bp-radius-object: calc(var(--bp-u) * 18);
-  --bp-radius-surface: calc(var(--bp-u) * 22);
-  --bp-radius-sheet: calc(var(--bp-u) * 24);
+  --bp-radius-object: calc(var(--bp-u) * 14);
+  --bp-radius-surface: calc(var(--bp-u) * 18);
+  --bp-radius-sheet: calc(var(--bp-u) * 20);
 }
 
 /*

@@ -118,8 +118,6 @@ export const CONSOLE_ROOM_BUNDLES: Record<ConsoleRoom, Omit<ConsoleRoomSettings,
 export interface ConsoleRoomDesign {
   /** `inherit` keeps the app polarity; `light` renders the app's light map. */
   polarity: "inherit" | "light";
-  /** Warm cast applied to the theme's surfaces, 0–1. */
-  warm: number;
   /** How far the backgrounds step to pure black, 0–1. */
   toBlack: number;
   /** Wallpaper blur in u; 0 for the rooms that do not spend it. */
@@ -129,15 +127,11 @@ export interface ConsoleRoomDesign {
 }
 
 export const CONSOLE_ROOM_DESIGN: Record<ConsoleRoom, ConsoleRoomDesign> = {
-  night: { polarity: "inherit", warm: 0.035, toBlack: 0, wallBlur: 26, artOpacity: 0.4 },
-  projector: { polarity: "inherit", warm: 0.01, toBlack: 0.55, wallBlur: 0, artOpacity: 0 },
-  daylight: { polarity: "light", warm: 0, toBlack: 0, wallBlur: 0, artOpacity: 0 },
-  arcade: { polarity: "inherit", warm: 0.015, toBlack: 0.25, wallBlur: 0, artOpacity: 0 },
+  night: { polarity: "inherit", toBlack: 0, wallBlur: 26, artOpacity: 0.4 },
+  projector: { polarity: "inherit", toBlack: 0.55, wallBlur: 0, artOpacity: 0 },
+  daylight: { polarity: "light", toBlack: 0, wallBlur: 0, artOpacity: 0 },
+  arcade: { polarity: "inherit", toBlack: 0.25, wallBlur: 0, artOpacity: 0 },
 };
-
-/** Warm anchor and paper ink: the two directions Cabinet moves a token. */
-const WARM_ANCHOR = "#b8892f";
-const PAPER_INK = "#f6eeda";
 
 const SURFACE_KEYS = [
   "bg",
@@ -149,23 +143,8 @@ const SURFACE_KEYS = [
   "line-2",
   "stage",
 ] as const;
-const INK_KEYS = ["ink", "ink-2", "ink-3", "stage-ink", "stage-ink-2"] as const;
 
-/**
- * Warm charcoal: the theme's own surfaces nudged towards a warm grey, its inks
- * towards paper. Small on purpose — this is a cast, not a palette — and every
- * pair is re-validated by `tvTokens` after the move.
- */
-export function warmTokens(tokens: ThemeTokens, amount: number): ThemeTokens {
-  const strength = Math.min(0.12, Math.max(0, amount));
-  if (strength === 0) return { ...tokens };
-  const next: ThemeTokens = { ...tokens };
-  for (const key of SURFACE_KEYS) next[key] = mixHex(tokens[key], WARM_ANCHOR, strength);
-  for (const key of INK_KEYS) next[key] = mixHex(tokens[key], PAPER_INK, strength / 2);
-  return next;
-}
-
-/** Projector steps the backgrounds to black so the panel is the only light. */
+/** Projector and Arcade step backgrounds toward black so the panel stays high-contrast. */
 export function blackTokens(tokens: ThemeTokens, amount: number): ThemeTokens {
   const strength = Math.min(1, Math.max(0, amount));
   if (strength === 0) return { ...tokens };
@@ -273,7 +252,7 @@ function cabinetSafe(base: ThemeTokens): ThemeTokens {
     tokens["surface-2"],
     tokens.elevated,
   ];
-  for (const foreground of ["ink", "ink-2", "ink-3", "signal-text", "danger", "ok", "warn"] as const) {
+  for (const foreground of ["ink", "ink-2", "ink-3", "signal-text", "info", "danger", "ok", "warn"] as const) {
     tokens[foreground] = ensureContrast(tokens[foreground], backgrounds, 7);
   }
   tokens["stage-ink"] = ensureContrast(tokens["stage-ink"], [tokens.stage], 7);
@@ -282,9 +261,11 @@ function cabinetSafe(base: ThemeTokens): ThemeTokens {
 }
 
 /**
- * The console's full token map for one room. Order matters: polarity, then the
- * room's cast, then the accent, then the TV-safe pass that guarantees 7:1 on
- * every pair the console paints.
+ * The console's full token map for one room. Order matters: polarity (keeping
+ * the exact #333 palette without a warm brown/amber cast), then room black-step
+ * for Projector/Arcade, then optional artwork accent, then the TV-safe pass
+ * that guarantees 7:1 on every pair the console paints while preserving `info`
+ * and `stripe-1..4`.
  */
 export function cabinetTokens({
   settings,
@@ -299,7 +280,7 @@ export function cabinetTokens({
   // the Console is a device, and a paper-white TV at night is the worst default.
   const dark = mode === "dark" ? tokens : darkTokens;
   const base = design.polarity === "light" ? lightTokens : dark;
-  const cast = blackTokens(warmTokens(base, design.warm), design.toBlack);
+  const cast = blackTokens(base, design.toBlack);
   const accent =
     settings.accent === "artwork" && artworkAccent
       ? consoleAccent(artworkAccent, cast).color

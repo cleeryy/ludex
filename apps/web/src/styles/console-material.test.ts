@@ -68,17 +68,17 @@ describe("console materials", () => {
     );
   });
 
-  it("keeps the Cabinet radius family at or below 24u", () => {
+  it("keeps the Console radius family aligned to #333 geometry and at or below 24u", () => {
     for (const name of ["cover", "object", "surface", "sheet"]) {
       const match = new RegExp(`--bp-radius-${name}:\\s*calc\\(var\\(--bp-u\\) \\* (\\d+(?:\\.\\d+)?)\\)`).exec(css);
       expect(match, `--bp-radius-${name} must be expressed in --bp-u`).not.toBeNull();
       expect(Number(match?.[1])).toBeLessThanOrEqual(24);
     }
-    // The default is the Cabinet family: 6 / 14 / 20 / 24.
-    expect(css).toContain("--bp-radius-cover: calc(var(--bp-u) * 6)");
-    expect(css).toContain("--bp-radius-object: calc(var(--bp-u) * 14)");
-    expect(css).toContain("--bp-radius-surface: calc(var(--bp-u) * 20)");
-    expect(css).toContain("--bp-radius-sheet: calc(var(--bp-u) * 24)");
+    // Restrained #333-aligned geometry scaled by --bp-u: 8 / 10 / 12 / 14u.
+    expect(css).toContain("--bp-radius-cover: calc(var(--bp-u) * 8)");
+    expect(css).toContain("--bp-radius-object: calc(var(--bp-u) * 10)");
+    expect(css).toContain("--bp-radius-surface: calc(var(--bp-u) * 12)");
+    expect(css).toContain("--bp-radius-sheet: calc(var(--bp-u) * 14)");
     // The retiring scale is gone: no token can reintroduce a 34 px card.
     expect(css).not.toMatch(/--bp-radius-(?:sm|md|lg):/);
   });

@@ -46,6 +46,7 @@ export function ConsoleBoot() {
       {...material.attributes}
       aria-busy="true"
     >
+      <div className="arc-stripe relative z-20" aria-hidden="true" />
       <div
         data-bp-bleed-top="true"
         className="relative z-10 flex shrink-0 items-center justify-between border-b bp-chrome bp-pad-x"
@@ -85,6 +86,7 @@ function ConsoleGateFrame({ children }: { children: React.ReactNode }) {
       style={material.style}
       {...material.attributes}
     >
+      <div className="arc-stripe fixed inset-x-0 top-0 z-20" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
       <div className="relative z-10 w-full max-w-[520px]">{children}</div>
     </div>
