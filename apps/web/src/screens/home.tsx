@@ -200,8 +200,8 @@ export function HomeScreen() {
   return (
     <div className="page page-in pt-6">
       <div className="mb-3 flex items-baseline justify-end gap-4 text-meta text-ink-3">
-        <span>{tn(games.length, "1 game", "{count} games")}</span>
-        {installsAvailable() && <span>{t("{count} installed", { count: installed.size })}</span>}
+        <span className="num">{tn(games.length, "1 game", "{count} games")}</span>
+        {installsAvailable() && <span className="num">{t("{count} installed", { count: installed.size })}</span>}
       </div>
 
       <GettingStartedCard className="mb-6" />
@@ -365,7 +365,7 @@ export function HomeScreen() {
               <Link
                 key={collection.id}
                 to={`/collections/${collection.id}`}
-                className="flex flex-col justify-between gap-4 border border-line bg-surface/40 p-3 transition-colors hover:border-line-2 hover:bg-surface"
+                className="flex flex-col justify-between gap-4 rounded-[var(--r-md)] border border-line bg-surface p-4 transition-colors hover:border-line-2 hover:bg-surface-2"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-micro uppercase tracking-[0.12em] text-ink-3">
@@ -375,7 +375,7 @@ export function HomeScreen() {
                 </div>
                 <div>
                   <p className="truncate text-body font-medium text-ink">{collection.name}</p>
-                  <p className="mt-1 truncate font-mono text-micro text-ink-3">
+                  <p className="mt-1 truncate text-meta text-ink-3">
                     {collection.owned ? t("Yours") : collection.owner.displayName ?? collection.owner.username}
                   </p>
                 </div>

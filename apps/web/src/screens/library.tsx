@@ -751,7 +751,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 >
                   <span className="num text-micro text-ink-3">{String(game.id).padStart(3, "0")}</span>
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="w-9 shrink-0 overflow-hidden rounded-[1px]">
+                    <div className="w-9 shrink-0 overflow-hidden rounded-[var(--r-xs)]">
                       <GameCardCoverThumb game={game} />
                     </div>
                     <div className="min-w-0">

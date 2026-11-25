@@ -16,7 +16,7 @@ function MemberChip({ profile }: { profile: PublicProfile }) {
   return (
     <Link
       to={`/community/u/${profile.id}`}
-      className="group flex items-center gap-3 border border-line bg-surface/40 p-3 transition-colors hover:border-line-2 hover:bg-surface"
+      className="group flex items-center gap-3 rounded-[var(--r-md)] border border-line bg-surface p-3.5 transition-colors hover:border-line-2 hover:bg-surface-2"
     >
       <UserAvatar name={profile.displayName ?? profile.username} src={profile.avatarUrl} size={36} />
       <span className="min-w-0 flex-1">
@@ -58,14 +58,14 @@ export function CommunityScreen() {
           <>
             <Link
               to="/community/friends"
-              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+              className="inline-flex h-9 items-center gap-2 rounded-[var(--r-sm)] border border-line bg-surface px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:bg-surface-2 hover:text-ink"
             >
               <Users className="size-3.5" aria-hidden="true" />
               {t("Friends")}
             </Link>
             <Link
               to={user ? `/community/u/${user.id}` : "/settings?section=account"}
-              className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+              className="inline-flex h-9 items-center gap-2 rounded-[var(--r-sm)] border border-line bg-surface px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:bg-surface-2 hover:text-ink"
             >
               {isPublic ? t("Your public page") : t("Your profile")}
               <ArrowUpRight className="size-3.5" aria-hidden="true" />
@@ -75,11 +75,11 @@ export function CommunityScreen() {
       />
 
       {profile.isPending ? (
-        <Skeleton className="mt-8 h-[90px] w-full" />
+        <Skeleton className="mt-8 h-[90px] w-full rounded-[var(--r-md)]" />
       ) : (
-        <section className="mt-8 flex flex-wrap items-center justify-between gap-4 border border-line bg-surface/40 p-4">
+        <section className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-[var(--r-md)] border border-line bg-surface p-4 sm:p-5">
           <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center border border-line-2 bg-surface-2 text-ink-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-[var(--r-sm)] border border-line-2 bg-surface-2 text-ink-3">
               {isPublic ? <Radio className="size-4" aria-hidden="true" /> : <Settings2 className="size-4" aria-hidden="true" />}
             </span>
             <div>
@@ -95,7 +95,7 @@ export function CommunityScreen() {
           </div>
           <Link
             to="/settings?section=account"
-            className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+            className="inline-flex h-9 items-center gap-2 rounded-[var(--r-sm)] border border-line bg-surface-2 px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
           >
             {isPublic ? t("Privacy settings") : t("Make it public")}
             <ArrowUpRight className="size-3.5" aria-hidden="true" />

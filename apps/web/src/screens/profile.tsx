@@ -85,13 +85,9 @@ export function ProfileScreen() {
           }
           onRetry={() => void profile.refetch()}
           action={
-            <button
-              type="button"
-              onClick={() => navigate("/community")}
-              className="h-11 border border-line px-4 text-sm text-ink-2 hover:text-ink"
-            >
+            <Button variant="outline" onClick={() => navigate("/community")}>
               {t("Back to community")}
-            </button>
+            </Button>
           }
         />
       </div>
@@ -192,7 +188,7 @@ export function ProfileScreen() {
           { label: t("Playtime"), value: formatMinutes(data.stats.minutesPlayed) ?? "0m" },
           { label: t("Collections"), value: String(data.stats.collections) },
         ].map((stat) => (
-          <div key={stat.label} className="border border-line bg-surface/40 p-3">
+          <div key={stat.label} className="rounded-[var(--r-md)] border border-line bg-surface p-4">
             <p className="num text-title leading-none text-ink">{stat.value}</p>
             <p className="mt-2 text-meta text-ink-3">{stat.label}</p>
           </div>

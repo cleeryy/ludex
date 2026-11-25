@@ -295,7 +295,7 @@ export function SettingsTiersPanel({
       />
 
       {/* Tier 1: computed, one action. */}
-      <div className="mt-4 border border-line bg-surface px-4 py-4">
+      <div className="mt-4 rounded-[var(--r-md)] border border-line bg-surface px-4 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={statusTone}>{tierLabel("works")}</Badge>
           <p className="text-body font-medium text-ink">{tierOneTitle(readiness.status)}</p>
@@ -432,7 +432,7 @@ export function SettingsTiersPanel({
       {/* Tier 3: the old launch-options panel, unchanged, behind the lock. */}
       <div className="mt-8">
         {unlocked ? (
-          <div className="border border-line bg-surface px-4 py-4">
+          <div className="rounded-[var(--r-md)] border border-line bg-surface px-4 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="flex flex-wrap items-center gap-2 text-body font-medium text-ink">
@@ -450,7 +450,7 @@ export function SettingsTiersPanel({
             </div>
           </div>
         ) : (
-          <div className="border border-line bg-surface px-4 py-4">
+          <div className="rounded-[var(--r-md)] border border-line bg-surface px-4 py-4">
             <p className="flex items-center gap-2 text-body font-medium text-ink">
               <Lock className="size-3.5 text-ink-3" aria-hidden="true" />
               {t("Advanced view")}
