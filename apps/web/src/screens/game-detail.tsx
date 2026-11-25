@@ -84,6 +84,7 @@ import { useAuth, useIsEditor } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { ThemeScope } from "@/components/theme/theme-scope";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
+import { HeroSynopsis } from "@/components/game/hero-synopsis";
 import { artFromUrl, hashString } from "@/lib/art";
 import { STATE_TONE } from "@/components/game/state";
 import { ErrorState } from "@/components/page";
@@ -625,7 +626,12 @@ export function GameDetailScreen() {
   return (
     <div className="relative">
       <ThemeScope as="section" className="relative isolate overflow-hidden bg-stage">
-        <GameBackdrop title={game.title} backgroundUrl={game.backgroundUrl} className="absolute inset-0 h-full" />
+        <GameBackdrop
+          title={game.title}
+          backgroundUrl={game.backgroundUrl}
+          fallbackUrls={[game.screenshots[0], game.coverUrl]}
+          className="absolute inset-0 h-full"
+        />
 
         <div className="page relative pb-16 pt-5">
         <button
@@ -683,7 +689,7 @@ export function GameDetailScreen() {
               {game.lastPlayedAt && <span className="text-ink-3">{t("Last played")} {formatRelative(game.lastPlayedAt)}</span>}
             </div>
 
-            {game.description && <p className="measure mt-6 text-lead leading-relaxed text-ink-2">{game.description}</p>}
+            {game.description && <HeroSynopsis description={game.description} />}
 
             {game.versionCount === 0 && <MissingArchiveNotice game={game} />}
 

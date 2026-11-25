@@ -8,6 +8,7 @@ import { accessShare, getPublicShare, type ShareView } from "@/lib/shares";
 import { formatBytes, formatDate, formatRating, formatYear } from "@/lib/format";
 import { ThemeScope } from "@/components/theme/theme-scope";
 import { GameBackdrop, GameCover } from "@/components/art/cover";
+import { HeroSynopsis } from "@/components/game/hero-synopsis";
 import { Wordmark } from "@/components/brand";
 import { SectionHeader } from "@/components/page";
 import { PublicPage } from "@/components/public-page";
@@ -46,7 +47,12 @@ export function ShareScreen() {
 
       <main>
         <ThemeScope as="section" className="relative isolate overflow-hidden bg-stage">
-          <GameBackdrop title={game.title} backgroundUrl={game.backgroundUrl} className="absolute inset-0 h-full" />
+          <GameBackdrop
+            title={game.title}
+            backgroundUrl={game.backgroundUrl}
+            fallbackUrls={[game.screenshots[0], game.coverUrl]}
+            className="absolute inset-0 h-full"
+          />
 
           <div className="page relative pb-14 pt-4">
             <p className="text-micro uppercase tracking-[0.16em] text-ink-3">{t("Account-free download")}</p>
@@ -98,7 +104,7 @@ export function ShareScreen() {
                   {version.releaseDate && <span>{t("Released")} {formatDate(version.releaseDate)}</span>}
                 </div>
 
-                {game.description && <p className="measure mt-6 text-lead leading-relaxed text-ink-2">{game.description}</p>}
+                {game.description && <HeroSynopsis description={game.description} />}
               </div>
             </div>
           </div>
