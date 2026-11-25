@@ -25,7 +25,6 @@ const ALLOWED_ABSOLUTE = /^(?:https?:|data:|blob:|demo:)/i;
 const SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/i;
 
 /** C0 controls (including NUL, CR and LF) never belong in a URL. */
-// eslint-disable-next-line no-control-regex -- the control range is the point
 const UNSAFE_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 /** A string that passed {@link toSafeUrl}. */

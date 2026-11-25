@@ -149,7 +149,6 @@ export function InputProvider({ children }: { children: ReactNode }) {
     (pad: PadLike | null) => topScope()?.scope.current.options?.resolveProfile?.(pad) ?? profileRef.current,
     // Re-resolve when the owning scope or its options change (#267): the
     // Console's per-device profile must follow its preference instantly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [topScope, topVersion, top?.id],
   );
 

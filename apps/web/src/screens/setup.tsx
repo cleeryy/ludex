@@ -600,7 +600,6 @@ function useBrowserHandoff({
       });
     };
     // `run` is stable for the lifetime of the panel; retries call it directly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Stop the pending poll; the panel stays mounted. */

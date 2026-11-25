@@ -170,7 +170,7 @@ export function CloudSavesPanel({
 
   useEffect(() => {
     if (conflict) setConflictOpen(true);
-  }, [conflict?.remoteSha256, conflict?.remoteCreatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [conflict?.remoteSha256, conflict?.remoteCreatedAt]);
 
   // Reflect post-session uploads while the page stays open.
   useEffect(() => {
@@ -194,7 +194,7 @@ export function CloudSavesPanel({
       cancelled = true;
       unlisteners.forEach((off) => off());
     };
-  }, [native, gameId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [native, gameId]);
 
   // #158: a fresh game (or one whose saves did not exist yet) gets one
   // automatic detection per mount. The guard ref and `shouldAutoDetect`
@@ -219,7 +219,7 @@ export function CloudSavesPanel({
     return () => {
       cancelled = true;
     };
-  }, [native, installed, status, gameId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [native, installed, status, gameId]);
 
   // At most one error toast per failure streak (#159).
   useEffect(() => {
@@ -232,7 +232,7 @@ export function CloudSavesPanel({
       toastedError.current = key;
       push({ title: t("Cloud save status did not load"), description: key, tone: "danger" });
     }
-  }, [cloud.isError, cloud.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cloud.isError, cloud.error]);
 
   useEffect(() => {
     if (cloud.isSuccess) retryFailures.current = 0;

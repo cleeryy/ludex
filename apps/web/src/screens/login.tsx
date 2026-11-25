@@ -101,7 +101,6 @@ export function LoginScreen() {
   useEffect(() => {
     if (code || !user || !desktopState || handoffPhase !== "idle") return;
     void finishSignIn();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, user, desktopState, handoffPhase]);
 
   // The server redirects back to /#/login?oidc_code=... after the provider.
@@ -129,7 +128,6 @@ export function LoginScreen() {
       cancelled = true;
     };
     // `finishSignIn` is recreated every render; the code is the only trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, signInWithOidc, navigate]);
 
   /** Desktop app: open the web login in the system browser and wait for it. */

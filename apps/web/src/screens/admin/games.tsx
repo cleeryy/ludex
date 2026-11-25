@@ -389,7 +389,6 @@ export function AdminGamesScreen() {
     setJobId(null);
     setSelected(new Set());
     // Run once per completed report; the query is disabled again afterwards.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.data?.status, job.data?.id]);
 
   const update = (patch: Partial<AdminGameFilters>) => {
