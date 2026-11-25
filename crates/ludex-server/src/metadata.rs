@@ -23,8 +23,7 @@ const IGDB_TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 const IGDB_GAMES_URL: &str = "https://api.igdb.com/v4/games";
 const STEAM_SEARCH_URL: &str = "https://store.steampowered.com/api/storesearch/";
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
-const STEAM_ASSET_BASE: &str =
-    "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
+const STEAM_ASSET_BASE: &str = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
 const IGDB_FIELDS: &str = "name,summary,first_release_date,cover.url,artworks.url,\
 screenshots.url,videos.video_id,videos.name,genres.name,involved_companies.company.name,\
 involved_companies.developer,involved_companies.publisher,rating,age_ratings.*,url,\
@@ -1192,7 +1191,9 @@ pub(crate) async fn steam_details_at(
         })
         .unwrap_or_default();
 
-    let cover_url = Some(format!("{STEAM_ASSET_BASE}/{app_id}/library_600x900_2x.jpg"));
+    let cover_url = Some(format!(
+        "{STEAM_ASSET_BASE}/{app_id}/library_600x900_2x.jpg"
+    ));
     let cover_sd = format!("{STEAM_ASSET_BASE}/{app_id}/library_600x900.jpg");
     let mut cover_fallback_urls = vec![cover_sd];
     if let Some(header) = app.header_image.filter(|url| !url.trim().is_empty()) {
@@ -2046,13 +2047,19 @@ mod tests {
         let expected_cover = format!("{STEAM_ASSET_BASE}/1145360/library_600x900_2x.jpg");
         let expected_sd = format!("{STEAM_ASSET_BASE}/1145360/library_600x900.jpg");
         let expected_hero = format!("{STEAM_ASSET_BASE}/1145360/library_hero.jpg");
-        assert_eq!(metadata.description.as_deref(), Some("Defy the god of the dead."));
+        assert_eq!(
+            metadata.description.as_deref(),
+            Some("Defy the god of the dead.")
+        );
         assert_eq!(metadata.cover_url.as_deref(), Some(expected_cover.as_str()));
         assert_eq!(
             metadata.cover_fallback_urls,
             vec![expected_sd, "https://cdn.test/header.jpg".to_string()]
         );
-        assert_eq!(metadata.background_url.as_deref(), Some(expected_hero.as_str()));
+        assert_eq!(
+            metadata.background_url.as_deref(),
+            Some(expected_hero.as_str())
+        );
         assert_eq!(
             metadata.background_fallback_urls,
             vec!["https://cdn.test/bg_raw.jpg", "https://cdn.test/bg.jpg"]
