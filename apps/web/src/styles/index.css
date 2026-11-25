@@ -162,11 +162,11 @@
   --bp-art-filter: none;
   --bp-art-scale: 1;
 
-  /* The rail: 5.5 covers at comfortable density, 24u of air between them. */
+  /* The rail: 6 covers at comfortable density, sized so the stage hero always breathes cleanly above it. */
   --bp-rail-gap: calc(var(--bp-u) * 24);
   --bp-rail-card: min(
-    calc((100vw - 2 * var(--bp-safe-x) - 5 * var(--bp-rail-gap)) / 5.5),
-    calc(44dvh * 2 / 3)
+    calc((100vw - 2 * var(--bp-safe-x) - 5 * var(--bp-rail-gap)) / 6.2),
+    calc(29dvh * 2 / 3)
   );
 }
 
@@ -256,8 +256,8 @@
   .bp-root {
     --bp-text-hero: calc(var(--bp-u) * 48);
     --bp-rail-card: min(
-      calc((100vw - 2 * var(--bp-safe-x) - 5 * var(--bp-rail-gap)) / 5.5),
-      calc(34dvh * 2 / 3)
+      calc((100vw - 2 * var(--bp-safe-x) - 5 * var(--bp-rail-gap)) / 6),
+      calc(28dvh * 2 / 3)
     );
   }
 
@@ -770,6 +770,24 @@
 
   .cover-wide {
     aspect-ratio: 16 / 9;
+  }
+
+  .cover-wide .cover-series {
+    display: none;
+  }
+
+  .cover-wide .cover-type {
+    justify-content: flex-end;
+    padding: 5.5cqw;
+  }
+
+  .cover-wide .cover-title {
+    font-size: 7.4cqw;
+    line-height: 1.02;
+  }
+
+  .cover-wide .cover-foot {
+    font-size: 3.4cqw;
   }
 
   .cover::after {
@@ -1326,6 +1344,10 @@
   background: var(--ink-3);
 }
 
+.bp-dot[data-tone="ok"] {
+  background: var(--ok);
+}
+
 /* ------------------------------- the bracket ------------------------------- */
 
 /*
@@ -1373,7 +1395,7 @@
   gap: var(--bp-rail-gap);
   margin-inline: calc(-1 * var(--bp-rail-gutter));
   padding-inline: var(--bp-rail-gutter);
-  padding-block: calc(var(--bp-u) * 16) calc(var(--bp-u) * 12);
+  padding-block: calc(var(--bp-u) * 18) calc(var(--bp-u) * 10);
   scroll-padding-inline: var(--bp-rail-gutter);
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -1382,6 +1404,10 @@
 .bp-rail-card {
   width: var(--bp-rail-card);
   flex: none;
+}
+
+.bp-rail-card[aria-current="true"] {
+  transform: translate3d(0, calc(var(--bp-u) * -4), 0) scale(1.03);
 }
 
 .bp-grid {
@@ -1451,11 +1477,16 @@
     linear-gradient(
       90deg,
       color-mix(in oklab, var(--stage) 94%, transparent) 0%,
-      color-mix(in oklab, var(--stage) 76%, transparent) 52%,
-      color-mix(in oklab, var(--stage) 48%, transparent) 100%
+      color-mix(in oklab, var(--stage) 80%, transparent) 38%,
+      color-mix(in oklab, var(--stage) 30%, transparent) 70%,
+      color-mix(in oklab, var(--stage) 8%, transparent) 100%
     ),
-    linear-gradient(0deg, var(--stage) 0%, transparent 52%),
-    color-mix(in oklab, var(--stage) 45%, transparent);
+    linear-gradient(
+      0deg,
+      var(--bg-deep) 0%,
+      color-mix(in oklab, var(--stage) 65%, transparent) 22%,
+      transparent 58%
+    );
 }
 
 /* ------------------------------- controls ---------------------------------- */

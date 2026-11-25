@@ -477,11 +477,17 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
     const recent = games
       .filter((game) => game.lastPlayedAt)
       .sort((a, b) => Date.parse(b.lastPlayedAt ?? "") - Date.parse(a.lastPlayedAt ?? ""));
+    const installedGames = games
+      .filter((game) => installed.has(game.id))
+      .sort((a, b) => Date.parse(b.lastPlayedAt ?? "") - Date.parse(a.lastPlayedAt ?? ""));
+    const bookmarked = games.filter((game) => game.bookmarked);
     return [
       { id: "recent", label: t("Recently played"), games: recent },
+      { id: "installed", label: t("Installed"), games: installedGames },
+      { id: "bookmarks", label: t("Bookmarks"), games: bookmarked },
       { id: "all", label: t("All games"), games },
     ].filter((shelf) => shelf.games.length > 0);
-  }, [games]);
+  }, [games, installed]);
 
   const nav = useBigPictureNavigation({
     shelves,
@@ -569,7 +575,12 @@ export function ConsoleShell({ surface, gameId = null, section = null }: Console
       }),
     [room, themeTokens, lightTokens, darkTokens, artworkAccent, resolved],
   );
-  const backdropArt = detail.data?.backgroundUrl ?? selected?.backgroundUrl ?? null;
+  const backdropArt =
+    detail.data?.backgroundUrl ??
+    selected?.backgroundUrl ??
+    detail.data?.screenshots?.[0] ??
+    selected?.coverUrl ??
+    null;
 
   // "From artwork" reads the selected cover once, off the focus path, and
   // caches by game id. A cover with no usable colour leaves the theme signal.

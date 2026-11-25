@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, assetUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatMinutes, formatRating, formatYear, stateLabel } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 import type { ControllerProfile, GameDetail, GameSummary, InstalledGame } from "@/lib/types";
-import { GameCover } from "@/components/art/cover";
+import { ArtPlate, GameCover } from "@/components/art/cover";
 import { Glyph } from "@/components/big-picture/glyphs";
 import { useInputScope } from "@/components/console/input/input-provider";
 import { wrapIndex } from "@/components/big-picture/system-zones";
@@ -173,85 +173,120 @@ export function ConsoleGameSurface({
 
   return (
     <section
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain py-6 bp-pad-x"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pb-8"
       aria-label={game.title}
       data-console-game={game.id}
     >
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
-        <div className="w-[calc(var(--bp-u)*220)] shrink-0">
-          <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />
+      <div className="bp-stage relative shrink-0 border-b border-line pb-7 pt-8 bp-pad-x">
+        <div className="absolute inset-0">
+          <ArtPlate
+            title={game.title}
+            artUrl={detail?.backgroundUrl ?? game.backgroundUrl}
+            fallbackUrls={[detail?.screenshots?.[0], game.coverUrl]}
+            className="h-full w-full"
+          />
         </div>
+        <div className="absolute inset-0 bp-stage-wash" aria-hidden="true" />
 
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <h1 className="line-clamp-2 max-w-[20ch] text-bp-hero font-semibold leading-[1.02] tracking-[-0.02em] text-ink">
-            {game.title}
-          </h1>
-
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-bp-meta text-ink-2">
-            {year && <span className="num">{year}</span>}
-            <span>{stateLabel(game.state)}</span>
-            <span className="num">{formatBytes(game.totalSize)}</span>
-            {rating && <span className="num">{rating}/100</span>}
-            {playtime && <span className="num">{playtime}</span>}
-            {installed && <span className="text-ok">{t("Installed")}</span>}
+        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end">
+          <div className="w-[calc(var(--bp-u)*210)] shrink-0">
+            <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={offlineBlocked}
-              data-gamepad-focus={focusArea === "actions" && actionIndex === 0 ? "true" : undefined}
-              onPointerEnter={() => {
-                setFocusArea("actions");
-                setActionIndex(0);
-              }}
-              onClick={onPrimary}
-              className={cn(
-                "bp-button inline-flex min-h-[calc(var(--bp-u)*72)] items-center gap-3 rounded-[var(--bp-radius-object)] px-7 text-bp-body font-semibold",
-                offlineBlocked
-                  ? "cursor-not-allowed bg-surface-2 text-ink-3 opacity-60"
-                  : "bg-signal text-on-signal",
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <h1 className="line-clamp-2 max-w-[20ch] text-bp-hero font-semibold leading-[1.02] tracking-[-0.02em] text-stage-ink">
+              {game.title}
+            </h1>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-bp-meta text-stage-ink-2">
+              {installed && (
+                <span className="inline-flex items-center gap-2 rounded-[var(--bp-radius-cover)] border border-sheen/15 bg-stage/75 px-3 py-0.5 text-stage-ok">
+                  <span className="bp-dot" data-tone="ok" aria-hidden="true" />
+                  <span>{t("Installed")}</span>
+                </span>
               )}
-            >
-              <Glyph name={primaryGlyph} className="size-[calc(var(--bp-u)*28)] shrink-0" />
-              <span>{primaryLabel}</span>
-            </button>
+              {rating && (
+                <span className="rounded-[var(--bp-radius-cover)] border border-sheen/15 bg-stage/75 px-3 py-0.5 text-stage-ink">
+                  <span className="num">{rating}</span> / <span className="num">100</span>
+                </span>
+              )}
+              {year && <span className="num">{year}</span>}
+              <span>{stateLabel(game.state)}</span>
+              <span className="num">{formatBytes(game.totalSize)}</span>
+              {playtime && <span className="num">{playtime}</span>}
+            </div>
 
-            {secondaryActions.map((item, idx) => {
-              const selected = focusArea === "actions" && actionIndex === idx + 1;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  data-gamepad-focus={selected ? "true" : undefined}
-                  onPointerEnter={() => {
-                    setFocusArea("actions");
-                    setActionIndex(idx + 1);
-                  }}
-                  onClick={item.onClick}
-                  className={cn(
-                    "bp-button inline-flex min-h-[calc(var(--bp-u)*72)] items-center gap-2.5 rounded-[var(--bp-radius-object)] border px-5 text-bp-body font-medium",
-                    selected
-                      ? "border-signal bg-surface-2 text-ink"
-                      : "border-line-2 bg-surface text-ink-2",
-                  )}
-                >
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
+            {game.genres.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {game.genres.slice(0, 4).map((genre) => (
+                  <span
+                    key={genre}
+                    className="rounded-[var(--bp-radius-cover)] border border-sheen/15 bg-stage/65 px-3 py-0.5 text-bp-meta text-stage-ink-2"
+                  >
+                    {genre}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={offlineBlocked}
+                data-gamepad-focus={focusArea === "actions" && actionIndex === 0 ? "true" : undefined}
+                onPointerEnter={() => {
+                  setFocusArea("actions");
+                  setActionIndex(0);
+                }}
+                onClick={onPrimary}
+                className={cn(
+                  "bp-button inline-flex min-h-[calc(var(--bp-u)*72)] items-center gap-3 rounded-[var(--bp-radius-object)] px-7 text-bp-body font-semibold",
+                  offlineBlocked
+                    ? "cursor-not-allowed bg-surface-2 text-ink-3 opacity-60"
+                    : "bg-signal text-on-signal",
+                )}
+              >
+                <Glyph name={primaryGlyph} className="size-[calc(var(--bp-u)*28)] shrink-0" />
+                <span>{primaryLabel}</span>
+              </button>
+
+              {secondaryActions.map((item, idx) => {
+                const selected = focusArea === "actions" && actionIndex === idx + 1;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-gamepad-focus={selected ? "true" : undefined}
+                    onPointerEnter={() => {
+                      setFocusArea("actions");
+                      setActionIndex(idx + 1);
+                    }}
+                    onClick={item.onClick}
+                    className={cn(
+                      "bp-button inline-flex min-h-[calc(var(--bp-u)*72)] items-center gap-2.5 rounded-[var(--bp-radius-object)] border px-5 text-bp-body font-medium",
+                      selected
+                        ? "border-signal bg-surface-2 text-ink"
+                        : "border-line-2 bg-surface text-ink-2",
+                    )}
+                  >
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {offlineBlocked && (
+              <p className="text-bp-meta text-warn">
+                {t("Offline · Connect to the server to install.")}
+              </p>
+            )}
           </div>
-          {offlineBlocked && (
-            <p className="text-bp-meta text-warn">
-              {t("Offline · Connect to the server to install.")}
-            </p>
-          )}
         </div>
       </div>
 
+      <div className="flex flex-col pt-5 bp-pad-x">
       <nav
         aria-label={t("Sections")}
-        className="mt-7 flex flex-wrap gap-2 border-b border-line pb-3"
+        className="flex flex-wrap gap-2 border-b border-line pb-3"
       >
         {TABS.map((entry) => {
           const active = tab === entry;
@@ -337,16 +372,34 @@ export function ConsoleGameSurface({
         )}
 
         {tab === "artwork" && (
-          <div className="grid gap-6 sm:grid-cols-[200px_1fr]">
-            <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />
-            <div className="flex flex-col justify-center gap-2">
-              <p className="text-bp-title font-semibold text-ink">{game.title}</p>
-              <p className="text-bp-meta text-ink-2">
-                {game.coverUrl
-                  ? t("Poster artwork is synced from the library server.")
-                  : t("Using the generated Ludex archive plate.")}
-              </p>
+          <div className="flex flex-col gap-6">
+            <div className="grid gap-6 sm:grid-cols-[200px_1fr]">
+              <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />
+              <div className="flex flex-col justify-center gap-2">
+                <p className="text-bp-title font-semibold text-ink">{game.title}</p>
+                <p className="text-bp-meta text-ink-2">
+                  {game.coverUrl
+                    ? t("Poster artwork is synced from the library server.")
+                    : t("Using the generated Ludex archive plate.")}
+                </p>
+              </div>
             </div>
+            {(detail?.screenshots?.length ?? 0) > 0 && (
+              <div className="grid gap-4 border-t border-line pt-5 sm:grid-cols-2">
+                {detail!.screenshots.slice(0, 4).map((shot, idx) => {
+                  const src = shot.startsWith("demo://") ? null : assetUrl(shot);
+                  if (!src) return null;
+                  return (
+                    <div
+                      key={`${shot}-${idx}`}
+                      className="aspect-video overflow-hidden rounded-[var(--bp-radius-object)] border border-line bg-bg-deep"
+                    >
+                      <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -368,6 +421,7 @@ export function ConsoleGameSurface({
             </div>
           </div>
         )}
+      </div>
       </div>
     </section>
   );

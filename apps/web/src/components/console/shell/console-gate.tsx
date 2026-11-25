@@ -67,7 +67,7 @@ export function ConsoleBoot() {
           {[0, 1, 2].map((index) => (
             <span
               key={index}
-              className="aspect-[3/4] flex-1 rounded-[var(--bp-radius-cover)] bg-surface-2/50"
+              className="aspect-[2/3] flex-1 rounded-[var(--bp-radius-cover)] bg-surface-2/50"
             />
           ))}
         </div>

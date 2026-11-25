@@ -46,7 +46,7 @@ export function RoomPreview({
         {Array.from({ length: 5 }).map((_, index) => (
           <span
             key={index}
-            className="aspect-[3/4] w-[calc(var(--bp-u)*34)] shrink-0 rounded-[var(--bp-radius-cover)] bg-surface-2"
+            className="aspect-[2/3] w-[calc(var(--bp-u)*34)] shrink-0 rounded-[var(--bp-radius-cover)] bg-surface-2"
           />
         ))}
       </div>
