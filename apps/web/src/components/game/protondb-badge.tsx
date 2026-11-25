@@ -1,28 +1,57 @@
 import { useQuery } from "@tanstack/react-query";
 import { CircleHelp } from "lucide-react";
 import { isNative, native } from "@/lib/native";
-import type { ProtonDbRating } from "@/lib/types";
+import type { GameDetail, ProtonDbRating } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 
+const STEAM_APP_URL_RE = /store\.steampowered\.com\/app\/(\d+)/i;
+
+/** Extracts a Steam App ID from a game's metadata provider reference (#360). */
+export function steamAppIdFromProvider(provider: GameDetail["provider"] | undefined): number | null {
+  if (!provider) return null;
+  if (provider.slug === "steam" && /^\d+$/.test(provider.id.trim())) {
+    const parsed = Number(provider.id.trim());
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  const match = provider.url?.match(STEAM_APP_URL_RE);
+  if (match) {
+    const parsed = Number(match[1]);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
 /**
- * ProtonDB rating for a game (#91).
+ * ProtonDB rating for a game (#91, #360).
  *
- * The rating comes from the desktop cache (seven days). When ProtonDB cannot
- * be reached the last known tier is shown as cached; with no cache the badge
- * degrades to a muted "offline" note and the page still loads.
+ * Resolves the Steam App ID from the game's metadata provider (or falls back
+ * to the desktop's saved launch options / Steam import / title lookup), then
+ * reads the cached 7-day ProtonDB summary.
  */
-export function ProtonDbBadge({ gameId }: { gameId: number }) {
+export function ProtonDbBadge({
+  gameId,
+  provider,
+  title,
+  kind,
+}: {
+  gameId: number;
+  provider?: GameDetail["provider"];
+  title?: string | null;
+  kind?: string;
+}) {
+  const steamAppId = steamAppIdFromProvider(provider);
+  const enabled = isNative() && kind !== "rom" && Number.isFinite(gameId) && gameId > 0;
   const query = useQuery({
-    queryKey: qk.protondb(gameId),
-    queryFn: () => native.protondbRating(gameId),
-    enabled: isNative() && Number.isFinite(gameId) && gameId > 0,
+    queryKey: [...qk.protondb(gameId), steamAppId ?? 0, title ?? ""],
+    queryFn: () => native.protondbRating(gameId, steamAppId, false, title),
+    enabled,
     staleTime: 6 * 60 * 60 * 1000,
     retry: false,
   });
 
-  if (!isNative() || !Number.isFinite(gameId) || gameId <= 0) return null;
+  if (!enabled) return null;
   const rating = query.data;
   if (!rating || rating.status === "noAppId") return null;
 
@@ -44,6 +73,7 @@ export function ProtonDbBadge({ gameId }: { gameId: number }) {
 }
 
 const TIER_STYLES: Record<string, string> = {
+  native: "border-ok/50 text-ok",
   platinum: "border-ink-2/45 text-ink",
   gold: "border-signal/50 text-signal-text",
   silver: "border-line-2 text-ink-2",

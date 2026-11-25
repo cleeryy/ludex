@@ -661,7 +661,7 @@ export function GameDetailScreen() {
               )}
               <span className="h-3 w-px bg-line-2" aria-hidden="true" />
               <span>{game.genres.join(" / ")}</span>
-              <ProtonDbBadge gameId={game.id} />
+              <ProtonDbBadge gameId={game.id} provider={game.provider} title={game.title} kind={game.kind} />
               {game.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
               {running && <Badge tone="ok">{t("Running")}</Badge>}
               {game.kind === "rom" && <Badge tone="outline">{t("ROM")}</Badge>}
