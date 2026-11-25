@@ -6,6 +6,8 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-25
+
 ### Added
 
 - Competitive roadmap (`docs/COMPETITIVE-ROADMAP.md`, #351), library saved
@@ -41,6 +43,7 @@ All notable changes to Ludex are documented here. The format is based on
   for landscape legacy art, and Home hero backdrop fallbacks (#353).
 - Linux ProtonDB badge now renders on the game detail page with native tier
   support and Steam App ID fallback lookup for IGDB-matched titles (#360).
+- Rolling `edge` desktop CI uploads now prune stale platform assets so the prerelease stays under GitHub's 1000-asset limit.
 
 ## [0.5.1] - 2026-11-24
 
