@@ -23,6 +23,8 @@ const IGDB_TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 const IGDB_GAMES_URL: &str = "https://api.igdb.com/v4/games";
 const STEAM_SEARCH_URL: &str = "https://store.steampowered.com/api/storesearch/";
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
+const STEAM_ASSET_BASE: &str =
+    "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
 const IGDB_FIELDS: &str = "name,summary,first_release_date,cover.url,artworks.url,\
 screenshots.url,videos.video_id,videos.name,genres.name,involved_companies.company.name,\
 involved_companies.developer,involved_companies.publisher,rating,age_ratings.*,url,\
@@ -390,7 +392,9 @@ fn map_igdb(game: &IgdbGame) -> ProviderMetadata {
             .filter(|value| !value.trim().is_empty()),
         release_date,
         cover_url,
+        cover_fallback_urls: Vec::new(),
         background_url,
+        background_fallback_urls: Vec::new(),
         screenshots,
         trailers,
         genres: names(&game.genres),
@@ -537,8 +541,12 @@ pub struct ProviderMetadata {
     pub release_date: Option<DateTime<Utc>>,
     /// Remote cover URL (not yet cached).
     pub cover_url: Option<String>,
+    /// Fallback remote cover URLs tried in order if `cover_url` cannot be cached.
+    pub cover_fallback_urls: Vec<String>,
     /// Remote background URL (not yet cached).
     pub background_url: Option<String>,
+    /// Fallback remote background URLs tried in order if `background_url` cannot be cached.
+    pub background_fallback_urls: Vec<String>,
     /// Remote screenshot URLs.
     pub screenshots: Vec<String>,
     /// Trailers.
@@ -884,19 +892,43 @@ pub(crate) struct CachedArtwork {
 pub(crate) async fn cache_artwork(state: &AppState, metadata: &ProviderMetadata) -> CachedArtwork {
     let media_dir = state.core.config.media_dir.as_path();
     let allow_private = state.core.config.providers_allow_private;
-    let cover = cache_optional(media_dir, metadata.cover_url.as_deref(), allow_private).await;
+    let cover = cache_first(
+        media_dir,
+        metadata.cover_url.as_deref(),
+        &metadata.cover_fallback_urls,
+        allow_private,
+    )
+    .await;
     let mut screenshot_names = cache_images(media_dir, &metadata.screenshots, allow_private).await;
     screenshot_names.retain(|name| name.is_some());
-    let background =
-        match cache_optional(media_dir, metadata.background_url.as_deref(), allow_private).await {
-            Some(name) => Some(name),
-            None => screenshot_names.iter().flatten().next().cloned(),
-        };
+    let background = cache_first(
+        media_dir,
+        metadata.background_url.as_deref(),
+        &metadata.background_fallback_urls,
+        allow_private,
+    )
+    .await
+    .or_else(|| screenshot_names.iter().flatten().next().cloned());
     CachedArtwork {
         cover,
         background,
         screenshots: screenshot_names.into_iter().flatten().collect(),
     }
+}
+
+async fn cache_first(
+    media_dir: &Path,
+    primary: Option<&str>,
+    fallbacks: &[String],
+    allow_private: bool,
+) -> Option<String> {
+    let fallbacks = fallbacks.iter().map(String::as_str);
+    for url in primary.into_iter().chain(fallbacks) {
+        if let Some(name) = cache_optional(media_dir, Some(url), allow_private).await {
+            return Some(name);
+        }
+    }
+    None
 }
 
 fn list_or_none(values: &[String]) -> Option<String> {
@@ -1119,12 +1151,12 @@ pub(crate) async fn steam_details_at(
         .take(5)
         .collect();
     let description = app
-        .about_the_game
+        .short_description
         .as_deref()
         .map(strip_html)
         .filter(|text| !text.is_empty())
         .or_else(|| {
-            app.short_description
+            app.about_the_game
                 .as_deref()
                 .map(strip_html)
                 .filter(|text| !text.is_empty())
@@ -1160,12 +1192,28 @@ pub(crate) async fn steam_details_at(
         })
         .unwrap_or_default();
 
+    let cover_url = Some(format!("{STEAM_ASSET_BASE}/{app_id}/library_600x900_2x.jpg"));
+    let cover_sd = format!("{STEAM_ASSET_BASE}/{app_id}/library_600x900.jpg");
+    let mut cover_fallback_urls = vec![cover_sd];
+    if let Some(header) = app.header_image.filter(|url| !url.trim().is_empty()) {
+        cover_fallback_urls.push(header);
+    }
+    let background_url = Some(format!("{STEAM_ASSET_BASE}/{app_id}/library_hero.jpg"));
+    let mut background_fallback_urls = Vec::new();
+    for candidate in [app.background_raw, app.background].into_iter().flatten() {
+        if !candidate.trim().is_empty() && !background_fallback_urls.contains(&candidate) {
+            background_fallback_urls.push(candidate);
+        }
+    }
+
     Ok(Some(ProviderMetadata {
         title: app.name.clone(),
         description,
         release_date,
-        cover_url: app.header_image.clone(),
-        background_url: app.background.clone(),
+        cover_url,
+        cover_fallback_urls,
+        background_url,
+        background_fallback_urls,
         screenshots,
         trailers,
         genres,
@@ -1255,6 +1303,8 @@ struct SteamApp {
     header_image: Option<String>,
     #[serde(default)]
     background: Option<String>,
+    #[serde(default)]
+    background_raw: Option<String>,
     #[serde(default)]
     screenshots: Vec<SteamScreenshot>,
     #[serde(default)]
@@ -1970,6 +2020,42 @@ mod tests {
                 .release_date
                 .map(|date| date.format("%Y").to_string()),
             Some("2025".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn steam_prefers_portrait_cover_hero_and_short_description() {
+        fn handler(_request: &str) -> String {
+            http_response(
+                r#"{"1145360":{"success":true,"data":{
+                    "name":"Hades","type":"game",
+                    "short_description":"<p>Defy the god of the dead.</p>",
+                    "about_the_game":"<p>Long marketing wall of text.</p>",
+                    "header_image":"https://cdn.test/header.jpg",
+                    "background_raw":"https://cdn.test/bg_raw.jpg",
+                    "background":"https://cdn.test/bg.jpg"
+                }}}"#,
+            )
+        }
+        let (base, _task) = mock_http(handler).await;
+        let http = reqwest::Client::new();
+        let metadata = steam_details_at(&format!("{base}/appdetails"), &http, 1_145_360)
+            .await
+            .expect("details")
+            .expect("record");
+        let expected_cover = format!("{STEAM_ASSET_BASE}/1145360/library_600x900_2x.jpg");
+        let expected_sd = format!("{STEAM_ASSET_BASE}/1145360/library_600x900.jpg");
+        let expected_hero = format!("{STEAM_ASSET_BASE}/1145360/library_hero.jpg");
+        assert_eq!(metadata.description.as_deref(), Some("Defy the god of the dead."));
+        assert_eq!(metadata.cover_url.as_deref(), Some(expected_cover.as_str()));
+        assert_eq!(
+            metadata.cover_fallback_urls,
+            vec![expected_sd, "https://cdn.test/header.jpg".to_string()]
+        );
+        assert_eq!(metadata.background_url.as_deref(), Some(expected_hero.as_str()));
+        assert_eq!(
+            metadata.background_fallback_urls,
+            vec!["https://cdn.test/bg_raw.jpg", "https://cdn.test/bg.jpg"]
         );
     }
 }

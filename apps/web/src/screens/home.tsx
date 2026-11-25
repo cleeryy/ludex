@@ -210,6 +210,7 @@ export function HomeScreen() {
         <ArtPlate
           title={hero.title}
           artUrl={heroDetail.data?.backgroundUrl ?? hero.backgroundUrl}
+          fallbackUrls={[heroDetail.data?.screenshots?.[0], heroDetail.data?.coverUrl, hero.coverUrl]}
           className="absolute inset-0 h-full w-full"
         />
         <div className="absolute inset-0 hero-shade" />

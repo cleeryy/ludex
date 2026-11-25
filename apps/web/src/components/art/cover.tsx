@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { ART_BY_SLUG, MOTIF_KEYS, PALETTES, artFromUrl, artForTitle, hashString, mulberry32, type ArtSpec, type MotifKey } from "@/lib/art";
 import { assetUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -339,6 +339,31 @@ const plateStyle = (spec: ArtSpec): CSSProperties => {
   } as CSSProperties;
 };
 
+/** Ratio above which an image is treated as landscape inside a portrait cover slot. */
+const LANDSCAPE_RATIO = 1.15;
+
+/**
+ * Deduplicates candidate artwork URLs in priority order, ignoring empty and
+ * `demo://` placeholders so real artwork is tried before falling back to a
+ * procedural motif.
+ */
+export function resolveArtCandidates(
+  primary: string | null | undefined,
+  fallbacks?: readonly (string | null | undefined)[],
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const raw = [primary, ...(fallbacks ?? [])];
+  for (const entry of raw) {
+    if (!entry || entry.startsWith("demo://")) continue;
+    const resolved = assetUrl(entry);
+    if (!resolved || seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push(resolved);
+  }
+  return out;
+}
+
 /* --------------------------------- cover --------------------------------- */
 
 export function GameCover({
@@ -361,27 +386,58 @@ export function GameCover({
   const spec = artFromUrl(coverUrl, title);
   const demo = !coverUrl || coverUrl.startsWith("demo://");
   const seed = hashString(coverUrl ?? title);
-  const src = assetUrl(coverUrl);
+  const src = demo ? null : assetUrl(coverUrl);
+  const [imgState, setImgState] = useState<{ src: string | null; failed: boolean; landscape: boolean }>({
+    src,
+    failed: false,
+    landscape: false,
+  });
+  const failed = imgState.src === src ? imgState.failed : false;
+  const landscape = imgState.src === src ? imgState.landscape : false;
+  const showMotif = !src || failed;
 
   return (
     <div className={cn("cover", className)} style={plateStyle(spec)}>
-      {demo ? (
+      {showMotif ? (
         <svg className="cover-motif" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <Motif spec={spec} seed={seed} />
         </svg>
+      ) : landscape ? (
+        <>
+          <img
+            src={src}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-55 blur-xl"
+            loading="lazy"
+          />
+          <img
+            src={src}
+            alt=""
+            data-cover-fit="contain"
+            className="relative z-[1] h-full w-full object-contain p-1.5 transition-transform duration-[240ms] ease-out group-hover:scale-[1.03]"
+            loading="lazy"
+            onError={() => setImgState({ src, failed: true, landscape: false })}
+          />
+        </>
       ) : (
         <img
-          src={src ?? ""}
+          src={src}
           alt=""
+          data-cover-fit="cover"
           className="absolute inset-0 h-full w-full object-cover transition-transform duration-[240ms] ease-out group-hover:scale-[1.03]"
           loading="lazy"
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
+          onLoad={(e) => {
+            const { naturalWidth, naturalHeight } = e.currentTarget;
+            if (naturalWidth > 0 && naturalHeight > 0 && naturalWidth / naturalHeight > LANDSCAPE_RATIO) {
+              setImgState({ src, failed: false, landscape: true });
+            }
           }}
+          onError={() => setImgState({ src, failed: true, landscape: false })}
         />
       )}
       <div className="cover-sheen" aria-hidden="true" />
-      {demo && showType && (
+      {showMotif && showType && (
         <>
           <div className="pointer-events-none absolute inset-0 z-[1] cover-shade" />
           <div className="cover-type">
@@ -409,16 +465,21 @@ export function GameCover({
 export function ArtPlate({
   title,
   artUrl,
+  fallbackUrls,
   className,
 }: {
   title: string;
   artUrl: string | null;
+  fallbackUrls?: readonly (string | null | undefined)[];
   className?: string;
 }) {
   const spec = artFromUrl(artUrl, title);
-  const demo = !artUrl || artUrl.startsWith("demo://");
   const seed = hashString(artUrl ?? title);
-  const src = assetUrl(artUrl);
+  const candidates = resolveArtCandidates(artUrl, fallbackUrls);
+  const key = candidates.join("|");
+  const [cursor, setCursor] = useState<{ key: string; index: number }>({ key, index: 0 });
+  const index = cursor.key === key ? cursor.index : 0;
+  const activeSrc = index < candidates.length ? candidates[index] : null;
 
   return (
     <div
@@ -427,12 +488,19 @@ export function ArtPlate({
       data-bp-art="true"
       aria-hidden="true"
     >
-      {demo ? (
+      {activeSrc ? (
+        <img
+          src={activeSrc}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="eager"
+          decoding="async"
+          onError={() => setCursor({ key, index: index + 1 })}
+        />
+      ) : (
         <svg className="h-full w-full" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <Motif spec={spec} seed={seed} />
         </svg>
-      ) : (
-        <img src={src ?? ""} alt="" className="h-full w-full object-cover" />
       )}
     </div>
   );
@@ -443,20 +511,34 @@ export function ArtPlate({
 export function GameBackdrop({
   title,
   backgroundUrl,
+  fallbackUrls,
   className,
 }: {
   title: string;
   backgroundUrl: string | null;
+  fallbackUrls?: readonly (string | null | undefined)[];
   className?: string;
 }) {
   const spec = artFromUrl(backgroundUrl, title);
-  const demo = !backgroundUrl || backgroundUrl.startsWith("demo://");
   const seed = hashString(backgroundUrl ?? title);
-  const src = assetUrl(backgroundUrl);
+  const candidates = resolveArtCandidates(backgroundUrl, fallbackUrls);
+  const key = candidates.join("|");
+  const [cursor, setCursor] = useState<{ key: string; index: number }>({ key, index: 0 });
+  const index = cursor.key === key ? cursor.index : 0;
+  const activeSrc = index < candidates.length ? candidates[index] : null;
 
   return (
     <div className={cn("overflow-hidden bg-bg-deep", className)} aria-hidden="true">
-      {demo ? (
+      {activeSrc ? (
+        <img
+          src={activeSrc}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          loading="eager"
+          decoding="async"
+          onError={() => setCursor({ key, index: index + 1 })}
+        />
+      ) : (
         <svg
           className="absolute inset-0 h-full w-full opacity-70"
           viewBox="0 0 300 400"
@@ -465,14 +547,6 @@ export function GameBackdrop({
         >
           <Motif spec={spec} seed={seed} />
         </svg>
-      ) : (
-        <img
-          src={src ?? ""}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-          loading="eager"
-          decoding="async"
-        />
       )}
       <div className="absolute inset-0 bg-[var(--bg)]/30" aria-hidden="true" />
       <div className="absolute inset-0 backdrop-shade" aria-hidden="true" />
