@@ -852,23 +852,126 @@ jobs:
         run: pnpm --filter @ludex/web build
 
       # A re-run of the same workflow keeps the run number, so the stamped edge
-      # version and the asset names repeat. tauri-action refuses to overwrite an
-      # existing asset, which made every re-run red after a cancellation; drop
-      # this run's assets first so the job is idempotent.
-      - name: Drop stale edge assets for this run
+      # version and the asset names repeat. In addition, GitHub caps each
+      # release at 1000 assets: prune older builds for this platform while
+      # keeping the two newest previous builds and anything still referenced by
+      # latest.json, and drop this run's assets so re-runs stay idempotent.
+      - name: Prune stale edge assets
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.version }}
+          TARGET_OS: ${{ runner.os }}
         run: |
           set -euo pipefail
-          gh release view edge >/dev/null 2>&1 || exit 0
-          gh release view edge --json assets --jq '.assets[].name' | while IFS= read -r name; do
-            case "$name" in
-              *"$VERSION"*) gh release delete-asset edge "$name" --yes || true ;;
-            esac
-          done
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          repo = os.environ["GH_REPO"]
+          version = os.environ["VERSION"]
+          target_os = os.environ["TARGET_OS"]
+
+          rel_proc = subprocess.run(
+              ["gh", "api", f"repos/{repo}/releases/tags/edge"],
+              capture_output=True,
+              text=True,
+          )
+          if rel_proc.returncode != 0:
+              print("edge release does not exist yet; skipping prune")
+              sys.exit(0)
+          rel_id = json.loads(rel_proc.stdout)["id"]
+
+          assets = []
+          page = 1
+          while True:
+              batch = json.loads(
+                  subprocess.check_output(
+                      ["gh", "api", f"repos/{repo}/releases/{rel_id}/assets?per_page=100&page={page}"],
+                      text=True,
+                  )
+              )
+              if not batch:
+                  break
+              assets.extend(batch)
+              if len(batch) < 100:
+                  break
+              page += 1
+
+          protected = set()
+          latest_proc = subprocess.run(
+              ["gh", "release", "download", "edge", "--pattern", "latest.json", "--output", "-"],
+              capture_output=True,
+              text=True,
+          )
+          if latest_proc.returncode == 0 and latest_proc.stdout.strip():
+              try:
+                  latest = json.loads(latest_proc.stdout)
+                  for entry in (latest.get("platforms") or {}).values():
+                      url = entry.get("url") or ""
+                      if url:
+                          protected.add(url.rsplit("/", 1)[-1])
+              except Exception as err:
+                  print(f"warning: could not parse latest.json: {err}", file=sys.stderr)
+
+          if target_os == "Linux":
+              suffixes = (
+                  ".AppImage", ".AppImage.sig", ".AppImage.sha256",
+                  ".AppImage.tar.gz", ".AppImage.tar.gz.sig",
+                  ".deb", ".deb.sig", ".deb.sha256",
+                  ".rpm", ".rpm.sig", ".rpm.sha256",
+              )
+          else:
+              suffixes = (
+                  ".exe", ".exe.sig", ".exe.sha256",
+                  ".msi", ".msi.sig", ".msi.sha256",
+                  ".zip", ".zip.sig", ".zip.sha256",
+              )
+
+          ver_re = re.compile(r"(\d+)\.(\d+)\.(\d+)-edge\.(\d+)")
+          by_version = {}
+          to_delete = []
+
+          for asset in assets:
+              name = asset["name"]
+              if version in name:
+                  to_delete.append(asset)
+                  continue
+              if not name.endswith(suffixes):
+                  continue
+              match = ver_re.search(name)
+              if not match:
+                  continue
+              key = tuple(int(part) for part in match.groups())
+              by_version.setdefault(key, []).append(asset)
+
+          keep_versions = set(sorted(by_version.keys(), reverse=True)[:2])
+          for key, items in by_version.items():
+              if key in keep_versions:
+                  continue
+              for asset in items:
+                  if asset["name"] in protected:
+                      continue
+                  to_delete.append(asset)
+
+          deleted = 0
+          for asset in to_delete:
+              res = subprocess.run(
+                  ["gh", "api", "-X", "DELETE", f"repos/{repo}/releases/assets/{asset['id']}"],
+                  capture_output=True,
+                  text=True,
+              )
+              if res.returncode == 0:
+                  deleted += 1
+              else:
+                  print(f"warning: could not delete {asset['name']}: {res.stderr.strip()}", file=sys.stderr)
+
+          print(f"pruned {deleted} stale {target_os} edge asset(s) (scanned {len(assets)}, kept {len(keep_versions)} prior version(s))")
+          PY
 
       - name: Build and upload the edge desktop bundle
         uses: tauri-apps/tauri-action@v0
