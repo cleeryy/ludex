@@ -1,0 +1,10 @@
+{
+  "title": "Deployment",
+  "pages": [
+    "docker-and-proxy",
+    "postgresql",
+    "s3-storage",
+    "backups",
+    "gitops"
+  ]
+}

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="bannerTitle bannerDesc">
+  <title id="bannerTitle">Ludex</title>
+  <desc id="bannerDesc">Dark archive-style banner with the Ludex wordmark, the tagline "Index. Download. Install. Play." and three abstract game covers.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#1c1c16" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="coverA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d3b2e"/>
+      <stop offset="1" stop-color="#0c1511"/>
+    </linearGradient>
+    <linearGradient id="coverB" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#3b2a19"/>
+      <stop offset="1" stop-color="#141009"/>
+    </linearGradient>
+    <linearGradient id="coverC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#222f38"/>
+      <stop offset="1" stop-color="#0b1013"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="420" fill="#0a0a09"/>
+  <rect width="1200" height="420" fill="url(#grid)" opacity="0.6"/>
+  <path d="M0 344H1200" stroke="#1f1f18" stroke-width="1"/>
+
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', SFMono-Regular, Menlo, Consolas, monospace" fill="#8a8375">
+    <text x="72" y="80" font-size="13" letter-spacing="3.2">SELF-HOSTED / DRM-FREE / RUST</text>
+  </g>
+
+  <g transform="translate(66 100) scale(0.92)" fill="#ece8de">
+    <path d="M0 0H22V78H66V100H0Z"/>
+    <path d="M80 0H102V78H136V0H158V100H80Z"/>
+    <path d="M172 0H218L246 26V74L218 100H172ZM194 22V78H212L224 66V34L212 22Z" fill-rule="evenodd"/>
+    <path d="M260 0H326V22H282V39H310V61H282V78H326V100H260Z"/>
+    <path d="M340 0H362L418 100H396Z"/>
+    <path d="M396 0H418L362 100H340Z"/>
+    <rect x="434" y="78" width="18" height="18" fill="#ffc61a"/>
+  </g>
+
+  <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#c4cec6">
+    <text x="72" y="240" font-size="23" letter-spacing="0.2">Index. Download. Install. Play.</text>
+  </g>
+
+  <path d="M72 272H480" stroke="#2a2a22" stroke-width="1"/>
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', SFMono-Regular, Menlo, Consolas, monospace" fill="#6f6a5e" font-size="12" letter-spacing="1.6">
+    <text x="72" y="306">v0.4</text>
+    <text x="122" y="306">AGPL-3.0</text>
+    <text x="222" y="306">SINGLE BINARY</text>
+    <text x="356" y="306">SQLITE / POSTGRESQL</text>
+  </g>
+
+  <g transform="translate(820 84)">
+    <g transform="rotate(-6 0 0)">
+      <rect x="0" y="18" width="150" height="204" rx="6" fill="url(#coverA)" stroke="#2c4437"/>
+      <circle cx="74" cy="92" r="38" fill="none" stroke="#ffc61a" stroke-width="1.5" opacity="0.85"/>
+      <path d="M52 92H96M74 70V114" stroke="#ffc61a" stroke-width="1.5" opacity="0.5"/>
+      <rect x="18" y="176" width="74" height="6" rx="3" fill="#3a5144"/>
+      <rect x="18" y="190" width="44" height="4" rx="2" fill="#2a3d33"/>
+    </g>
+    <g transform="translate(146 0) rotate(4 0 0)">
+      <rect x="0" y="0" width="150" height="204" rx="6" fill="url(#coverB)" stroke="#4a3a28"/>
+      <path d="M18 138L58 78L98 138Z" fill="none" stroke="#ffb066" stroke-width="1.5" opacity="0.8"/>
+      <path d="M74 62V118" stroke="#ffb066" stroke-width="1.5" opacity="0.5"/>
+      <rect x="18" y="164" width="84" height="6" rx="3" fill="#5a4630"/>
+      <rect x="18" y="178" width="50" height="4" rx="2" fill="#3d3022"/>
+    </g>
+    <g transform="translate(292 24) rotate(8 0 0)">
+      <rect x="0" y="0" width="150" height="204" rx="6" fill="url(#coverC)" stroke="#2c3c46"/>
+      <rect x="30" y="44" width="90" height="90" rx="4" fill="none" stroke="#8fc6e0" stroke-width="1.5" opacity="0.75"/>
+      <path d="M30 74H120M30 104H120M60 44V134M90 44V134" stroke="#8fc6e0" stroke-width="1" opacity="0.28"/>
+      <rect x="18" y="164" width="66" height="6" rx="3" fill="#3a4c57"/>
+      <rect x="18" y="178" width="92" height="4" rx="2" fill="#2b3942"/>
+    </g>
+  </g>
+
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', SFMono-Regular, Menlo, Consolas, monospace" fill="#5f5a4e" font-size="11" letter-spacing="1.2">
+    <text x="1128" y="386" text-anchor="end">GITHUB.COM/CLEERYY/LUDEX</text>
+  </g>
+</svg>

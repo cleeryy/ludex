@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/* #333 ARC x Swiss/Bauhaus tokens: Bauhaus light (default) and Speranza dark */
+:root {
+  --ludex-bg: #f3efe6;
+  --ludex-bg-deep: #e8e3d9;
+  --ludex-surface: #fbf9f5;
+  --ludex-surface-2: #ebe6dc;
+  --ludex-line: #d4cec2;
+  --ludex-line-2: #1c1b19;
+  --ludex-ink: #141311;
+  --ludex-ink-2: #4b4842;
+  --ludex-ink-3: #6b665f;
+  --ludex-signal: #e0331e;
+  --ludex-on-signal: #ffffff;
+  --ludex-info: #0057b8;
+  --ludex-stripe-1: #e0331e;
+  --ludex-stripe-2: #eab308;
+  --ludex-stripe-3: #0057b8;
+  --ludex-stripe-4: #141311;
+
+  --color-fd-background: #f3efe6;
+  --color-fd-foreground: #141311;
+  --color-fd-muted: #ebe6dc;
+  --color-fd-muted-foreground: #4b4842;
+  --color-fd-popover: #fbf9f5;
+  --color-fd-popover-foreground: #141311;
+  --color-fd-card: #fbf9f5;
+  --color-fd-card-foreground: #141311;
+  --color-fd-border: #d4cec2;
+  --color-fd-primary: #e0331e;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #ebe6dc;
+  --color-fd-secondary-foreground: #141311;
+  --color-fd-accent: #e8e3d9;
+  --color-fd-accent-foreground: #141311;
+  --color-fd-ring: #e0331e;
+}
+
+.dark {
+  --ludex-bg: #111317;
+  --ludex-bg-deep: #0b0c0f;
+  --ludex-surface: #171a20;
+  --ludex-surface-2: #1f232b;
+  --ludex-line: #282d37;
+  --ludex-line-2: #3b4250;
+  --ludex-ink: #f2efe9;
+  --ludex-ink-2: #a4abb8;
+  --ludex-ink-3: #8e939f;
+  --ludex-signal: #ff4422;
+  --ludex-on-signal: #0b0c0f;
+  --ludex-info: #00a8e8;
+  --ludex-stripe-1: #ff4422;
+  --ludex-stripe-2: #f5a623;
+  --ludex-stripe-3: #00a8e8;
+  --ludex-stripe-4: #f2efe9;
+
+  --color-fd-background: #111317;
+  --color-fd-foreground: #f2efe9;
+  --color-fd-muted: #171a20;
+  --color-fd-muted-foreground: #a4abb8;
+  --color-fd-popover: #171a20;
+  --color-fd-popover-foreground: #f2efe9;
+  --color-fd-card: #171a20;
+  --color-fd-card-foreground: #f2efe9;
+  --color-fd-border: #282d37;
+  --color-fd-primary: #ff4422;
+  --color-fd-primary-foreground: #0b0c0f;
+  --color-fd-secondary: #1f232b;
+  --color-fd-secondary-foreground: #f2efe9;
+  --color-fd-accent: #1f232b;
+  --color-fd-accent-foreground: #f2efe9;
+  --color-fd-ring: #ff4422;
+}
+
+body {
+  background-color: var(--ludex-bg);
+  color: var(--ludex-ink);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.ludex-num {
+  font-variant-numeric: tabular-nums;
+}

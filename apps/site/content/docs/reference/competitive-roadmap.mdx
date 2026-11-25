@@ -1,0 +1,85 @@
+---
+title: "Competitive Analysis & Product Roadmap (#351)"
+description: "Baseline: Ludex v0.5.1 (2026-11-25). Clean-room product benchmark against"
+---
+**Baseline:** Ludex `v0.5.1` (2026-11-25). Clean-room product benchmark against
+the desktop and living-room launchers players actually compare Ludex with. No
+code or assets are copied from any external project (see
+[`CONTRIBUTING.md`](../CONTRIBUTING.md)).
+
+## Reference landscape
+
+| Launcher | Core strength | Where it hurts |
+|---|---|---|
+| **Steam / SteamOS** | Zero-question Play button, Proton/Gamescope defaults, Big Picture 10-foot UX, per-game Notes, Storage Manager, Play Next / dynamic shelves, Verified badges, Workshop. | Closed ecosystem; non-Steam / DRM-free archives have no metadata, cloud saves or update story. |
+| **GOG Galaxy** | DRM-free philosophy, magazine-grade presentation, version rollbacks, offline installers, bundled extras (manuals, OSTs, changelogs). | Stalled client development, fragile community store plugins, Windows/macOS only. |
+| **Playnite** | Saved Filter Presets, unified PC + emulator library, random game picker, deep power-user customization, desktop + fullscreen modes. | Windows-only; heavy initial configuration before it feels effortless. |
+| **Heroic Games Launcher** | Fast native Linux/Steam Deck UX for GOG/Epic/Amazon, clean Proton/Wine compatibility workflow, clear disk/install controls. | Storefront-bound; not a self-hosted DRM-free library server. |
+| **RecompLauncher** *(N64Recomp / Quiver lineage)* | One-click catalog for static recompilations and native PC ports, Bring-Your-Own-ROM (BYOR) setup, automatic GitHub release tracking, centralized mod/texture-pack folders. | Single niche (recomps/ports); no general library, server sync or living-room shell. |
+
+## Where Ludex `v0.5.1` already matches or leads
+
+- **Self-hosted DRM-free library + portable offline folders:** streaming ZIP
+  installs ([`DOWNLOADS.md`](DOWNLOADS.md)), SHA-256 verification and file-level
+  repair, GOG-style portable Linux bundles (`run.sh` / `install.sh` /
+  `ludex-game.json`, `#332`), version history and rollbacks.
+- **Zero-decision Linux launch stack:** automatic launch plans
+  ([`LAUNCH-PLANS.md`](LAUNCH-PLANS.md)), shipped signed compatibility rules
+  ([`COMPAT-RULES.md`](COMPAT-RULES.md)), auto-revert on repeated failure,
+  declarative TOML profiles ([`PROFILES.md`](PROFILES.md)), shader warm-start
+  ([`SHADERS.md`](SHADERS.md)), per-game audio & controller routing
+  ([`AUDIO.md`](AUDIO.md), [`CONTROLLERS.md`](CONTROLLERS.md)).
+- **Console 2.0 (10-foot UX):** `/console/*` shell, single input owner,
+  ARC × Swiss token system (`#333`), 720p/1080p/4K + 5% overscan pixel gates
+  ([`console/evidence.md`](console/evidence.md)), Sunshine/Moonlight streaming
+  ([`STREAMING.md`](STREAMING.md)), Wayland console session
+  ([`CONSOLE-SESSION.md`](CONSOLE-SESSION.md)).
+- **Cloud saves & safety:** Ludusavi-backed automatic saves with multi-device
+  conflict resolution ([`SAVES.md`](SAVES.md)), VirusTotal hash/upload scanning,
+  share links, achievements ([`ACHIEVEMENTS.md`](ACHIEVEMENTS.md)), ROM/emulator
+  support ([`EMULATORS.md`](EMULATORS.md)).
+
+## Gaps addressed now (v0.5.x wave)
+
+| Gap | Inspired by | Tracked in | What lands |
+|---|---|---|---|
+| **Strict default vs power-user separation** | SteamOS, Heroic | `#347` | Removes duplicated raw panels from Game Detail (`?tab=launch`) so everyday users only see Tier 1 (*Just works*) + Tier 2 switches; extends the single device-local **Power-user mode** toggle to Global Settings (`Streaming`, `Console`, `Compatibility`, `Host`, and deep download/save tuning controls). |
+| **Saved Filter Presets + "Surprise me" picker** | Playnite, Steam | `#348` | Built-in one-click shelves (*Ready to play*, *Unplayed backlog*, *Top rated*, *Short sessions*), user-saved custom filter presets, and a filter-aware random game picker in the Library toolbar. |
+| **Per-game personal notes + Storage Space Manager** | Steam, GOG Galaxy, Heroic | `#349` | Lightweight per-game notes scratchpad (checkpoints, mod order, recomp/controller reminders) in Game Overview, plus a visual disk-usage breakdown by source, largest-first sorting and quick folder/uninstall actions in Settings → Storage. |
+| **Web codebase cleanup & modularization** | Engineering hygiene | `#350` | Removes inert `eslint-disable` directives and decomposes oversized web screens (`game-detail.tsx`, `library.tsx`, `sections-device.tsx`). |
+
+## Candidate v0.6+ backlog (clean-room)
+
+1. **Recomp & Native Port Manager (BYOR + GitHub release tracking)** — inspired
+   by RecompLauncher / Quiver:
+   - First-class `kind: "recomp"` / native-port source linking a user-supplied
+     legal ROM dump (SHA-256 verified locally, never redistributed) with an
+     upstream open-source recompilation release on GitHub (`owner/repo`),
+     checking for newer tagged builds and offering one-click in-place upgrades
+     while keeping saves and mods intact.
+   - Dedicated per-game `mods/` and `texture-packs/` quick toggle & folder
+     drawer on the Files tab (with safe disable/rename, no overwrite of base
+     files).
+2. **GOG-style Game Extras shelf** — detect and surface manuals (PDF),
+   soundtracks, artbooks and changelogs shipped alongside a game archive in a
+   dedicated Extras block on the Files tab.
+3. **Server-synced personal notes & private tags** — promote local per-game
+   notes (`#349`) to an additive server table (`game_notes`) so notes follow the
+   account across desktop, browser and Console overlay.
+4. **Playability / Verified badge on Library cards** — surface the computed
+   Tier 1 readiness verdict (*Ready* / *Needs setup* / *Unsupported*) directly on
+   installed/local Library cards, inspired by Steam Deck Verified.
+5. **External 10-foot UX audit & real-hardware sign-off** — tracked in `#284`,
+   `#306` and `#270` ([`console/README.md`](console/README.md),
+   [`console/NATIVE-CHECKLIST.md`](console/NATIVE-CHECKLIST.md)).
+
+## What Ludex deliberately refuses
+
+- **Storefront bloat, ads or DRM lock-in:** Ludex is a self-hosted vault for
+  files you already own.
+- **Fragile reverse-engineered third-party store scrapers:** external launchers
+  are adopted read-only from disk; Ludex never scrapes account logins or breaks
+  on storefront cookie changes.
+- **Configuration walls on the default path:** every new capability must ship
+  with an automatic default first and expose raw knobs only behind Power-user
+  mode ([`SETTINGS.md`](SETTINGS.md)).

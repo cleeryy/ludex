@@ -1,0 +1,12 @@
+{
+  "title": "Ludex Docs",
+  "pages": [
+    "index",
+    "getting-started",
+    "deployment",
+    "using-ludex",
+    "security",
+    "reference",
+    "development"
+  ]
+}
