@@ -12,6 +12,7 @@ import {
   settingsSectionById,
   settingsSectionPath,
   scoreSettingsSection,
+  visibleSettingsSections,
   type SettingsSectionId,
 } from "./settings-sections";
 import { settingsSectionDescription, settingsSectionLabel } from "@/components/settings/settings-copy";
@@ -179,6 +180,25 @@ describe("settings availability", () => {
     expect(isSettingsSectionAvailable(settingsSectionById("host")!, { desktop: false, native: true })).toBe(false);
     expect(isSettingsSectionAvailable(settingsSectionById("host")!, { desktop: true, native: true })).toBe(true);
     expect(isSettingsSectionAvailable(settingsSectionById("storage")!, { desktop: false, native: false })).toBe(true);
+  });
+
+  it("hides advanced categories by default until Power-user mode is unlocked, while preserving deep links", () => {
+    const allDesktop = availableSettingsSections({ desktop: true, native: true });
+    const defaultIds = visibleSettingsSections(allDesktop, false).map((section) => section.id);
+    expect(defaultIds).not.toContain("streaming");
+    expect(defaultIds).not.toContain("console");
+    expect(defaultIds).not.toContain("compatibility");
+    expect(defaultIds).not.toContain("host");
+    expect(defaultIds).toContain("account");
+    expect(defaultIds).toContain("downloads");
+    expect(defaultIds).toContain("saves");
+
+    const deepLinked = visibleSettingsSections(allDesktop, false, "compatibility").map((section) => section.id);
+    expect(deepLinked).toContain("compatibility");
+    expect(deepLinked).not.toContain("streaming");
+
+    const unlocked = visibleSettingsSections(allDesktop, true).map((section) => section.id);
+    expect(unlocked).toHaveLength(allDesktop.length);
   });
 });
 

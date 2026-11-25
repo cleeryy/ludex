@@ -25,6 +25,14 @@ const mocks = vi.hoisted(() => ({
   setOverlayGameDisabled: vi.fn(),
   launchGame: vi.fn(),
   makeItRunApply: vi.fn(),
+  audioSinks: vi.fn(),
+  compatRulesReport: vi.fn(),
+  launchPlanGet: vi.fn(),
+  onLaunchPlanProgress: vi.fn(),
+  onLaunchPlanFailed: vi.fn(),
+  shaderPrepStats: vi.fn(),
+  onShaderPrepProgress: vi.fn(),
+  onShaderPrepChanged: vi.fn(),
 }));
 
 vi.mock("@/lib/native", () => ({
@@ -171,6 +179,14 @@ beforeEach(() => {
   mocks.overlayStatus.mockResolvedValue({ disabledGames: [] });
   mocks.setOverlayGameDisabled.mockResolvedValue({ disabledGames: [7] });
   mocks.launchGame.mockResolvedValue({ sessionId: "s1", tool: null, source: "local" });
+  mocks.audioSinks.mockResolvedValue({ supported: false, sinks: [], defaultSink: null });
+  mocks.compatRulesReport.mockResolvedValue(null);
+  mocks.launchPlanGet.mockResolvedValue(null);
+  mocks.onLaunchPlanProgress.mockResolvedValue(() => undefined);
+  mocks.onLaunchPlanFailed.mockResolvedValue(() => undefined);
+  mocks.shaderPrepStats.mockResolvedValue(null);
+  mocks.onShaderPrepProgress.mockResolvedValue(() => undefined);
+  mocks.onShaderPrepChanged.mockResolvedValue(() => undefined);
   mocks.makeItRunApply.mockResolvedValue({
     gameId: 7,
     consent: true,

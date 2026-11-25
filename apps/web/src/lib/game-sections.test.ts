@@ -226,4 +226,18 @@ describe("game page composition", () => {
     expect(screen).not.toContain("Add to collection</Button>");
     expect(screen).not.toContain("Artwork</Button>");
   });
+
+  it("keeps raw power-user launch panels inside SettingsTiersPanel (#347)", () => {
+    const screen = fs.readFileSync(screenPath, "utf8");
+    for (const rawPanel of [
+      "<LaunchOptionsPanel",
+      "<LaunchPlanPanel",
+      "<CompatRulesPanel",
+      "<MakeItRunPanel",
+      "<AudioOutputPanel",
+      "<ShaderPrepPanel",
+    ]) {
+      expect(screen, rawPanel).not.toContain(rawPanel);
+    }
+  });
 });

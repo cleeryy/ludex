@@ -20,8 +20,12 @@ import type { GameDetail, InstalledGame, LaunchOptions } from "@/lib/types";
 import { Badge, Button, Input, Switch } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/page";
+import { AudioOutputPanel } from "@/components/game/audio-output";
+import { CompatRulesPanel } from "@/components/game/compat-rules";
 import { LaunchOptionsPanel } from "@/components/game/launch-options";
+import { LaunchPlanPanel } from "@/components/game/launch-plan";
 import { MakeItRunPanel } from "@/components/game/make-it-run";
+import { ShaderPrepPanel } from "@/components/game/shader-prep";
 import { StartupCommandPanel } from "@/components/game/startup-command";
 import {
   advancedReason,
@@ -470,6 +474,10 @@ export function SettingsTiersPanel({
           <div className="mt-6 flex flex-col gap-8">
             {isEditor && <StartupCommandPanel game={game} installed={installed} />}
             <LaunchOptionsPanel gameId={gameId} title={title} />
+            <AudioOutputPanel gameId={gameId} title={title} />
+            <ShaderPrepPanel gameId={gameId} title={title} />
+            <LaunchPlanPanel gameId={gameId} />
+            <CompatRulesPanel gameId={gameId} />
           </div>
         )}
       </div>

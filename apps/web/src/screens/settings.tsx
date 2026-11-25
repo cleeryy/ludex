@@ -9,8 +9,10 @@ import {
   settingsSectionPath,
   type SettingsSectionId,
 } from "@/lib/settings-sections";
+import { setAdvancedTiersUnlocked, useAdvancedTiersUnlocked } from "@/lib/settings-tiers";
 import { useAuth } from "@/state/auth";
 import { PageHeader } from "@/components/page";
+import { Button } from "@/components/ui/controls";
 import { LanguagePanel } from "@/components/settings/language-panel";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { SettingsSection } from "@/components/settings/settings-section";
@@ -50,6 +52,7 @@ export function SettingsScreen() {
   const desktop = useDesktopSettings();
 
   const native = isNative();
+  const unlocked = useAdvancedTiersUnlocked();
   const sections = useMemo(
     () => availableSettingsSections({ desktop: installsAvailable(), native }),
     [native],
@@ -131,6 +134,16 @@ export function SettingsScreen() {
             heading={section.id === "language" || section.id === "compatibility" ? "panel" : "section"}
             focusToken={focusToken}
           >
+            {section.tier === "advanced" && !unlocked && (
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border border-line bg-surface px-4 py-3">
+                <p className="max-w-[60ch] text-label leading-relaxed text-ink-2">
+                  {t("This is an advanced section. Turn on Power-user mode to keep it visible in the sidebar.")}
+                </p>
+                <Button variant="default" size="sm" onClick={() => setAdvancedTiersUnlocked(true)}>
+                  {t("Enable power-user mode")}
+                </Button>
+              </div>
+            )}
             {body(section.id)}
           </SettingsSection>
         </div>
