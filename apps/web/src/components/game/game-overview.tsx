@@ -8,6 +8,7 @@ import { isNative } from "@/lib/native";
 import type { GameDetail, GamePlaytime, GameSession, GameUpdate, GameVersion, InstalledGame } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { Badge, Button } from "@/components/ui/controls";
+import { GameNotesPanel } from "@/components/game/game-notes";
 import { SettingsGroup } from "@/components/settings/settings-section";
 import { t } from "@/lib/i18n";
 
@@ -197,6 +198,8 @@ export function GameOverview({
           </p>
         )}
       </SettingsGroup>
+
+      <GameNotesPanel gameId={game.id} />
     </div>
   );
 }

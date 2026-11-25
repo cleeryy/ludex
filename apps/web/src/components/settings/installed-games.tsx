@@ -20,9 +20,18 @@ import type {
   GameVaultCandidate,
   GameVaultRootProposal,
   GameVaultScan,
+  InstalledGame,
 } from "@/lib/types";
+import {
+  filterAndSortInstalled,
+  storageSourceBucket,
+  summarizeInstalledStorage,
+  type StorageSortOrder,
+  type StorageSourceFilter,
+} from "@/lib/storage-summary";
 import { useToast } from "@/state/toasts";
 import { Badge, Button, Checkbox, Field, Input } from "@/components/ui/controls";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { AdoptInstallDialog } from "@/components/game/adopt-install";
 import { t, tn } from "@/lib/i18n";
@@ -56,45 +65,275 @@ export function InstalledPanel() {
 
 function InstalledList() {
   const installed = useInstalledGames();
+  const queryClient = useQueryClient();
+  const { push } = useToast();
   const games = installed.data ?? [];
+
+  const [query, setQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<StorageSourceFilter>("all");
+  const [sortOrder, setSortOrder] = useState<StorageSortOrder>("sizeDesc");
+  const [pendingRemove, setPendingRemove] = useState<InstalledGame | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  const summary = useMemo(() => summarizeInstalledStorage(games), [games]);
+  const visible = useMemo(
+    () => filterAndSortInstalled(games, { query, source: sourceFilter, sort: sortOrder }),
+    [games, query, sourceFilter, sortOrder],
+  );
+
+  const openFolder = (path: string) => {
+    if (!path) return;
+    void installBridge.openPath(path).catch((cause: Error) => {
+      push({ title: t("Could not open the folder"), description: cause.message, tone: "danger" });
+    });
+  };
+
+  const confirmRemove = async () => {
+    if (!pendingRemove) return;
+    const entry = pendingRemove;
+    const isLudexInstall = storageSourceBucket(entry.source) === "ludex";
+    setRemoving(true);
+    try {
+      if (isLudexInstall) {
+        await native.uninstallGame(entry.gameId);
+        push({ title: t("Uninstalled {title}", { title: entry.title }), tone: "success" });
+      } else {
+        await native.unlinkInstallation(entry.gameId);
+        push({
+          title: t("Unlinked {title}", { title: entry.title }),
+          description: t("Its files stay on disk where they were."),
+          tone: "success",
+        });
+      }
+      setPendingRemove(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: qk.installed }),
+        queryClient.invalidateQueries({ queryKey: qk.recentGames.root }),
+        queryClient.invalidateQueries({ queryKey: qk.games.root }),
+      ]);
+    } catch (cause) {
+      push({
+        title: isLudexInstall ? t("Could not uninstall") : t("Could not unlink"),
+        description: errorMessage(cause),
+        tone: "danger",
+      });
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const pendingIsLudex = pendingRemove ? storageSourceBucket(pendingRemove.source) === "ludex" : true;
 
   return (
     <div>
-      <p className="text-body font-medium text-ink">{t("On this device")}</p>
-      <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
-        {t("Installs made by Ludex, folders you linked, and games imported from another launcher. Adopted folders keep their files where they are.")}
-      </p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <p className="text-body font-medium text-ink">{t("Storage manager")}</p>
+          <p className="mt-1 max-w-[56ch] text-meta leading-relaxed text-ink-3">
+            {t("Installs made by Ludex, folders you linked, and games imported from another launcher. Adopted folders keep their files where they are.")}
+          </p>
+        </div>
+        {summary.count > 0 && (
+          <div className="flex items-baseline gap-3 text-meta text-ink-2">
+            <span className="num text-body font-medium text-ink">{formatBytes(summary.totalBytes)}</span>
+            <span className="num text-ink-3">{tn(summary.count, "1 game", "{count} games")}</span>
+          </div>
+        )}
+      </div>
+
+      {summary.count > 0 && (
+        <div className="mt-4 border border-line bg-surface p-4">
+          <div
+            className="flex h-2 w-full overflow-hidden border border-line bg-bg"
+            role="img"
+            aria-label={t("Disk usage breakdown across installed games")}
+          >
+            {summary.bySource.ludex.percent > 0 && (
+              <div
+                className="h-full bg-ok"
+                style={{ width: `${summary.bySource.ludex.percent}%` }}
+                title={`${t("Ludex")}: ${formatBytes(summary.bySource.ludex.bytes)}`}
+              />
+            )}
+            {summary.bySource.adopted.percent > 0 && (
+              <div
+                className="h-full bg-signal"
+                style={{ width: `${summary.bySource.adopted.percent}%` }}
+                title={`${t("Adopted")}: ${formatBytes(summary.bySource.adopted.bytes)}`}
+              />
+            )}
+            {summary.bySource.external.percent > 0 && (
+              <div
+                className="h-full bg-ink-3"
+                style={{ width: `${summary.bySource.external.percent}%` }}
+                title={`${t("Other launchers")}: ${formatBytes(summary.bySource.external.bytes)}`}
+              />
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-meta text-ink-3">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 bg-ok" aria-hidden="true" />
+              <span>{t("Ludex")}</span>
+              <span className="num text-ink-2">{formatBytes(summary.bySource.ludex.bytes)}</span>
+              <span className="num">({summary.bySource.ludex.count})</span>
+            </span>
+            {summary.bySource.adopted.count > 0 && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-2 bg-signal" aria-hidden="true" />
+                <span>{t("Adopted")}</span>
+                <span className="num text-ink-2">{formatBytes(summary.bySource.adopted.bytes)}</span>
+                <span className="num">({summary.bySource.adopted.count})</span>
+              </span>
+            )}
+            {summary.bySource.external.count > 0 && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-2 bg-ink-3" aria-hidden="true" />
+                <span>{t("Other launchers")}</span>
+                <span className="num text-ink-2">{formatBytes(summary.bySource.external.bytes)}</span>
+                <span className="num">({summary.bySource.external.count})</span>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {games.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="min-w-[180px] flex-1">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("Filter installed games")}
+              aria-label={t("Filter installed games")}
+              className="h-9 text-label"
+            />
+          </div>
+          <div className="w-[160px]">
+            <Select
+              label={t("Filter by source")}
+              value={sourceFilter}
+              onChange={(value) => setSourceFilter(value as StorageSourceFilter)}
+              options={[
+                { value: "all", label: t("All sources") },
+                { value: "ludex", label: t("Ludex") },
+                { value: "adopted", label: t("Adopted") },
+                { value: "external", label: t("Other launchers") },
+              ]}
+              className="h-9 text-label"
+            />
+          </div>
+          <div className="w-[160px]">
+            <Select
+              label={t("Sort installed games")}
+              value={sortOrder}
+              onChange={(value) => setSortOrder(value as StorageSortOrder)}
+              options={[
+                { value: "sizeDesc", label: t("Largest first") },
+                { value: "sizeAsc", label: t("Smallest first") },
+                { value: "title", label: t("Title A–Z") },
+              ]}
+              className="h-9 text-label"
+            />
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 border-t border-line">
         {games.length === 0 ? (
           <p className="py-3 text-label text-ink-3">{t("Nothing is installed on this machine yet.")}</p>
+        ) : visible.length === 0 ? (
+          <p className="py-3 text-label text-ink-3">{t("No installed game matches this filter.")}</p>
         ) : (
           <ul>
-            {games.map((entry) => (
-              <li key={entry.gameId} className="flex items-center gap-3 border-b border-line py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    {entry.gameId > 0 ? (
-                      <Link to={`/game/${entry.gameId}`} className="truncate text-body text-ink hover:underline">
-                        {entry.title}
-                      </Link>
-                    ) : (
-                      <span className="truncate text-body text-ink">{entry.title}</span>
-                    )}
-                    <SourceBadge source={entry.source} />
-                    {entry.version && <span className="font-mono text-micro text-ink-3">v{entry.version}</span>}
+            {visible.map((entry) => {
+              const share =
+                summary.totalBytes > 0
+                  ? Math.max(1, Math.round(((entry.sizeBytes || 0) / summary.totalBytes) * 100))
+                  : 0;
+              const isLudex = storageSourceBucket(entry.source) === "ludex";
+              return (
+                <li key={entry.gameId} className="flex flex-wrap items-center gap-3 border-b border-line py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      {entry.gameId > 0 ? (
+                        <Link to={`/game/${entry.gameId}`} className="truncate text-body font-medium text-ink hover:underline">
+                          {entry.title}
+                        </Link>
+                      ) : (
+                        <span className="truncate text-body font-medium text-ink">{entry.title}</span>
+                      )}
+                      <SourceBadge source={entry.source} />
+                      {entry.version && <span className="font-mono text-micro text-ink-3">v{entry.version}</span>}
+                    </div>
+                    <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
+                      <span className="num text-ink-2">{formatBytes(entry.sizeBytes)}</span>
+                      {summary.totalBytes > 0 && <span className="num">{share}%</span>}
+                      <span className="max-w-[54ch] truncate" title={entry.installPath}>
+                        {entry.installPath || t("No folder")}
+                      </span>
+                    </p>
                   </div>
-                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-3 font-mono text-micro text-ink-3">
-                    <span className="num">{formatBytes(entry.sizeBytes)}</span>
-                    <span className="max-w-[60ch] truncate" title={entry.installPath}>
-                      {entry.installPath || t("No folder")}
-                    </span>
-                  </p>
-                </div>
-              </li>
-            ))}
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {entry.installPath && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<FolderOpen className="size-3.5" />}
+                        onClick={() => openFolder(entry.installPath)}
+                      >
+                        {t("Open folder")}
+                      </Button>
+                    )}
+                    {entry.gameId > 0 && (
+                      <Link
+                        to={`/game/${entry.gameId}?tab=files`}
+                        className="inline-flex h-8 items-center px-2 text-label text-ink-3 transition-colors hover:text-ink"
+                      >
+                        {t("Files")}
+                      </Link>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Trash2 className="size-3.5" />}
+                      onClick={() => setPendingRemove(entry)}
+                    >
+                      {isLudex ? t("Uninstall") : t("Unlink")}
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingRemove)}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+        title={
+          pendingRemove
+            ? pendingIsLudex
+              ? t("Uninstall {title}?", { title: pendingRemove.title })
+              : t("Unlink {title}?", { title: pendingRemove.title })
+            : ""
+        }
+        description={
+          pendingRemove
+            ? pendingIsLudex
+              ? t("Deletes the installed files ({size}) from this machine. Cloud saves and progress stay on the server.", {
+                  size: formatBytes(pendingRemove.sizeBytes),
+                })
+              : t("Removes this entry from Ludex without deleting any files from disk.")
+            : ""
+        }
+        confirmLabel={pendingIsLudex ? t("Uninstall") : t("Unlink")}
+        tone={pendingIsLudex ? "danger" : "primary"}
+        loading={removing}
+        onConfirm={() => void confirmRemove()}
+      />
     </div>
   );
 }
