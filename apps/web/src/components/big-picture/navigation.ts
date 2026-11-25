@@ -203,7 +203,6 @@ export function useBigPictureNavigation({
   useLayoutEffect(() => {
     setRawIndex((current) => resolveIndex(games.map((game) => game.id), selectedIdRef.current, current));
     // `data` is the identity that matters: a new list, not a new closure.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   // Runs after the sync above: the ref always holds the game on screen.

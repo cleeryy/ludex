@@ -61,7 +61,6 @@ export function LibrarySearch({
     const timer = setTimeout(() => onCommit(text), 260);
     return () => clearTimeout(timer);
     // onCommit is recreated every render by the screen; text is the real input.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
 
   useEffect(() => {

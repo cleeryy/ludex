@@ -6,11 +6,10 @@ import { AlertTriangle, Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X }
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/http";
-import { formatBytes, formatRating, formatYear, sortLabel, stateLabel, formatPercent } from "@/lib/format";
+import { formatBytes, formatRating, formatYear, sortLabel, stateLabel } from "@/lib/format";
 import { native } from "@/lib/native";
 import type { GameListQuery, GameSummary, InstalledGame } from "@/lib/types";
 import { useBookmark, useGenres, useInstalledGames, useLaunchGame, useUpdateGame, useUpdateMap } from "@/lib/hooks";
-import { useInstallingPercent } from "@/state/downloads";
 import { useToast } from "@/state/toasts";
 import { installBridge, installsAvailable } from "@/lib/install";
 import {
@@ -43,11 +42,17 @@ import { moveTargetIndex, type TargetRect } from "@/lib/gamepad-core";
 import { GamepadDebugPanel } from "@/components/gamepad/gamepad-debug";
 import { useControllerProfile } from "@/lib/use-controller-profile";
 import { OPEN_FILTERS_EVENT } from "@/lib/ui-events";
-import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
+import { ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { GameCard } from "@/components/game/game-card";
-import { GameCover } from "@/components/art/cover";
 import { STATE_TONE } from "@/components/game/state";
 import { FilterPanel } from "@/components/library/filter-panel";
+import {
+  GameCardCoverThumb,
+  InstallStateBadges,
+  LibraryEmpty,
+  LibrarySkeleton,
+  type LibraryMode,
+} from "@/components/library/library-views";
 import { PresetsBar, SurpriseMeButton } from "@/components/library/presets-bar";
 import { applyPresetParams } from "@/lib/library-presets";
 import {
@@ -56,12 +61,12 @@ import {
   ExternalImportDialog,
 } from "@/components/library/external-games";
 import { LibrarySearch } from "@/components/library/search-field";
-import { Badge, Button, Segmented, Skeleton } from "@/components/ui/controls";
+import { Badge, Button, Segmented } from "@/components/ui/controls";
 import { Select } from "@/components/ui/select";
 import { t, tn } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 
-export type LibraryMode = "library" | "recent" | "bookmarks" | "index";
+export type { LibraryMode };
 
 function modeTitle(mode: LibraryMode): string {
   switch (mode) {
@@ -153,7 +158,6 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
       setParams(saved, { replace: true });
     }
     // Run once per mount; params deliberately read at mount time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   // Persist the current filter set (best effort, localStorage may be disabled).
@@ -418,7 +422,6 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     if (!ownsFocus) return;
     focusGamepadTarget(elements, next, false, { scroll: marked >= 0 });
     // The DOM is the source of truth here; mode/search/view changes rebuild it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, search, effectiveView, model.total, gamepad.connected]);
 
   const headerActions = (
@@ -863,158 +866,5 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
       {debug && <GamepadDebugPanel info={gamepad.debug} />}
     </div>
-  );
-}
-
-function GameCardCoverThumb({ game }: { game: GameSummary }) {
-  return <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />;
-}
-
-function LibrarySkeleton({ view }: { view: "grid" | "list" }) {
-  if (view === "list") {
-    return (
-      <div className="border-t border-line">
-        {Array.from({ length: 9 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-4 border-b border-line py-3">
-            <Skeleton className="h-3 w-6" />
-            <Skeleton className="h-12 w-9" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-3.5 w-1/3" />
-              <Skeleton className="h-2.5 w-1/5" />
-            </div>
-            <Skeleton className="hidden h-3 w-16 sm:block" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-      {Array.from({ length: 10 }).map((_, i) => (
-        <div key={i}>
-          <Skeleton className="aspect-[3/4] w-full" />
-          <div className="mt-3 space-y-2">
-            <Skeleton className="h-3.5 w-4/5" />
-            <Skeleton className="h-2.5 w-2/5" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function LibraryEmpty({
-  mode,
-  hasFilters,
-  installedOnly,
-  isEditor,
-  signedIn,
-  onClear,
-}: {
-  mode: LibraryMode;
-  hasFilters: boolean;
-  installedOnly: boolean;
-  isEditor: boolean;
-  signedIn: boolean;
-  onClear: () => void;
-}) {
-  const navigate = useNavigate();
-  if (mode === "library" && hasFilters && installedOnly) {
-    return (
-      <EmptyState
-        title={t("No installed games")}
-        description={t("Nothing from this library is installed on this machine yet. Install a game from its page, or show the full library.")}
-      >
-        <Button variant="default" onClick={onClear}>
-          {t("Show all games")}
-        </Button>
-      </EmptyState>
-    );
-  }
-  if (hasFilters) {
-    return (
-      <EmptyState
-        title={t("No games match")}
-        description={t("Nothing in the library fits those filters. Widen the search, or clear them and start again.")}
-      >
-        <Button variant="default" onClick={onClear}>
-          {t("Clear filters")}
-        </Button>
-      </EmptyState>
-    );
-  }
-
-  if (mode === "bookmarks") {
-    return (
-      <EmptyState title={t("No bookmarks yet")} description={t("Bookmark a game from the library and it will wait for you here.")}>
-        <Button variant="default" onClick={() => navigate("/library")}>
-          {t("Browse the library")}
-        </Button>
-      </EmptyState>
-    );
-  }
-
-  if (mode === "recent") {
-    return (
-      <EmptyState
-        title={t("Nothing played yet")}
-        description={t("Launch a game from the desktop app and it will show up here with its playtime.")}
-      >
-        <Button variant="default" onClick={() => navigate("/library")}>
-          {t("Browse the library")}
-        </Button>
-      </EmptyState>
-    );
-  }
-
-  return (
-    <EmptyState
-      className="max-w-[760px]"
-      title={t("Nothing on the shelf yet")}
-      description={
-        isEditor
-          ? t("The games folder is empty. Paste a download link and Ludex will fetch it, verify the archive and index it for you.")
-          : t("This library is empty. An administrator can add games from the server, or drop archives into the games folder.")
-      }
-    >
-      {isEditor ? (
-        <Button variant="primary" onClick={() => navigate("/admin/ingest")} icon={<Plus className="size-4" />}>
-          {t("Add games")}
-        </Button>
-      ) : (
-        signedIn && <span className="text-body text-ink-3">{t("Ask an administrator to add the first game.")}</span>
-      )}
-    </EmptyState>
-  );
-}
-
-/**
- * One hook per visible row (#237): installing progress lives in the card/row,
- * not in a `downloads` object read by the whole screen. A transfer tick then
- * re-renders this badge alone instead of the 200-row list.
- */
-function InstallStateBadges({
-  gameId,
-  installed,
-  launcher,
-}: {
-  gameId: number;
-  installed: boolean;
-  launcher: LauncherSourceId | null;
-}) {
-  const percent = useInstallingPercent(gameId);
-  if (percent !== null) {
-    return (
-      <Badge tone="signal" className="hidden shrink-0 sm:inline-flex">
-        {t("Installing {percent}", { percent: formatPercent(percent) })}
-      </Badge>
-    );
-  }
-  if (!installed) return null;
-  return (
-    <span className="hidden shrink-0 items-center gap-1 sm:inline-flex">
-      <Badge tone="outline">{t("Installed")}</Badge>
-      {launcher && <Badge tone="signal">{launcherLabel(launcher)}</Badge>}
-    </span>
   );
 }
