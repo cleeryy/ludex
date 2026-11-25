@@ -339,9 +339,6 @@ const plateStyle = (spec: ArtSpec): CSSProperties => {
   } as CSSProperties;
 };
 
-/** Ratio above which an image is treated as landscape inside a portrait cover slot. */
-const LANDSCAPE_RATIO = 1.15;
-
 /** Percent-encodes HTML meta-characters so image URLs stay safe at DOM sinks. */
 function safeImgSrc(url: string): string {
   return url.replace(/[<>"']/g, (ch) => encodeURIComponent(ch));
@@ -376,6 +373,8 @@ export function resolveArtCandidates(
 export function GameCover({
   title,
   coverUrl,
+  fallbackUrl,
+  variant = "poster",
   index,
   year,
   genre,
@@ -384,64 +383,39 @@ export function GameCover({
 }: {
   title: string;
   coverUrl: string | null;
+  fallbackUrl?: string | null;
+  /** `poster` uses native 2:3 vertical art; `wide` uses 16:9 Steam/GOG banner framing. */
+  variant?: "poster" | "wide";
   index?: number;
   year?: string | null;
   genre?: string | null;
   className?: string;
   showType?: boolean;
 }) {
-  const spec = artFromUrl(coverUrl, title);
-  const demo = !coverUrl || coverUrl.startsWith("demo://");
-  const seed = hashString(coverUrl ?? title);
-  const resolved = demo ? null : assetUrl(coverUrl);
-  const src = resolved ? safeImgSrc(resolved) : null;
-  const [imgState, setImgState] = useState<{ src: string | null; failed: boolean; landscape: boolean }>({
-    src,
-    failed: false,
-    landscape: false,
-  });
-  const failed = imgState.src === src ? imgState.failed : false;
-  const landscape = imgState.src === src ? imgState.landscape : false;
-  const showMotif = !src || failed;
+  const spec = artFromUrl(coverUrl ?? fallbackUrl ?? null, title);
+  const seed = hashString(coverUrl ?? fallbackUrl ?? title);
+  const candidates = resolveArtCandidates(coverUrl, fallbackUrl ? [fallbackUrl] : undefined);
+  const key = candidates.join("|");
+  const [cursor, setCursor] = useState<{ key: string; index: number }>({ key, index: 0 });
+  const activeIndex = cursor.key === key ? cursor.index : 0;
+  const src = activeIndex < candidates.length ? candidates[activeIndex] : null;
+  const showMotif = !src;
 
   return (
-    <div className={cn("cover", className)} style={plateStyle(spec)}>
+    <div className={cn("cover", variant === "wide" && "cover-wide", className)} style={plateStyle(spec)}>
       {showMotif ? (
         <svg className="cover-motif" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <Motif spec={spec} seed={seed} />
         </svg>
-      ) : landscape ? (
-        <>
-          <img
-            src={src}
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-55 blur-xl"
-            loading="lazy"
-          />
-          <img
-            src={src}
-            alt=""
-            data-cover-fit="contain"
-            className="relative z-[1] h-full w-full object-contain p-1.5 transition-transform duration-[240ms] ease-out group-hover:scale-[1.03]"
-            loading="lazy"
-            onError={() => setImgState({ src, failed: true, landscape: false })}
-          />
-        </>
       ) : (
         <img
           src={src}
           alt=""
           data-cover-fit="cover"
-          className="absolute inset-0 h-full w-full object-cover transition-transform duration-[240ms] ease-out group-hover:scale-[1.03]"
+          className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-[260ms] ease-out group-hover:scale-[1.04]"
           loading="lazy"
-          onLoad={(e) => {
-            const { naturalWidth, naturalHeight } = e.currentTarget;
-            if (naturalWidth > 0 && naturalHeight > 0 && naturalWidth / naturalHeight > LANDSCAPE_RATIO) {
-              setImgState({ src, failed: false, landscape: true });
-            }
-          }}
-          onError={() => setImgState({ src, failed: true, landscape: false })}
+          decoding="async"
+          onError={() => setCursor({ key, index: activeIndex + 1 })}
         />
       )}
       <div className="cover-sheen" aria-hidden="true" />

@@ -120,7 +120,7 @@ export function ArtworkDialog({
         <div
           className={
             kind === "cover"
-              ? "flex aspect-[3/4] w-[132px] items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-line bg-bg-2"
+              ? "flex aspect-[2/3] w-[124px] items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-line bg-bg-2"
               : "flex aspect-[16/9] w-full max-w-[360px] items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-line bg-bg-2"
           }
         >

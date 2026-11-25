@@ -23,7 +23,11 @@ const IGDB_TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 const IGDB_GAMES_URL: &str = "https://api.igdb.com/v4/games";
 const STEAM_SEARCH_URL: &str = "https://store.steampowered.com/api/storesearch/";
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
+const STEAM_STORE_BROWSE_URL: &str =
+    "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/";
+const STEAM_STORE_ASSET_HOST: &str = "https://shared.fastly.steamstatic.com/store_item_assets";
 const STEAM_ASSET_BASE: &str = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
+const STEAM_CLOUDFLARE_ASSET_BASE: &str = "https://cdn.cloudflare.steamstatic.com/steam/apps";
 const IGDB_FIELDS: &str = "name,summary,first_release_date,cover.url,artworks.url,\
 screenshots.url,videos.video_id,videos.name,genres.name,involved_companies.company.name,\
 involved_companies.developer,involved_companies.publisher,rating,age_ratings.*,url,\
@@ -891,7 +895,7 @@ pub(crate) struct CachedArtwork {
 pub(crate) async fn cache_artwork(state: &AppState, metadata: &ProviderMetadata) -> CachedArtwork {
     let media_dir = state.core.config.media_dir.as_path();
     let allow_private = state.core.config.providers_allow_private;
-    let cover = cache_first(
+    let cover = cache_cover(
         media_dir,
         metadata.cover_url.as_deref(),
         &metadata.cover_fallback_urls,
@@ -913,6 +917,33 @@ pub(crate) async fn cache_artwork(state: &AppState, metadata: &ProviderMetadata)
         background,
         screenshots: screenshot_names.into_iter().flatten().collect(),
     }
+}
+
+/// Caches the best cover from `primary` and `fallbacks`, preferring portrait
+/// (or square) artwork over landscape banners whenever a portrait candidate is
+/// available.
+async fn cache_cover(
+    media_dir: &Path,
+    primary: Option<&str>,
+    fallbacks: &[String],
+    allow_private: bool,
+) -> Option<String> {
+    let fallbacks = fallbacks.iter().map(String::as_str);
+    let mut landscape_fallback: Option<String> = None;
+    for url in primary.into_iter().chain(fallbacks) {
+        let Some(name) = cache_optional(media_dir, Some(url), allow_private).await else {
+            continue;
+        };
+        match crate::media::cached_image_dimensions(media_dir, &name).await {
+            Some((width, height)) if width > height => {
+                if landscape_fallback.is_none() {
+                    landscape_fallback = Some(name);
+                }
+            }
+            _ => return Some(name),
+        }
+    }
+    landscape_fallback
 }
 
 async fn cache_first(
@@ -1076,7 +1107,123 @@ pub(crate) async fn steam_candidates(http: &Client, title: &str) -> Result<Vec<S
 }
 
 pub(crate) async fn steam_details(http: &Client, app_id: i64) -> Result<Option<ProviderMetadata>> {
-    steam_details_at(STEAM_DETAILS_URL, http, app_id).await
+    let Some(mut metadata) = steam_details_at(STEAM_DETAILS_URL, http, app_id).await? else {
+        return Ok(None);
+    };
+    if let Some(assets) = steam_store_assets(STEAM_STORE_BROWSE_URL, http, app_id).await {
+        prepend_urls(
+            &mut metadata.cover_url,
+            &mut metadata.cover_fallback_urls,
+            assets.cover_urls,
+        );
+        prepend_urls(
+            &mut metadata.background_url,
+            &mut metadata.background_fallback_urls,
+            assets.hero_urls,
+        );
+    }
+    Ok(Some(metadata))
+}
+
+#[derive(Debug, Default)]
+struct SteamBrowseAssets {
+    cover_urls: Vec<String>,
+    hero_urls: Vec<String>,
+}
+
+/// Fetches hashed portrait cover (`library_capsule_2x` / `library_capsule`) and
+/// widescreen hero (`library_hero_2x` / `library_hero`) URLs from Steam's
+/// public `IStoreBrowseService/GetItems/v1` endpoint. Newer Steam titles store
+/// library capsules under content-hashed subdirectories, so unhashed CDN paths
+/// can 404 and fall back to landscape headers unless we resolve them here.
+async fn steam_store_assets(base: &str, http: &Client, app_id: i64) -> Option<SteamBrowseAssets> {
+    let input_json = serde_json::json!({
+        "ids": [{ "appid": app_id }],
+        "context": { "language": "english", "country_code": "US" },
+        "data_request": { "include_assets": true }
+    })
+    .to_string();
+    let response = http
+        .get(base)
+        .query(&[("input_json", input_json)])
+        .timeout(Duration::from_secs(6))
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let payload: SteamBrowseResponse = response.json().await.ok()?;
+    let item = payload
+        .response
+        .store_items
+        .into_iter()
+        .find(|entry| entry.appid == Some(app_id) || entry.id == Some(app_id))?;
+    let assets = item.assets?;
+    let template = assets.asset_url_format?;
+    let resolve = |file: Option<String>| -> Option<String> {
+        let file = file?.trim().to_string();
+        if file.is_empty() {
+            return None;
+        }
+        let path = template.replace("${FILENAME}", &file);
+        let path = path.trim_start_matches('/');
+        if path.starts_with("http://") || path.starts_with("https://") {
+            Some(path.to_string())
+        } else {
+            Some(format!("{STEAM_STORE_ASSET_HOST}/{path}"))
+        }
+    };
+    let mut cover_urls = Vec::new();
+    for candidate in [assets.library_capsule_2x, assets.library_capsule] {
+        let Some(url) = resolve(candidate) else {
+            continue;
+        };
+        if !cover_urls.contains(&url) {
+            cover_urls.push(url);
+        }
+    }
+    let mut hero_urls = Vec::new();
+    for candidate in [
+        assets.library_hero_2x,
+        assets.library_hero,
+        assets.raw_page_background,
+        assets.page_background,
+    ] {
+        let Some(url) = resolve(candidate) else {
+            continue;
+        };
+        if !hero_urls.contains(&url) {
+            hero_urls.push(url);
+        }
+    }
+    if cover_urls.is_empty() && hero_urls.is_empty() {
+        None
+    } else {
+        Some(SteamBrowseAssets {
+            cover_urls,
+            hero_urls,
+        })
+    }
+}
+
+fn prepend_urls(primary: &mut Option<String>, fallbacks: &mut Vec<String>, preferred: Vec<String>) {
+    if preferred.is_empty() {
+        return;
+    }
+    let mut merged = Vec::new();
+    for url in preferred
+        .into_iter()
+        .chain(primary.take())
+        .chain(std::mem::take(fallbacks))
+    {
+        if !url.trim().is_empty() && !merged.contains(&url) {
+            merged.push(url);
+        }
+    }
+    let mut iter = merged.into_iter();
+    *primary = iter.next();
+    *fallbacks = iter.collect();
 }
 
 /// [`steam_details`] against an explicit endpoint, for tests.
@@ -1191,17 +1338,27 @@ pub(crate) async fn steam_details_at(
         })
         .unwrap_or_default();
 
+    let header = app.header_image.filter(|url| !url.trim().is_empty());
     let cover_url = Some(format!(
         "{STEAM_ASSET_BASE}/{app_id}/library_600x900_2x.jpg"
     ));
-    let cover_sd = format!("{STEAM_ASSET_BASE}/{app_id}/library_600x900.jpg");
-    let mut cover_fallback_urls = vec![cover_sd];
-    if let Some(header) = app.header_image.filter(|url| !url.trim().is_empty()) {
-        cover_fallback_urls.push(header);
+    let mut cover_fallback_urls = vec![
+        format!("{STEAM_ASSET_BASE}/{app_id}/library_600x900.jpg"),
+        format!("{STEAM_CLOUDFLARE_ASSET_BASE}/{app_id}/library_600x900_2x.jpg"),
+        format!("{STEAM_CLOUDFLARE_ASSET_BASE}/{app_id}/library_600x900.jpg"),
+    ];
+    if let Some(header_url) = &header {
+        cover_fallback_urls.push(header_url.clone());
     }
-    let background_url = Some(format!("{STEAM_ASSET_BASE}/{app_id}/library_hero.jpg"));
-    let mut background_fallback_urls = Vec::new();
-    for candidate in [app.background_raw, app.background].into_iter().flatten() {
+    let background_url = Some(format!("{STEAM_ASSET_BASE}/{app_id}/library_hero_2x.jpg"));
+    let mut background_fallback_urls = vec![
+        format!("{STEAM_ASSET_BASE}/{app_id}/library_hero.jpg"),
+        format!("{STEAM_CLOUDFLARE_ASSET_BASE}/{app_id}/library_hero.jpg"),
+    ];
+    for candidate in [app.background_raw, app.background, header]
+        .into_iter()
+        .flatten()
+    {
         if !candidate.trim().is_empty() && !background_fallback_urls.contains(&candidate) {
             background_fallback_urls.push(candidate);
         }
@@ -1242,6 +1399,46 @@ fn clean_list(values: Vec<String>) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .filter(|value| seen.insert(value.to_ascii_lowercase()))
         .collect()
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamBrowseResponse {
+    #[serde(default)]
+    response: SteamBrowsePayload,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct SteamBrowsePayload {
+    #[serde(default)]
+    store_items: Vec<SteamBrowseItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamBrowseItem {
+    #[serde(default)]
+    id: Option<i64>,
+    #[serde(default)]
+    appid: Option<i64>,
+    #[serde(default)]
+    assets: Option<SteamBrowseItemAssets>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamBrowseItemAssets {
+    #[serde(default)]
+    asset_url_format: Option<String>,
+    #[serde(default)]
+    library_capsule_2x: Option<String>,
+    #[serde(default)]
+    library_capsule: Option<String>,
+    #[serde(default)]
+    library_hero_2x: Option<String>,
+    #[serde(default)]
+    library_hero: Option<String>,
+    #[serde(default)]
+    raw_page_background: Option<String>,
+    #[serde(default)]
+    page_background: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2046,7 +2243,12 @@ mod tests {
             .expect("record");
         let expected_cover = format!("{STEAM_ASSET_BASE}/1145360/library_600x900_2x.jpg");
         let expected_sd = format!("{STEAM_ASSET_BASE}/1145360/library_600x900.jpg");
+        let cf = STEAM_CLOUDFLARE_ASSET_BASE;
+        let expected_cf_2x = format!("{cf}/1145360/library_600x900_2x.jpg");
+        let expected_cf_sd = format!("{cf}/1145360/library_600x900.jpg");
+        let expected_hero_2x = format!("{STEAM_ASSET_BASE}/1145360/library_hero_2x.jpg");
         let expected_hero = format!("{STEAM_ASSET_BASE}/1145360/library_hero.jpg");
+        let expected_cf_hero = format!("{cf}/1145360/library_hero.jpg");
         assert_eq!(
             metadata.description.as_deref(),
             Some("Defy the god of the dead.")
@@ -2054,15 +2256,112 @@ mod tests {
         assert_eq!(metadata.cover_url.as_deref(), Some(expected_cover.as_str()));
         assert_eq!(
             metadata.cover_fallback_urls,
-            vec![expected_sd, "https://cdn.test/header.jpg".to_string()]
+            vec![
+                expected_sd,
+                expected_cf_2x,
+                expected_cf_sd,
+                "https://cdn.test/header.jpg".to_string()
+            ]
         );
         assert_eq!(
             metadata.background_url.as_deref(),
-            Some(expected_hero.as_str())
+            Some(expected_hero_2x.as_str())
         );
         assert_eq!(
             metadata.background_fallback_urls,
-            vec!["https://cdn.test/bg_raw.jpg", "https://cdn.test/bg.jpg"]
+            vec![
+                expected_hero,
+                expected_cf_hero,
+                "https://cdn.test/bg_raw.jpg".to_string(),
+                "https://cdn.test/bg.jpg".to_string(),
+                "https://cdn.test/header.jpg".to_string()
+            ]
         );
+    }
+
+    #[tokio::test]
+    async fn steam_store_assets_resolves_hashed_portrait_capsules() {
+        fn handler(_request: &str) -> String {
+            http_response(
+                r#"{"response":{"store_items":[{"id":1903340,"appid":1903340,"assets":{
+                    "asset_url_format":"steam/apps/1903340/${FILENAME}?t=123",
+                    "library_capsule_2x":"abc123/library_600x900_2x.jpg",
+                    "library_capsule":"abc123/library_600x900.jpg",
+                    "library_hero_2x":"library_hero_2x.jpg",
+                    "library_hero":"library_hero.jpg"
+                }}]}}"#,
+            )
+        }
+        let (base, _task) = mock_http(handler).await;
+        let http = reqwest::Client::new();
+        let assets = steam_store_assets(&base, &http, 1_903_340)
+            .await
+            .expect("browse assets");
+        let host = STEAM_STORE_ASSET_HOST;
+        assert_eq!(
+            assets.cover_urls,
+            vec![
+                format!("{host}/steam/apps/1903340/abc123/library_600x900_2x.jpg?t=123"),
+                format!("{host}/steam/apps/1903340/abc123/library_600x900.jpg?t=123"),
+            ]
+        );
+        assert_eq!(
+            assets.hero_urls,
+            vec![
+                format!("{host}/steam/apps/1903340/library_hero_2x.jpg?t=123"),
+                format!("{host}/steam/apps/1903340/library_hero.jpg?t=123"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn cache_cover_prefers_portrait_over_landscape_candidate() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        fn make_png(width: u32, height: u32) -> Vec<u8> {
+            let mut png = vec![0_u8; 24];
+            png[0..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+            png[16..20].copy_from_slice(&width.to_be_bytes());
+            png[20..24].copy_from_slice(&height.to_be_bytes());
+            png
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let _server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0_u8; 1024];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let body = if req.starts_with("GET /landscape.png") {
+                        make_png(460, 215)
+                    } else {
+                        make_png(600, 900)
+                    };
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: image/png\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = socket.write_all(header.as_bytes()).await;
+                    let _ = socket.write_all(&body).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let landscape = format!("http://{address}/landscape.png");
+        let portrait = format!("http://{address}/portrait.png");
+        let chosen = cache_cover(temp.path(), Some(&landscape), &[portrait], true)
+            .await
+            .expect("chosen cover");
+        let dims = crate::media::cached_image_dimensions(temp.path(), &chosen).await;
+        assert_eq!(dims, Some((600, 900)));
     }
 }

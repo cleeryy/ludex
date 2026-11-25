@@ -22,26 +22,33 @@ describe("resolveArtCandidates", () => {
 });
 
 describe("GameCover", () => {
-  it("keeps portrait covers in object-cover mode", () => {
+  it("renders artwork full-bleed with object-cover and never applies blurred letterboxing", () => {
     const { container } = render(<GameCover title="Hades" coverUrl="/api/media/hades-portrait.jpg" />);
     const img = container.querySelector("img") as HTMLImageElement;
     expect(img).toBeTruthy();
-    Object.defineProperty(img, "naturalWidth", { value: 600, configurable: true });
-    Object.defineProperty(img, "naturalHeight", { value: 900, configurable: true });
+    Object.defineProperty(img, "naturalWidth", { value: 460, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 215, configurable: true });
     fireEvent.load(img);
+    expect(container.querySelectorAll("img").length).toBe(1);
     expect(container.querySelector('img[data-cover-fit="cover"]')).toBeTruthy();
     expect(container.querySelector('img[data-cover-fit="contain"]')).toBeNull();
   });
 
-  it("switches landscape images to blurred backdrop + object-contain inside portrait slots", () => {
-    const { container } = render(<GameCover title="Hades" coverUrl="/api/media/hades-header.jpg" />);
-    const img = container.querySelector("img") as HTMLImageElement;
-    Object.defineProperty(img, "naturalWidth", { value: 460, configurable: true });
-    Object.defineProperty(img, "naturalHeight", { value: 215, configurable: true });
-    fireEvent.load(img);
-    const foreground = container.querySelector('img[data-cover-fit="contain"]');
-    expect(foreground).toBeTruthy();
-    expect(container.querySelectorAll("img").length).toBe(2);
+  it("supports wide 16:9 variant and steps through fallbackUrl on load error", () => {
+    const { container } = render(
+      <GameCover
+        title="Hades"
+        variant="wide"
+        coverUrl="/api/media/missing-hero.jpg"
+        fallbackUrl="/api/media/hades-cover.jpg"
+      />,
+    );
+    expect(container.querySelector(".cover.cover-wide")).toBeTruthy();
+    const first = container.querySelector("img") as HTMLImageElement;
+    expect(first?.getAttribute("src")).toBe("/api/media/missing-hero.jpg");
+    fireEvent.error(first);
+    const second = container.querySelector("img") as HTMLImageElement;
+    expect(second?.getAttribute("src")).toBe("/api/media/hades-cover.jpg");
   });
 
   it("falls back to the procedural motif when the cover image fails to load", () => {

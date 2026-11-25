@@ -20,6 +20,121 @@ const MAX_REDIRECTS: usize = 3;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// Extensions considered valid artwork files.
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif"];
+/// Maximum header bytes inspected when sniffing cached image dimensions.
+const HEADER_SNIFF_BYTES: usize = 65_536;
+
+/// Reads `(width, height)` from a PNG, JPEG, or WebP byte slice without
+/// decoding the full image. Returns `None` for unsupported or truncated input.
+#[must_use]
+pub fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    png_dimensions(bytes)
+        .or_else(|| jpeg_dimensions(bytes))
+        .or_else(|| webp_dimensions(bytes))
+        .filter(|(w, h)| *w > 0 && *h > 0)
+}
+
+fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    Some((width, height))
+}
+
+fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
+        return None;
+    }
+    let mut i = 2;
+    while i + 1 < bytes.len() {
+        while i < bytes.len() && bytes[i] != 0xFF {
+            i += 1;
+        }
+        while i < bytes.len() && bytes[i] == 0xFF {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            return None;
+        }
+        let marker = bytes[i];
+        i += 1;
+        if marker == 0xD9 || marker == 0xDA {
+            return None;
+        }
+        if marker == 0x01 || (0xD0..=0xD8).contains(&marker) {
+            continue;
+        }
+        if i + 1 >= bytes.len() {
+            return None;
+        }
+        let length = usize::from(u16::from_be_bytes([bytes[i], bytes[i + 1]]));
+        if length < 2 || i + length > bytes.len() {
+            return None;
+        }
+        let is_sof = matches!(
+            marker,
+            0xC0..=0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF
+        );
+        if is_sof && length >= 7 {
+            let height = u32::from(u16::from_be_bytes([bytes[i + 3], bytes[i + 4]]));
+            let width = u32::from(u16::from_be_bytes([bytes[i + 5], bytes[i + 6]]));
+            return Some((width, height));
+        }
+        i += length;
+    }
+    None
+}
+
+fn webp_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 25 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return None;
+    }
+    match &bytes[12..16] {
+        b"VP8X" if bytes.len() >= 30 => {
+            let width = 1
+                + (u32::from(bytes[24])
+                    | (u32::from(bytes[25]) << 8)
+                    | (u32::from(bytes[26]) << 16));
+            let height = 1
+                + (u32::from(bytes[27])
+                    | (u32::from(bytes[28]) << 8)
+                    | (u32::from(bytes[29]) << 16));
+            Some((width, height))
+        }
+        b"VP8L" if bytes[20] == 0x2F => {
+            let bits = u32::from_le_bytes([bytes[21], bytes[22], bytes[23], bytes[24]]);
+            let width = (bits & 0x3FFF) + 1;
+            let height = ((bits >> 14) & 0x3FFF) + 1;
+            Some((width, height))
+        }
+        b"VP8 " if bytes.len() >= 30 && bytes[23..26] == [0x9D, 0x01, 0x2A] => {
+            let width = u32::from(u16::from_le_bytes([bytes[26], bytes[27]]) & 0x3FFF);
+            let height = u32::from(u16::from_le_bytes([bytes[28], bytes[29]]) & 0x3FFF);
+            Some((width, height))
+        }
+        _ => None,
+    }
+}
+
+/// Reads the header of a cached media file and returns its `(width, height)`.
+pub async fn cached_image_dimensions(media_dir: &Path, name: &str) -> Option<(u32, u32)> {
+    use tokio::io::AsyncReadExt;
+    if !safe_media_name(name) {
+        return None;
+    }
+    let mut file = tokio::fs::File::open(media_dir.join(name)).await.ok()?;
+    let mut buf = vec![0_u8; HEADER_SNIFF_BYTES];
+    let mut filled = 0;
+    while filled < buf.len() {
+        let read = file.read(&mut buf[filled..]).await.ok()?;
+        if read == 0 {
+            break;
+        }
+        filled += read;
+    }
+    image_dimensions(&buf[..filled])
+}
 
 /// Public URL for a cached media file.
 #[must_use]
@@ -297,5 +412,31 @@ mod tests {
             .expect_err("html is not artwork");
         assert!(format!("{error:#}").contains("not an image"), "{error:#}");
         server.await.expect("server task");
+    }
+
+    #[test]
+    fn image_dimensions_parses_png_jpeg_and_webp_headers() {
+        let mut png = vec![0_u8; 24];
+        png[0..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[16..20].copy_from_slice(&600_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&900_u32.to_be_bytes());
+        assert_eq!(image_dimensions(&png), Some((600, 900)));
+
+        // Minimal JPEG: SOI + APP0 (length 4) + SOF0 (height 215, width 460).
+        let jpeg = [
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00,
+            0xD7, 0x01, 0xCC, 0x03, 0x01, 0x11, 0x00,
+        ];
+        assert_eq!(image_dimensions(&jpeg), Some((460, 215)));
+
+        let mut webp = vec![0_u8; 30];
+        webp[0..4].copy_from_slice(b"RIFF");
+        webp[8..16].copy_from_slice(b"WEBPVP8X");
+        // Width 600 -> 599 = 0x0257; Height 900 -> 899 = 0x0383.
+        webp[24..27].copy_from_slice(&[0x57, 0x02, 0x00]);
+        webp[27..30].copy_from_slice(&[0x83, 0x03, 0x00]);
+        assert_eq!(image_dimensions(&webp), Some((600, 900)));
+
+        assert_eq!(image_dimensions(b"PNG!"), None);
     }
 }
