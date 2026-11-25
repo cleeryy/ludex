@@ -3230,6 +3230,7 @@ pub async fn protondb_rating(
     game_id: i64,
     app_id: Option<u32>,
     refresh: Option<bool>,
+    title: Option<String>,
 ) -> Result<ProtonDbRating, String> {
     let state = app.state::<AppState>();
     let installed = {
@@ -3247,13 +3248,19 @@ pub async fn protondb_rating(
         db::get_launch_options(&connection, game_id)?
     };
 
-    let app_id = protondb::resolve_app_id(
+    let app_id = match protondb::resolve_app_id(
         app_id,
         options.steam_app_id,
         installed
             .as_ref()
             .and_then(|game| game.launch_uri.as_deref()),
-    );
+    ) {
+        Some(id) => Some(id),
+        None => match title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            Some(title) => protondb::lookup_steam_app_id(&state.http, title).await,
+            None => None,
+        },
+    };
     let Some(app_id) = app_id else {
         return Ok(ProtonDbRating::no_app_id());
     };

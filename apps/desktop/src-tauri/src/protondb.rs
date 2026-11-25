@@ -6,15 +6,20 @@
 //! game page never waits on the network twice, and an offline machine keeps
 //! showing the last known tier.
 
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const CACHE_TTL_DAYS: i64 = 7;
 pub const SUMMARY_BASE: &str = "https://www.protondb.com/api/v1/reports/summaries";
+pub const STEAM_SEARCH_URL: &str = "https://store.steampowered.com/api/storesearch/";
 
 /// The tiers ProtonDB reports, in decreasing order of compatibility.
-pub const TIERS: [&str; 6] = ["platinum", "gold", "silver", "bronze", "borked", "pending"];
+pub const TIERS: [&str; 7] = [
+    "native", "platinum", "gold", "silver", "bronze", "borked", "pending",
+];
 
 pub fn summary_url(app_id: u32) -> String {
     format!("{SUMMARY_BASE}/{app_id}.json")
@@ -37,6 +42,98 @@ pub fn resolve_app_id(
         .filter(|app_id| *app_id > 0)
         .or(stored.filter(|app_id| *app_id > 0))
         .or_else(|| launch_uri.and_then(crate::steam::app_id_from_uri))
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamSearchResponse {
+    #[serde(default)]
+    items: Vec<SteamSearchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SteamSearchItem {
+    pub id: i64,
+    pub name: String,
+    #[serde(rename = "type", default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub platforms: Option<SteamSearchPlatforms>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SteamSearchPlatforms {
+    #[serde(default)]
+    pub windows: Option<bool>,
+}
+
+fn normalize_lookup_title(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Picks the best matching Steam app id from Steam Store search hits.
+pub fn pick_steam_search_app_id(title: &str, items: &[SteamSearchItem]) -> Option<u32> {
+    let needle = normalize_lookup_title(title);
+    if needle.is_empty() {
+        return None;
+    }
+    let mut fallback = None;
+    for item in items {
+        let kind = item.kind.as_deref();
+        if matches!(kind, Some("bundle" | "dlc" | "music" | "video" | "demo")) {
+            continue;
+        }
+        let Ok(id) = u32::try_from(item.id) else {
+            continue;
+        };
+        if id == 0 {
+            continue;
+        }
+        if normalize_lookup_title(&item.name) == needle {
+            let windows = item
+                .platforms
+                .as_ref()
+                .and_then(|platforms| platforms.windows)
+                .unwrap_or(false);
+            if windows {
+                return Some(id);
+            }
+            if fallback.is_none() {
+                fallback = Some(id);
+            }
+        }
+    }
+    fallback
+}
+
+/// Looks up a Steam app id by game title via the public Steam Store search API.
+pub async fn lookup_steam_app_id(http: &reqwest::Client, title: &str) -> Option<u32> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let response = http
+        .get(STEAM_SEARCH_URL)
+        .query(&[("term", trimmed), ("l", "english"), ("cc", "US")])
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let payload: SteamSearchResponse = response.json().await.ok()?;
+    pick_steam_search_app_id(trimmed, &payload.items)
 }
 
 /// A parsed ProtonDB summary.
@@ -304,5 +401,34 @@ mod tests {
         assert_eq!(missing.status, "noAppId");
         assert!(missing.tier.is_none());
         assert_eq!(serde_json::to_value(&missing).unwrap()["status"], "noAppId");
+    }
+
+    #[test]
+    fn accepts_native_tier_and_picks_steam_search_matches() {
+        let native = parse_summary(r#"{"tier":"native","total":58}"#).unwrap();
+        assert_eq!(native.tier, "native");
+        assert_eq!(native.total, 58);
+
+        let items = vec![
+            SteamSearchItem {
+                id: 1,
+                name: "Hades Soundtrack".into(),
+                kind: Some("music".into()),
+                platforms: Some(SteamSearchPlatforms {
+                    windows: Some(true),
+                }),
+            },
+            SteamSearchItem {
+                id: 1_145_360,
+                name: "Hades".into(),
+                kind: Some("app".into()),
+                platforms: Some(SteamSearchPlatforms {
+                    windows: Some(true),
+                }),
+            },
+        ];
+        assert_eq!(pick_steam_search_app_id("Hades", &items), Some(1_145_360));
+        assert_eq!(pick_steam_search_app_id("Hades!", &items), Some(1_145_360));
+        assert_eq!(pick_steam_search_app_id("Unknown Game", &items), None);
     }
 }

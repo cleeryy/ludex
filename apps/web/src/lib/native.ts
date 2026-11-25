@@ -1200,8 +1200,18 @@ export const native = {
     return invoke<GameControllers>("set_game_virtual_pad", { gameId, enabled });
   },
 
-  async protondbRating(gameId: number, appId?: number | null, refresh = false): Promise<ProtonDbRating> {
-    return invoke<ProtonDbRating>("protondb_rating", { gameId, appId: appId ?? null, refresh });
+  async protondbRating(
+    gameId: number,
+    appId?: number | null,
+    refresh = false,
+    title?: string | null,
+  ): Promise<ProtonDbRating> {
+    return invoke<ProtonDbRating>("protondb_rating", {
+      gameId,
+      appId: appId ?? null,
+      refresh,
+      title: title ?? null,
+    });
   },
 
   /* ------------------ Guided runtime installer (#178) ------------------ */
