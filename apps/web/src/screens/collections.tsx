@@ -27,7 +27,7 @@ export function CollectionsScreen() {
         meta={
           <span>
             {tn(own.length, "1 shelf of yours", "{count} shelves of yours")}
-            {shared.length > 0 ? ` · ${shared.length} shared with you` : ""}
+            {shared.length > 0 ? ` · ${tn(shared.length, "1 shared with you", "{count} shared with you")}` : ""}
           </span>
         }
         description={t("Shelves you build by hand, and shelves that keep themselves up to date from rules.")}

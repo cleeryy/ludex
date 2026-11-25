@@ -522,7 +522,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               disabled={model.total === 0}
               onClick={() => void surpriseMe()}
             />
-            <div className="w-[150px] md:hidden">
+            <div className="w-[150px]">
               <Select
                 label={t("Sort games")}
                 value={filters.sort}

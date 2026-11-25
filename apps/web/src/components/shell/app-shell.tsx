@@ -7,20 +7,22 @@ import {
   Dice5,
   Download,
   Gamepad2,
+  Keyboard,
   LogOut,
   Moon,
   Search,
   Settings,
   Sun,
+  User,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { setRouteDocumentTitle } from "@/lib/document-title";
 import { routeScreenKey, routeTitleId, shouldMoveRouteFocus } from "@/lib/route-focus";
 import { installsAvailable } from "@/lib/install";
+import { filterQuery, readFilters } from "@/lib/library-filters";
 import { navShortcutTarget, type NavContext } from "@/lib/navigation";
 import { useAuth, useIsAdmin, useIsEditor } from "@/state/auth";
-import type { ProgressState } from "@/lib/types";
 import { otherModeTheme, useSettings } from "@/state/settings";
 import { useToast } from "@/state/toasts";
 import { Wordmark } from "@/components/brand";
@@ -45,7 +47,7 @@ import { DesktopAppPrompt } from "@/components/desktop-app-prompt";
 import { HostPreflightPrompt } from "@/components/settings/host-preflight-prompt";
 import { KeepAwakeBanner } from "@/components/shell/keep-awake-banner";
 import { useNativeEvents } from "@/lib/hooks";
-import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, requestSearchFocus } from "@/lib/ui-events";
+import { OPEN_SHORTCUTS_EVENT, openFiltersPanel, openShortcutsHelp, requestSearchFocus } from "@/lib/ui-events";
 import { useActiveJobs, useQueueSummary, useTitleFor } from "@/state/downloads";
 import { formatSpeed, sortLabel, formatPercent } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -117,7 +119,9 @@ function UserMenu() {
         </span>
       ),
     },
+    { label: t("Your profile"), icon: <User className="size-3.5" />, onSelect: () => navigate(`/community/u/${user.id}`) },
     { label: t("Settings"), icon: <Settings className="size-3.5" />, onSelect: () => navigate("/settings") },
+    { label: t("Keyboard shortcuts"), icon: <Keyboard className="size-3.5" />, onSelect: () => openShortcutsHelp() },
     {
       label: resolved === "dark" ? t("Light theme") : t("Dark theme"),
       icon: resolved === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />,
@@ -152,20 +156,12 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
   const [randomizing, setRandomizing] = useState(false);
   const [params] = useSearchParams();
   const showSort = location.pathname === "/library" || location.pathname === "/bookmarks";
-  const onLibrary = location.pathname === "/";
+  const onLibrary = location.pathname === "/library";
 
   const random = async () => {
     setRandomizing(true);
     try {
-      const game = await api.randomGame(
-        onLibrary
-          ? {
-              genre: params.get("genre") ?? undefined,
-              state: (params.get("state") as ProgressState | null) ?? undefined,
-              earlyAccess: params.get("earlyAccess") === "true" || undefined,
-            }
-          : {},
-      );
+      const game = await api.randomGame(onLibrary ? filterQuery(readFilters(params, "library")) : {});
       navigate(`/game/${game.id}`);
     } catch {
       push({ title: t("Nothing to pick"), description: t("The library is empty, or no game matches the filters.") });

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowUpRight, Lock, UserPlus } from "lucide-react";
@@ -5,6 +6,7 @@ import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/http";
 import { formatDate, formatMinutes } from "@/lib/format";
 import { useAuth } from "@/state/auth";
+import { useToast } from "@/state/toasts";
 import { useBookmark, useInstalledMap, useLaunchGame } from "@/lib/hooks";
 import { isNative } from "@/lib/native";
 import { GameCard } from "@/components/game/game-card";
@@ -15,6 +17,7 @@ import { ActivityList } from "@/components/community/activity-list";
 import { UserAvatar } from "@/components/community/user-avatar";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Skeleton } from "@/components/ui/controls";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 
@@ -23,6 +26,8 @@ export function ProfileScreen() {
   const userId = Number(id);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { push } = useToast();
+  const [removeOpen, setRemoveOpen] = useState(false);
   const installed = useInstalledMap();
   const bookmark = useBookmark();
   const launch = useLaunchGame();
@@ -125,7 +130,7 @@ export function ProfileScreen() {
             {data.user.publicProfile ? <Badge tone="signal">{t("Public")}</Badge> : <Badge tone="outline">{t("Private")}</Badge>}
             <span>{t("Member since")} {formatDate(data.user.createdAt)}</span>
             {own && (
-              <Link to="/settings" className="inline-flex items-center gap-1 text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+              <Link to="/settings?section=account" className="inline-flex items-center gap-1 text-ink-3 underline-offset-4 hover:text-ink hover:underline">
                 {t("Edit profile")}
                 <ArrowUpRight className="size-3" aria-hidden="true" />
               </Link>
@@ -148,7 +153,7 @@ export function ProfileScreen() {
             <>
               <Badge tone="signal">{t("Friend")}</Badge>
               <PresenceBadge presence={friend.presence} />
-              <Button variant="ghost" size="sm" loading={unfriend.isPending} onClick={() => unfriend.mutate()}>
+              <Button variant="ghost" size="sm" loading={unfriend.isPending} onClick={() => setRemoveOpen(true)}>
                 {t("Remove friend")}
               </Button>
             </>
@@ -162,7 +167,17 @@ export function ProfileScreen() {
               </Link>
             </>
           ) : (
-            <Button variant="default" size="sm" loading={addFriend.isPending} onClick={() => addFriend.mutate()}>
+            <Button
+              variant="default"
+              size="sm"
+              loading={addFriend.isPending}
+              onClick={() =>
+                addFriend.mutate(undefined, {
+                  onSuccess: () => push({ title: t("Friend request sent"), tone: "success" }),
+                  onError: (cause) => push({ title: t("Could not send request"), description: errorMessage(cause), tone: "danger" }),
+                })
+              }
+            >
               <UserPlus className="size-3.5" aria-hidden="true" />
               {t("Add friend")}
             </Button>
@@ -196,7 +211,11 @@ export function ProfileScreen() {
           <EmptyState
             compact
             title={t("Nothing on the shelf yet")}
-            description={own ? t("Start a game or bookmark one and it will appear here.") : `${display} has not recorded any progress yet.`}
+            description={
+              own
+                ? t("Start a game or bookmark one and it will appear here.")
+                : t("{name} has not recorded any progress yet.", { name: display })
+            }
           />
         ) : (
           <div id="profile-library" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -224,7 +243,11 @@ export function ProfileScreen() {
           <EmptyState
             compact
             title={t("No public collections")}
-            description={own ? t("Publish a collection from its page to show it here.") : `${display} has no public shelves.`}
+            description={
+              own
+                ? t("Publish a collection from its page to show it here.")
+                : t("{name} has no public shelves.", { name: display })
+            }
           />
         ) : (
           <div id="profile-collections" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -243,13 +266,37 @@ export function ProfileScreen() {
           <ActivityList
             items={items}
             emptyTitle={t("No public activity")}
-            emptyDescription={own ? t("Play a game or create a collection to start the feed.") : `${display} has not published any activity yet.`}
+            emptyDescription={
+              own
+                ? t("Play a game or create a collection to start the feed.")
+                : t("{name} has not published any activity yet.", { name: display })
+            }
             hasMore={Boolean(activity.hasNextPage)}
             loadingMore={activity.isFetchingNextPage}
             onLoadMore={() => void activity.fetchNextPage()}
           />
         )}
       </section>
+
+      <ConfirmDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        title={t("Remove {name} from friends?", { name: display })}
+        description={t("They will no longer see your presence or friend-only activity. You can send a new request later.")}
+        confirmLabel={t("Remove friend")}
+        loading={unfriend.isPending}
+        onConfirm={() =>
+          unfriend.mutate(undefined, {
+            onSuccess: () => {
+              setRemoveOpen(false);
+              push({ title: t("Removed {name} from friends", { name: display }), tone: "success" });
+            },
+            onError: (cause) => {
+              push({ title: t("Could not remove friend"), description: errorMessage(cause), tone: "danger" });
+            },
+          })
+        }
+      />
     </div>
   );
 }

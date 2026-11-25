@@ -189,7 +189,7 @@ export function RemoteScreen() {
             </ol>
             <p className="mt-2">
               {t("Check the server on the PC:")}{" "}
-              <Link to="/settings" className="underline underline-offset-4 hover:text-ink">
+              <Link to="/settings?section=integrations" className="underline underline-offset-4 hover:text-ink">
                 {t("Settings → Servers")}
               </Link>
               . {t("Until then, requests stay in the account-wide queue.")}

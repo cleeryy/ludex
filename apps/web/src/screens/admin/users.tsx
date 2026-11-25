@@ -464,9 +464,9 @@ function EditUserDialog({
           <Select label={t("Role")} id="edit-role" value={role} onChange={setRole} options={roleOptions()} />
         </Field>
         <Field
-          label="Age limit"
+          label={t("Age limit")}
           htmlFor="edit-age-limit"
-          hint="Hide games rated above this number (0–21). Leave empty for no restriction. Unrated games stay visible."
+          hint={t("Hide games rated above this number (0–21). Leave empty for no restriction. Unrated games stay visible.")}
         >
           <Input
             id="edit-age-limit"
@@ -474,7 +474,7 @@ function EditUserDialog({
             min={0}
             max={21}
             inputMode="numeric"
-            placeholder="No limit"
+            placeholder={t("No limit")}
             value={ageLimit}
             onChange={(event) => setAgeLimit(event.target.value)}
           />

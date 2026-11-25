@@ -256,7 +256,7 @@ export function HomeScreen() {
             title={t("On this device")}
             description={t("Installed here, newest launch first.")}
             actions={
-              <Link to="/downloads" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+              <Link to="/settings?section=storage" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
                 {t("Manage installs")}
               </Link>
             }
