@@ -332,11 +332,7 @@ export function HomeScreen() {
 
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div className="flex min-w-0 items-end gap-6">
-              <Link
-                to={`/game/${hero.id}`}
-                aria-label={t("Open {title}", { title: hero.title })}
-                className="cover-host hidden w-[152px] shrink-0 overflow-hidden rounded-[var(--r-md)] shadow-cover md:block"
-              >
+              <div className="hidden w-[152px] shrink-0 overflow-hidden rounded-[var(--r-md)] shadow-cover md:block">
                 <GameCover
                   title={hero.title}
                   coverUrl={hero.coverUrl}
@@ -344,7 +340,7 @@ export function HomeScreen() {
                   year={formatYear(hero.releaseDate)}
                   genre={hero.genres[0] ?? null}
                 />
-              </Link>
+              </div>
 
               <div className="flex min-w-0 flex-col gap-3">
                 <h1 className="max-w-[20ch] text-display font-semibold leading-[0.98] tracking-[-0.03em] text-stage-ink sm:text-hero">
