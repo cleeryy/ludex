@@ -1,0 +1,9 @@
+{
+  "title": "Security",
+  "pages": [
+    "overview",
+    "oidc",
+    "integrations",
+    "remote-access"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "title": "Reference",
+  "pages": [
+    "openapi",
+    "compat-rules",
+    "settings",
+    "feature-parity",
+    "migration",
+    "competitive-roadmap",
+    "ux-ui-audit"
+  ]
+}

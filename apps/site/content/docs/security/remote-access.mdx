@@ -1,0 +1,170 @@
+---
+title: "Reaching Ludex from outside your network (#167)"
+description: "The mobile companion is a normal web client: it needs an HTTPS origin that"
+---
+The mobile companion is a normal web client: it needs an HTTPS origin that
+reaches the Ludex server. Nothing in this repository opens a tunnel, and no
+tunnel is enabled by default. Choose one of the transports below.
+
+Ludex authenticates **every** remote install request. A tunnel is transport
+only: it never replaces a session, a device token or the API rate limiter.
+
+## 1. VPN (recommended)
+
+WireGuard, Tailscale or your existing site-to-site VPN is the safest option:
+the server stays unreachable from the public internet and there is no TLS
+certificate or public hostname to leak.
+
+1. Put the phone and the server on the same VPN.
+2. Point the PWA at `https://<vpn-name-or-ip>` (or the LAN address when at
+   home).
+3. Sign in normally. The session is the only credential the phone needs.
+
+Nothing else changes: remote installs still require a signed-in account.
+
+## 2. Your own HTTPS reverse proxy
+
+Expose only the Ludex HTTP port through a reverse proxy you control (Caddy,
+nginx, Traefik), with a real certificate and normal security headers. Keep the
+server itself bound to the private interface/VPN.
+
+Checklist:
+
+- TLS terminated at the proxy; the upstream is `127.0.0.1:<port>` or the VPN
+  address, never a plain public HTTP hop;
+- `X-Forwarded-For` set so the login throttle and API rate limiter see the
+  client, not the proxy;
+- no "auth off" switch: Ludex still returns `401` for a missing session and
+  `403` for a read-only API key;
+- keep the server updated, and revoke sessions from **Settings → Account** if a
+  phone is lost.
+
+### Caddy `encode` and the archive streams (#310)
+
+With `encode zstd gzip` on the vhost, Caddy delays the response head until it
+has the first body byte, because it needs that byte to choose an encoding
+(`minimum_length` buffers 512 B by default). On
+`/api/games/{id}/versions/{id}/stream/entries/{index}` the first byte can be
+minutes away while the server decompresses a compressed ZIP entry, so the
+desktop client hits its 20 s first-byte budget although the server answered in
+milliseconds.
+
+The server sends `Cache-Control: private, no-store, no-transform`,
+`X-Accel-Buffering: no` and `Incremental: ?1` (RFC 10036) on the entry stream,
+the tar stream and the extracted-cache file route. On **Caddy ≥ 2.11.7** those
+headers alone are enough: `responseWriter.WriteHeader` writes the head
+immediately when the response carries `Incremental: ?1`, and `init()` skips the
+encoder when `Cache-Control` contains `no-transform`
+(`modules/caddyhttp/encode/encode.go` and `modules/caddyhttp/incremental.go` in
+the Caddy tree). Caddy 2.11.0 and older have no `Incremental` support and still
+hold the head until the first `Write`, so keep the matcher below: it works on
+every Caddy version and on other proxies.
+
+```caddyfile
+ludex.example.com {
+    # Per-entry stream, tar stream and extracted-cache files: no encode, no
+    # buffering.
+    @ludex_stream path /api/games/*/versions/*/stream/* /api/versions/*/files/*
+    handle @ludex_stream {
+        reverse_proxy 127.0.0.1:8080 {
+            flush_interval -1
+            transport http {
+                read_timeout 0
+                write_timeout 0
+            }
+        }
+    }
+
+    handle {
+        encode zstd gzip
+        reverse_proxy 127.0.0.1:8080
+    }
+}
+```
+
+Before/after with the same request, direct and through the proxy:
+
+```bash
+# Direct: the server answers at once. On a current build a compressed entry
+# past 1 MiB answers 409 entry_resume_restart (#309) instead of a silent 206;
+# on the build from the issue it answers 206 and then sends no body byte.
+curl -sS -o /dev/null -r 1500000000- \
+  -w 'direct  status=%{http_code} ttfb=%{time_starttransfer}s\n' \
+  'http://127.0.0.1:8080/api/games/30/versions/30/stream/entries/496'
+
+# Through Caddy before the matcher: no head, no byte, curl gives up.
+curl -sS --max-time 40 -o /dev/null -r 1500000000- \
+  -w 'proxied status=%{http_code} ttfb=%{time_starttransfer}s\n' \
+  'https://ludex.example.tld/api/games/30/versions/30/stream/entries/496'
+# curl: (28) Operation timed out after 40002 milliseconds with 0 bytes received
+
+# After the matcher: the same 409 (or a 206 for a stored entry) arrives in
+# milliseconds, and `content-encoding` is absent when the client offers zstd.
+curl -sS -o /dev/null -r 1500000000- -H 'Accept-Encoding: zstd' \
+  -w 'proxied status=%{http_code} ttfb=%{time_starttransfer}s\n' \
+  'https://ludex.example.tld/api/games/30/versions/30/stream/entries/496'
+```
+
+If `curl -sSI -H 'Accept-Encoding: zstd'` on a streaming route returns
+`content-encoding: zstd`, `encode` still wraps that route: the matcher is
+missing or does not match the path.
+
+nginx in front needs the same treatment: `proxy_buffering off` (see
+`docs/DEPLOY.md`) and `gzip off` if gzip is enabled globally, because nginx
+does not honour `Incremental`.
+
+## 3. A public tunnel (OpenTunnel, Cloudflare Tunnel, ngrok, ...)
+
+A tunnel can be convenient, but it changes the threat model.
+
+OpenTunnel is a blind TLS tunnel: the relay forwards encrypted bytes and the
+private key stays on your machine. It does **not** protect you:
+
+- the `*.opentunnel.xyz` hostname is public in Certificate Transparency logs;
+- anyone who learns the URL reaches the Ludex sign-in page;
+- the relay sees traffic metadata (connection times, sizes), not content;
+- the tunnel URL is not an authentication factor. Ludex still requires a
+  valid session/device token on every request, keeps CSRF/origin checks and
+  rate limits, and refuses unauthenticated routes.
+
+If you use it:
+
+1. Finish first-run setup **before** starting the tunnel, and use a strong
+   unique password (plus SSO/2FA where available).
+2. Treat the URL as a secret; rotate it when you no longer need it.
+3. Do not create a public share link "just for the tunnel"; share links are
+   separate, expiring capabilities.
+4. Stop the tunnel when you are done. It is a temporary door, not a deployment
+   mode.
+5. Watch the audit log: every remote install request, claim, completion and
+   cancellation is recorded.
+
+Ludex does not bundle, resell or auto-start a tunnel. There is no server
+configuration flag that turns one on, and no endpoint accepts a tunnel hostname
+as proof of identity.
+
+For stricter isolation, combine a tunnel with a VPN or an authenticating proxy
+in front of Ludex; then the tunnel only carries already-authenticated traffic.
+
+## Device model (v1 limitation)
+
+The v1 mobile companion uses the **account session** on both the phone and the
+desktop. A phone "pairs" by signing into the same account; revoking the session
+from the account page stops its remote actions immediately.
+
+A one-time pairing code/QR and per-device tokens are follow-ups (the issue
+sketch): they would let the desktop show a list of paired phones and revoke one
+without signing the whole account out. Until then:
+
+- use one account per household member, not a shared account;
+- the `device` label on a request is cosmetic and never grants access;
+- a read-only API key can *follow* the queue but cannot create, claim or
+  cancel requests (`403 insufficient_scope`).
+
+## What the desktop must do
+
+The desktop polls `GET /api/remote-installs?status=queued`, claims a row with
+`POST /api/remote-installs/{id}/status {"status":"claimed"}`, downloads the
+game through the normal download endpoint, reports `downloading` + `progress`,
+and finishes with `ready` or `failed`. See `docs/CONTRACT.md` for the exact
+payloads.

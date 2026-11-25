@@ -1,0 +1,177 @@
+---
+title: "Installing Ludex"
+description: "Ludex is two things: a self-hosted server and a desktop client. This page"
+---
+Ludex is two things: a self-hosted **server** and a desktop **client**. This page
+covers the client on every channel and what each one leaves on disk. The server
+is [DEPLOY.md](/docs/deployment/docker-and-proxy/); how the releases are produced and signed is
+[RELEASING.md](/docs/development/releasing/).
+
+## Channels
+
+| Channel | Install | Who it is for |
+|---|---|---|
+| AUR `ludex-bin` | `yay -S ludex-bin` | Arch, CachyOS, EndeavourOS |
+| Linux script | `curl -fsSL https://github.com/cleeryy/ludex/releases/latest/download/install.sh \| sh` | every other Linux, per-user, no root |
+| Linux `.deb` | `sudo apt install ./Ludex_<version>_amd64.deb` | Debian/Ubuntu, manual |
+| Linux `.rpm` | `sudo dnf install ./Ludex-<version>-1.x86_64.rpm` | Fedora, RHEL, openSUSE, manual |
+| AppImage | `chmod +x Ludex_<version>_amd64.AppImage` then run it | no installation at all |
+| Windows setup | `Ludex_<version>_x64-setup.exe` | Windows 10/11, per-user |
+| Windows script | `irm https://github.com/cleeryy/ludex/releases/latest/download/install.ps1 \| iex` | the same build, scripted |
+| macOS `.dmg` | drag Ludex into `/Applications` | macOS, unsigned for now |
+| Server | [DEPLOY.md](/docs/deployment/docker-and-proxy/) | homelab, Docker or a bare binary |
+
+Every asset comes from [https://github.com/cleeryy/ludex/releases](https://github.com/cleeryy/ludex/releases). The Linux
+build is `x86_64` only and the Windows build is `x64` only: there is no aarch64
+package and no portable Windows ZIP, so none is documented here.
+
+### Native RPM (Fedora, RHEL, openSUSE)
+
+The Linux build also ships `Ludex-<version>-1.x86_64.rpm`. Verify it like any
+other asset (see below), then install the local file so dnf can pull the
+dependencies:
+
+```sh
+version=0.4.22   # the release you verified
+sudo dnf install "./Ludex-${version}-1.x86_64.rpm"
+# or, with the dependencies already present
+sudo rpm -i "Ludex-${version}-1.x86_64.rpm"
+```
+
+Prefer it on a machine that drives games through Python-based compatibility
+tools: the AppImage mounts at `/.mount_*` and exports `PYTHONHOME`,
+`PYTHONPATH`, `LD_LIBRARY_PATH` and `LD_PRELOAD` pointing inside that mount,
+which breaks the tools it spawns (#278). The rpm installs real files under
+`/usr`, so no mount prefix reaches a child process.
+
+## Verify before you run
+
+Each release publishes `SHA256SUMS` (one line per asset) and `SHA256SUMS.sig`, a
+minisign signature over that list. The signing key is the updater key committed
+in `apps/desktop/src-tauri/tauri.conf.json` (`plugins.updater.pubkey`), so the
+trust anchor is the repository, not the download host:
+
+```sh
+VERSION=0.4.22
+BASE="https://github.com/cleeryy/ludex/releases/download/v$VERSION"
+
+curl -fsSLO "$BASE/Ludex_${VERSION}_amd64.AppImage"
+curl -fsSLO "$BASE/SHA256SUMS"
+curl -fsSLO "$BASE/SHA256SUMS.sig"
+
+# The .sig is a base64-wrapped minisign document.
+base64 -d SHA256SUMS.sig > SHA256SUMS.minisig
+minisign -Vm SHA256SUMS -P 'RWTYJYRvfR/fZ7gvqJswoVBRjOGygHbRCgCkyUEF5pQFLYpiEnwDthsC' -x SHA256SUMS.minisig
+
+sha256sum -c --ignore-missing SHA256SUMS
+chmod +x "Ludex_${VERSION}_amd64.AppImage"
+```
+
+Expected output: `Signature and comment signature verified` from `minisign`, then
+`Ludex_0.4.22_amd64.AppImage: OK` from `sha256sum`. Only then run the file.
+
+This is the recommended path for three reasons:
+
+- **Two independent checks.** `sha256sum` proves the file is the one listed;
+  `minisign` proves the list was signed by the maintainer. A compromised mirror
+  or a tampered download cannot produce both.
+- **One list covers every channel.** The same `SHA256SUMS` lists the AppImage,
+  the `.deb`, the `.rpm`, the `.dmg`, the `.exe`, the server tarball and the
+  packaging files; `--ignore-missing` lets you check the one you downloaded.
+- **Nothing is installed to check it.** `minisign` is packaged everywhere
+  (`apt install minisign`, `pacman -S minisign`, `brew install minisign`) and the
+  commands are the same on Linux, macOS and Windows (WSL/Git Bash).
+
+Each bundle also carries its own signature, which is the same document shape:
+
+```sh
+base64 -d Ludex_0.4.22_amd64.deb.sig > audit.minisig
+minisign -Vm Ludex_0.4.22_amd64.deb -P 'RWTYJYRvfR/fZ7gvqJswoVBRjOGygHbRCgCkyUEF5pQFLYpiEnwDthsC' -x audit.minisig
+```
+
+The scripts do the same checks; read them before piping them into a shell.
+[`install/linux.md`](install/linux.md) and [`install/windows.md`](install/windows.md)
+document their flags and paths.
+
+## Linux runtime dependencies
+
+The AppImage bundles its own WebKitGTK 4.1 and GTK 3, but it still loads the
+host's graphics stack, fonts and GStreamer plugins. A start that dies with a
+loader error (`libfribidi.so.0`, `libegl.so.1`, `libgtk-3.so.0`) means the
+runtime is incomplete for that family:
+
+| Family | Command |
+|---|---|
+| Debian, Ubuntu | `sudo apt install libwebkit2gtk-4.1-0` |
+| Fedora, RHEL 9+ | `sudo dnf install webkit2gtk4.1` |
+| Arch | `sudo pacman -S webkit2gtk-4.1` |
+| openSUSE | `sudo zypper install libwebkit2gtk-4_1-0` |
+
+`ludex-bin` declares `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator` and
+`hicolor-icon-theme` as `depends`, so `pacman` pulls them in. `apt install
+./Ludex_&lt;version&gt;_amd64.deb` resolves the `.deb`'s own dependencies; `dpkg -i`
+does not, and leaves the app unable to start until they are installed. The rpm
+behaves the same way: `dnf install ./Ludex-<version>-1.x86_64.rpm` resolves its
+dependencies, `rpm -i` only reports the ones that are missing.
+
+## Windows: SmartScreen will warn
+
+The Windows build is **not Authenticode-signed**. Windows 10/11 SmartScreen shows
+*Windows protected your PC* for every unsigned installer downloaded from the
+internet; that is the signature gap, not a detection. After the digest check
+above, the bypass is *More info → Run anyway*.
+
+The installer is per-user NSIS: no administrator prompt, and the app is installed
+in `%LOCALAPPDATA%\Ludex`. Two channels stay unpublished until signing exists:
+
+- **winget** (`cleeryy.Ludex`) — the manifest is ready to write, but an unsigned
+  installer makes for a poor first experience.
+- **Homebrew cask** — needs a signed and notarised `.dmg`, so it is blocked on
+  the macOS signing work, not on packaging.
+
+## Where the data lives
+
+The client keeps its state in the OS application-data folder, keyed by the bundle
+identifier `cloud.cleeryy.ludex`:
+
+| OS | Path |
+|---|---|
+| Linux | `~/.local/share/cloud.cleeryy.ludex` (or `$XDG_DATA_HOME/cloud.cleeryy.ludex`) |
+| Windows | `%APPDATA%\cloud.cleeryy.ludex` |
+| macOS | `~/Library/Application Support/cloud.cleeryy.ludex` |
+
+That folder holds `settings.json` (server profiles, library and download
+settings), one SQLite index per server profile, `logs/ludex.log`, and the
+downloaded runtimes and caches. **Installed games are not in it**: they live in
+the folder you picked for the library, and no uninstaller touches them.
+
+## Uninstall
+
+| Channel | Remove the app | Remove the data |
+|---|---|---|
+| AUR `ludex-bin` | `pacman -Rns ludex-bin` | delete `~/.local/share/cloud.cleeryy.ludex` |
+| Linux script | see [`install/linux.md`](install/linux.md) | as above |
+| Linux `.deb` | `sudo apt remove ludex` | as above |
+| AppImage | delete the file | as above |
+| Windows setup | Settings → Apps → Ludex → Uninstall | delete `%APPDATA%\cloud.cleeryy.ludex` |
+| macOS dmg | drag Ludex out of `/Applications` | delete `~/Library/Application Support/cloud.cleeryy.ludex` |
+
+Nothing the AUR package installs lives in `$HOME`: `/opt/ludex`,
+`/usr/bin/ludex`, the desktop entry and the icon are the whole footprint, so
+`pacman -Rns` cannot take your library or your index with it.
+
+## Server
+
+The server is a separate install: the `ghcr.io/cleeryy/ludex` image, a systemd
+unit or the bare `ludex-server` tarball. Reverse proxy, volumes, permissions,
+upgrades and backups are in [DEPLOY.md](/docs/deployment/docker-and-proxy/).
+
+## See also
+
+- [`install/linux.md`](install/linux.md) — the Linux script: flags, install
+  prefix, uninstall.
+- [`install/windows.md`](install/windows.md) — the Windows script and per-user
+  paths.
+- [RELEASING.md](/docs/development/releasing/) — how a release, its digests and its signature are
+  produced.
+- [DOWNLOADS.md](/docs/using-ludex/downloads/) — what happens after the first launch.

@@ -1,0 +1,268 @@
+---
+title: "Console session and boot target (#286)"
+description: "Console mode has always been a window: Sunshine started ludex --console, or"
+---
+Console mode has always been a window: Sunshine started `ludex --console`, or
+the desktop launched it. This page describes the other half — the machine boots
+into a **Wayland session** that runs `ludex --console`, with no login prompt and
+no desktop flash, and can go back to the previous behaviour in one click.
+
+Everything here is Linux-only. The desktop app refuses the toggle on other
+platforms and on a machine where it cannot identify the display manager.
+
+## What ships
+
+| Piece | Path |
+|---|---|
+| Session entry (repository) | `packaging/sessions/ludex-console.desktop` |
+| Session entry (installed) | `/usr/share/wayland-sessions/ludex-console.desktop` |
+| Change record | `/var/lib/ludex/console-session/state.json` |
+| Backups | `/var/lib/ludex/console-session/backups/` |
+
+The entry follows the [xdg wayland-sessions
+specification](https://specifications.freedesktop.org/wayland-session-spec/latest/):
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Ludex Console
+Comment=Play your Ludex library from the couch
+Exec=ludex --console
+TryExec=ludex
+DesktopNames=Ludex
+```
+
+`Session=ludex-console` in an autologin configuration means “the basename of
+the file under `wayland-sessions/`”. Renaming the file would break every
+manager at once, so the name is part of the contract.
+
+### Install or remove just the session entry
+
+Settings → Console → **Install session entry** copies the embedded file with
+one polkit prompt:
+
+```sh
+pkexec install -D -m 644 /tmp/ludex-console-session-<pid>/ludex-console.desktop \
+  /usr/share/wayland-sessions/ludex-console.desktop
+```
+
+Removal is `pkexec rm -f /usr/share/wayland-sessions/ludex-console.desktop`.
+Both commands are shown in the panel before the button is pressed. The install
+refuses to overwrite a `ludex-console.desktop` whose contents differ from the
+shipped file; the removal refuses to delete it. Another program's session file
+is never touched.
+
+Installing only the entry makes **Ludex Console** appear in the display
+manager's session list; it changes no autologin setting.
+
+## The boot toggle
+
+**Settings → Console → Boot straight into console mode** detects the active
+display manager and writes the configuration that logs the current user in and
+starts `ludex-console`:
+
+| Display manager | Detection | Files written |
+|---|---|---|
+| SDDM | `display-manager.service`, `/etc/X11/default-display-manager`, `sddm` on `PATH` | `/etc/sddm.conf.d/90-ludex-console.conf` |
+| GDM | same, `gdm`/`gdm3` on `PATH`; `/etc/gdm3` selects the Debian layout | `/etc/gdm/custom.conf` (or `/etc/gdm3/custom.conf`) **and** `/var/lib/AccountsService/users/<user>` |
+| greetd | `greetd`/`regreet` service or binary | `/etc/greetd/config.toml` (`[initial_session]`) |
+| LightDM | same | `/etc/lightdm/lightdm.conf.d/50-ludex-console.conf` |
+
+Detection rules:
+
+1. The `display-manager.service` symlink is authoritative.
+2. Debian's `/etc/X11/default-display-manager` is next.
+3. Otherwise exactly one recognised manager must be installed.
+4. Two installed managers with no active marker is **ambiguous**: the toggle is
+   disabled and says which ones were found. No manager at all is also refused,
+   with the sentence the panel shows.
+
+The user is read from `/proc/self/status` + `/etc/passwd`, not `$USER`, so a
+launcher that exported something else cannot point the autologin at the wrong
+account.
+
+### What each manager gets
+
+**SDDM** — a drop-in that merges into the existing `[Autologin]` section
+(other keys and sections are preserved):
+
+```ini
+[Autologin]
+User=<user>
+Session=ludex-console
+Relogin=true
+```
+
+**GDM** — `[daemon]` in `custom.conf`:
+
+```ini
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=<user>
+WaylandEnable=true
+```
+
+GDM chooses the **session** from AccountsService, not from `custom.conf`, so
+Ludex also sets `Session=ludex-console` under `[User]` in
+`/var/lib/AccountsService/users/<user>` and preserves every other key there
+(language, icon, keyboard layout). Without that second file GDM would log the
+user in but start their previous desktop session.
+
+**greetd** — `[initial_session]` runs once at boot, before the greeter:
+
+```toml
+[initial_session]
+command = "ludex --console"
+user = "<user>"
+```
+
+Every other table (`[terminal]`, `[default_session]`) is preserved. If
+`[initial_session]` already exists, its body is replaced; the original file is
+backed up first.
+
+**LightDM** — a drop-in under `lightdm.conf.d/`:
+
+```ini
+[Seat:*]
+autologin-user=<user>
+autologin-user-timeout=0
+autologin-session=ludex-console
+user-session=ludex-console
+```
+
+## Backups and the dry-run
+
+Before the first byte is written, every target that already exists is copied to
+`/var/lib/ludex/console-session/backups/NN-<filename>` (mode `0644`, so the
+unprivileged app can read it to plan the revert). `state.json` records, per
+file:
+
+- its absolute path and mode;
+- whether it existed before;
+- the backup path when it did.
+
+The consent dialog is the backend's dry-run: every file with its full contents,
+the backup path, and the exact `install`/`rm` commands the elevated shell will
+run. Nothing is changed while the dialog is open. Pressing **Enable** or
+**Disable** makes the backend recompute the plan from the current filesystem;
+the dialog's copy is never applied.
+
+### Reverting
+
+**Disable** restores each backup byte for byte and deletes the files Ludex
+created (which are exactly the files listed as “did not exist” in the state).
+The state file is removed last, so a failed revert can be retried. Backups are
+kept afterwards for inspection; they are overwritten by the next enable.
+
+The toggle refuses to disable when there is no state (nothing Ludex wrote), and
+refuses to restore a path that is not one of the display manager's known files
+— a tampered `state.json` cannot become an arbitrary write.
+
+### Elevation
+
+One `pkexec /bin/sh -c '<script>'` prompt per change. The script contains only
+`install -D -m <mode> <source> <destination>` and `rm -f <path>` with quoted
+absolute paths. Contents are staged in a private `0700` directory under the
+temporary directory; config values are never interpolated by a shell. If
+`pkexec` is not installed, the toggle is disabled with a message instead of
+failing halfway.
+
+## Test it
+
+1. Open Settings → Console. The panel shows the detected manager, the user and
+   the entry state.
+2. Press the switch, read the plan (files, contents, commands), press
+   **Enable**. One polkit prompt.
+3. Reboot. The machine should land in the console with no login prompt and no
+   desktop flash.
+4. Check the seat from another machine over SSH:
+
+   ```sh
+   loginctl list-sessions
+   loginctl show-session <id> -p Type -p Active
+   ```
+
+   Sunshine's KMS capture needs **`Type=wayland`** and **`Active=yes`**. When
+   those are missing (an X11 session, an inactive seat, or a session with no
+   seat at all), Sunshine captures nothing or a black screen — the panel shows
+   the same warning from the running session. This is the requirement recorded
+   in #282/#286 after the 2026-11-19 observation.
+5. Disable, reboot. The previous display manager behaviour must return and the
+   original files must be byte-identical to their backups:
+
+   ```sh
+   sudo cmp /etc/sddm.conf.d/90-ludex-console.conf \
+     /var/lib/ludex/console-session/backups/01-90-ludex-console.conf
+   ```
+
+   (Adjust the file and the backup number; `ls` the backups directory.)
+
+The automated tests never touch `/etc`: config generation, backup, revert and
+the command list run against an in-memory filesystem and a scratch root. The
+only privileged commands this document asks you to run are the manual test and
+rollback commands below.
+
+## Roll back by hand
+
+Use this when Ludex cannot start, the machine does not come back, or the state
+file was lost. Backups live in `/var/lib/ludex/console-session/backups/`.
+
+**SDDM**
+
+```sh
+sudo rm -f /etc/sddm.conf.d/90-ludex-console.conf
+# or, if it existed before Ludex:
+sudo install -D -m 644 /var/lib/ludex/console-session/backups/<NN>-90-ludex-console.conf \
+  /etc/sddm.conf.d/90-ludex-console.conf
+```
+
+**GDM**
+
+```sh
+# restore custom.conf (or /etc/gdm3/custom.conf on Debian)
+sudo install -D -m 644 /var/lib/ludex/console-session/backups/<NN>-custom.conf /etc/gdm/custom.conf
+# AccountsService stores the session per user; remove the Session= line or
+# restore the backup
+sudo install -D -m 644 /var/lib/ludex/console-session/backups/<NN>-<user> \
+  /var/lib/AccountsService/users/<user>
+```
+
+**greetd**
+
+```sh
+# remove the [initial_session] table from /etc/greetd/config.toml, or restore
+sudo install -D -m 644 /var/lib/ludex/console-session/backups/<NN>-config.toml \
+  /etc/greetd/config.toml
+```
+
+**LightDM**
+
+```sh
+sudo rm -f /etc/lightdm/lightdm.conf.d/50-ludex-console.conf
+```
+
+If the session starts but you need a way out without the console's Power
+surface, switch to a TTY (`Ctrl+Alt+F3`), log in, and run the commands above.
+`f12` (or the chord in Settings) quits a console session; **Power → Restart /
+Shut down** works from the pad.
+
+Remove `/var/lib/ludex/console-session/` only after the system is back to its
+previous behaviour; it is the only record of what to restore.
+
+## Uninstall Ludex
+
+Disable the boot toggle first (it restores the display manager files), then
+remove the package. `pacman -Rns ludex-bin` and the AppImage uninstaller do not
+touch `/etc` or `/var/lib/ludex`; the toggle is the supported path.
+
+## Limits
+
+- Only SDDM, GDM, greetd and LightDM are configured. Another manager gets the
+  refusal sentence, and the session entry can still be installed by hand for
+  the session list.
+- greetd's `[initial_session]` runs before the greeter, so a crash in `ludex`
+  leaves a black screen rather than a login prompt. Keep a TTY available.
+- Upgrading a display manager can rewrite its own configuration; Disable
+  restores the backup recorded at enable time, not the newer manager default.
+- The console session is a Wayland session. X11-only GPUs or a `WaylandEnable=false`
+  GDM default are not supported by the capture path this feature exists for.

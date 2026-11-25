@@ -1,0 +1,81 @@
+---
+title: "Repository settings"
+description: "The GitHub repository page is part of the product: a newcomer decides in ten seconds whether"
+---
+The GitHub repository page is part of the product: a newcomer decides in ten seconds whether
+the project is alive and trustworthy. Most of that page is *not* stored in git, so this file
+records the current settings and the commands that reproduce them. Update it in the same PR
+that changes any of them.
+
+## Description and topics
+
+| Field | Value |
+|---|---|
+| Description | `Self-hosted, DRM-free game library. Rust + axum server, Tauri 2 desktop, React web UI. Your archives, your server, no telemetry.` |
+| Website | `https://cleeryy.github.io/ludex/` (GitHub Pages project site built from `apps/site`) |
+| Topics | `self-hosted`, `game-library`, `drm-free`, `rust`, `tauri`, `react`, `axum`, `sqlite`, `postgresql`, `gamevault-alternative`, `docker`, `home-server` |
+
+```bash
+gh repo edit cleeryy/ludex \
+  --homepage "https://cleeryy.github.io/ludex/" \
+  --description "Self-hosted, DRM-free game library. Rust + axum server, Tauri 2 desktop, React web UI. Your archives, your server, no telemetry." \
+  --add-topic self-hosted,game-library,drm-free,rust,tauri,react,axum,sqlite,postgresql,gamevault-alternative,docker,home-server
+```
+
+## GitHub Pages (project site & documentation)
+
+The landing page and searchable Fumadocs documentation site live in `apps/site` and are published via `.github/workflows/pages.yml` using GitHub's official Pages actions (`actions/configure-pages`, `actions/upload-pages-artifact`, `actions/deploy-pages`):
+
+- **Source of truth**: root `docs/` stays canonical. `apps/site/scripts/sync-docs.mjs` copies curated docs into `apps/site/content/docs/`, builds the sidebar `meta.json` trees, and rewrites links and assets. CI runs the sync script and fails on any diff.
+- **Deployment**: pull requests build, link-check, and Playwright smoke-test the static export without deploying; pushes to `main` deploy automatically to `https://cleeryy.github.io/ludex/`.
+- **Custom domain readiness**: `BASE_PATH` (default `/ludex`) and `SITE_URL` (default `https://cleeryy.github.io/ludex`) are env-configurable in `apps/site/next.config.mjs`.
+
+## Social preview
+
+`docs/assets/social-preview.png` (1280×640), generated from the committed vector:
+
+```bash
+scripts/screenshots.sh --only social
+```
+
+Set it in **Settings → General → Social preview → Edit → Upload**. GitHub has no API for this
+field, so it is the one setting that stays manual.
+
+## Discussions, issues and templates
+
+- **Discussions**: enabled for *Announcements*, *General* and *Show and tell*; *Q&A* stays off
+  while the issue tracker is small enough to search.
+- **Pinned issues**: the roadmap issue and the security policy pointer (`.github/ISSUE_TEMPLATE`
+  and `SECURITY.md` are linked from both).
+- **Issue templates**: bug report and feature request, both asking for the server version from
+  `GET /api/health`, the client (browser / desktop / console) and the archive format.
+- **Releases**: `latest` is the newest stable tag; the rolling `edge` prerelease is built from
+  `main` and is what the homelab GitOps timer consumes ([`GITOPS.md`](GITOPS.md)).
+
+## Branch protection
+
+`main` requires the CI workflow's checks — including the `E2E` job — before merge, and the
+release workflow refuses to publish when they are not green. `cleeryy` may push directly to
+`main` (rules bypassed); other contributors go through pull requests.
+
+## Badges
+
+The README badges are all live and sourced from this repository:
+
+| Badge | Source |
+|---|---|
+| CI | `actions/workflows/ci.yml/badge.svg?branch=main` |
+| Release | `img.shields.io/github/v/release/cleeryy/ludex` |
+| License | static `AGPL-3.0-or-later`, links `LICENSE` |
+| Image | static `ghcr.io/cleeryy/ludex`, links the package page |
+| Security | static, links `SECURITY.md` |
+| Stars | `img.shields.io/github/stars/cleeryy/ludex` |
+
+No coverage badge until the coverage job exists (#243); no contributor-count badge while the
+maintainer is the only author. Both would be decoration, not information.
+
+## Things that are intentionally not here
+
+- Analytics or third-party counters on the README or project site.
+- A live hosted demo server. Screenshots come from the deterministic demo build
+  ([`assets/screenshots/README.md`](assets/screenshots/README.md)), not from a hosted instance.

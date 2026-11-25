@@ -1,0 +1,115 @@
+name: Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/site/**"
+      - "docs/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "apps/site/**"
+      - "docs/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & verify site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASE_PATH: /ludex
+      SITE_URL: https://cleeryy.github.io/ludex
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: apps/site/.next/cache
+          key: next-site-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/site/next.config.mjs') }}
+          restore-keys: next-site-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify generated docs are in sync
+        run: |
+          node apps/site/scripts/sync-docs.mjs
+          git diff --exit-code apps/site/content/docs apps/site/public/images
+
+      - name: Build static site
+        run: pnpm --filter @ludex/site build
+
+      - name: Check built links and assets
+        run: pnpm --filter @ludex/site check:links
+
+      - name: Check root documentation assets
+        run: node scripts/check-assets.mjs
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @ludex/e2e exec playwright install --with-deps chromium
+
+      - name: Run Playwright site smoke
+        run: node apps/site/scripts/smoke.mjs
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/site/out
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -10,14 +10,23 @@ that changes any of them.
 | Field | Value |
 |---|---|
 | Description | `Self-hosted, DRM-free game library. Rust + axum server, Tauri 2 desktop, React web UI. Your archives, your server, no telemetry.` |
-| Website | unset — the README is the landing page (a marketing site is out of scope, see #262) |
+| Website | `https://cleeryy.github.io/ludex/` (GitHub Pages project site built from `apps/site`) |
 | Topics | `self-hosted`, `game-library`, `drm-free`, `rust`, `tauri`, `react`, `axum`, `sqlite`, `postgresql`, `gamevault-alternative`, `docker`, `home-server` |
 
 ```bash
 gh repo edit cleeryy/ludex \
+  --homepage "https://cleeryy.github.io/ludex/" \
   --description "Self-hosted, DRM-free game library. Rust + axum server, Tauri 2 desktop, React web UI. Your archives, your server, no telemetry." \
   --add-topic self-hosted,game-library,drm-free,rust,tauri,react,axum,sqlite,postgresql,gamevault-alternative,docker,home-server
 ```
+
+## GitHub Pages (project site & documentation)
+
+The landing page and searchable Fumadocs documentation site live in `apps/site` and are published via `.github/workflows/pages.yml` using GitHub's official Pages actions (`actions/configure-pages`, `actions/upload-pages-artifact`, `actions/deploy-pages`):
+
+- **Source of truth**: root `docs/` stays canonical. `apps/site/scripts/sync-docs.mjs` copies curated docs into `apps/site/content/docs/`, builds the sidebar `meta.json` trees, and rewrites links and assets. CI runs the sync script and fails on any diff.
+- **Deployment**: pull requests build, link-check, and Playwright smoke-test the static export without deploying; pushes to `main` deploy automatically to `https://cleeryy.github.io/ludex/`.
+- **Custom domain readiness**: `BASE_PATH` (default `/ludex`) and `SITE_URL` (default `https://cleeryy.github.io/ludex`) are env-configurable in `apps/site/next.config.mjs`.
 
 ## Social preview
 
@@ -65,7 +74,6 @@ maintainer is the only author. Both would be decoration, not information.
 
 ## Things that are intentionally not here
 
-- A marketing site or a landing page — the README and `docs/` carry the same content.
-- Analytics or third-party counters in the README.
-- A demo deployment. The screenshots come from the demo adapter
+- Analytics or third-party counters on the README or project site.
+- A live hosted demo server. Screenshots come from the deterministic demo build
   ([`assets/screenshots/README.md`](assets/screenshots/README.md)), not from a hosted instance.

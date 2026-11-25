@@ -1,0 +1,94 @@
+---
+title: "Ludex Page-by-Page UX & UI Audit (2026-11)"
+description: "This document records the comprehensive page-by-page UX audit (#354) and follow-up UI polish plan (#355) conducted across the Ludex web and desktop renderer…"
+---
+This document records the comprehensive page-by-page UX audit (#354) and follow-up UI polish plan (#355) conducted across the Ludex web and desktop renderer (`apps/web`).
+
+Every screen was reviewed against four criteria:
+1. **Navigation & task flow**: dead ends, broken deep links, hidden primary actions, and filter state integrity.
+2. **Safety & feedback**: confirmation dialogs on destructive actions, honest empty/error states, and toast feedback.
+3. **Localization & copy parity**: zero hardcoded user-facing English strings leaking into translated builds.
+4. **Design-system coherence (#333)**: consistent `rounded-[var(--r-md)]` / `rounded-[var(--r-sm)]` radii, 1px hairline borders (`border-line` / `border-line-2`), surface luminance depth without drop shadows, unified `<Button>`/`<Skeleton>`/`<ErrorState>` primitives, and monospace strictly reserved for numerals and technical data.
+
+---
+
+## Screen-by-Screen Findings
+
+### 1. App Shell, Topbar, Nav Rail & Command Palette (`components/shell/`)
+- **UX Bug (High) — Topbar random-game dice ignores active library filters**: `app-shell.tsx` checked `location.pathname === "/"` instead of `"/library"` (Home moved to `/`), so clicking the random-game button while browsing filtered Library views picked from the entire catalog instead of the current filter query.
+  - **Fix (#354)**: Check `location.pathname === "/library"` and forward the full `filterQuery(readFilters(params, "library"))` filter set.
+- **UX Gap (Medium) — Profile & keyboard shortcuts buried**: `UserMenu` only exposed Settings, theme toggle, and Sign out, forcing users to hunt through Community to open their own profile or remember `?` for keyboard shortcuts.
+  - **Fix (#354)**: Add **Your profile** (`/community/u/:id`) and **Keyboard shortcuts** (`openShortcutsHelp()`) entries to `UserMenu`.
+
+### 2. Home (`screens/home.tsx`)
+- **UX Gap (Medium) — "Manage installs" linked to `/downloads` instead of Storage**: On the "On this device" section, clicking **Manage installs** opened the download queue rather than the Storage Space Manager where installed games can be inspected, sorted, opened, or uninstalled.
+  - **Fix (#354)**: Deep-link **Manage installs** directly to `/settings?section=storage`.
+- **UI Polish (#355)**:
+  - Unify the Home collections strip cards to `rounded-[var(--r-md)] border border-line bg-surface` with hover elevation via `hover:border-line-2 hover:bg-surface-2`.
+  - Remove `font-mono` from collection owner display names (human names are prose, not technical identifiers).
+  - Refine vertical rhythm between the compact stats strip, hero showcase, and shelves.
+
+### 3. Library, Recently Played, Bookmarks & Index (`screens/library.tsx`)
+- **UX Gap (Medium) — Sort selector hidden from the sticky toolbar on desktop**: The toolbar Sort `<Select>` had `md:hidden`, splitting filter controls (sticky toolbar) from sort controls (detached topbar menu).
+  - **Fix (#354)**: Keep the Sort `<Select>` visible in the sticky Library toolbar across all breakpoints so search, state, filters, presets, Surprise me, and sort work together in one place.
+- **UI Polish (#355)**:
+  - Use `rounded-[var(--r-xs)]` on list-view cover thumbnails instead of `rounded-[1px]` to match the radius token scale.
+
+### 4. Game Detail (`screens/game-detail.tsx`, `components/game/`)
+- **UX Gap (Medium) — Hardcoded English in hero metadata, Artwork dialog, and Cloud Saves**:
+  - `game-detail.tsx` rendered raw `${game.versionCount} versions` and ``Update to v${label}`` outside `t()`/`tn()`.
+  - `artwork-dialog.tsx` left all headings, labels, validation errors, toast messages, and reset confirmation text untranslated.
+  - `cloud-saves.tsx` left key status labels (`Last backup`, `Never`, `Device`, `manual upload`, `Local saves`, `Last restore`, `Sync now`, `Restore latest`) and restore/conflict confirmation dialogs untranslated.
+  - **Fix (#354)**: Wrap every user-facing string in `t()`/`tn()` and translate across all 10 shipped top-10 locales.
+- **UI Polish (#355)**:
+  - Unify Tier-3 / advanced unlock cards in `settings-tiers.tsx` to `rounded-[var(--r-md)] border border-line bg-surface`.
+
+### 5. Collections & Collection Detail (`screens/collections.tsx`, `screens/collection.tsx`)
+- **UX Gap (Low) — Hardcoded English in page metadata**:
+  - `collections.tsx` rendered `${shared.length} shared with you`.
+  - `collection.tsx` rendered `${data.gameCount} game(s)` and `By ${owner}`.
+  - **Fix (#354)**: Replace with `tn()` / `t()` keys.
+- **UI Polish (#355)**:
+  - Upgrade the smart-collection Rules callout panel to `rounded-[var(--r-md)] border border-line bg-surface`.
+
+### 6. Downloads (`screens/downloads.tsx`)
+- **Assessment**: Strong information hierarchy (active queue, per-job speed/ETA, pause/resume/cancel, history). No blocking UX defects found.
+
+### 7. Remote Installs (`screens/remote.tsx`)
+- **UX Bug (Medium) — Broken Settings deep link**: The "No PC is registered yet" guide linked **Settings → Servers** to `/settings` (which defaults to General) instead of Integrations where the Servers panel lives.
+  - **Fix (#354)**: Deep-link to `/settings?section=integrations`.
+- **UI Polish (#355)**:
+  - Upgrade the info banner, `DeviceCard`, and empty-PC guidance card to `rounded-[var(--r-md)] border border-line bg-surface`.
+  - Replace raw `animate-pulse` placeholder divs with `<Skeleton>` and the custom danger alert block with `<ErrorState>`.
+
+### 8. Settings (`screens/settings.tsx`, `components/settings/`)
+- **Assessment**: Unified Power-user mode (#347) and Storage Space Manager (#349) resolved the primary discoverability and overload issues.
+- **UI Polish (#355)**:
+  - Unify the Storage breakdown summary card (`installed-games.tsx`) and advanced unlock notices to `rounded-[var(--r-md)] border border-line bg-surface`.
+
+### 9. Community, Friends & Profile (`screens/community.tsx`, `screens/friends.tsx`, `screens/profile.tsx`)
+- **UX Bug (High) — Destructive friend removal had no confirmation**: Clicking **Remove** on `friends.tsx` or **Remove friend** on `profile.tsx` immediately deleted the friendship with no confirmation and no toast feedback.
+  - **Fix (#354)**: Gate friend removal behind a `<ConfirmDialog>` on both screens and show success/error toasts.
+- **UX Bug (Medium) — Settings links landed on General instead of Account**: Five links across `community.tsx`, `friends.tsx`, and `profile.tsx` (**Privacy settings**, **Make it public**, **Manage yours**, **Open settings**, **Presence settings**, **Edit profile**) pointed to `/settings` rather than `/settings?section=account`.
+  - **Fix (#354)**: Update all profile/privacy/presence links to `/settings?section=account`.
+- **UX Gap (Low) — Hardcoded English in feed count & profile empty states**:
+  - `community.tsx` rendered `${items.length} event(s)`.
+  - `profile.tsx` rendered untranslated empty descriptions for other users' library, collections, and activity.
+  - **Fix (#354)**: Replace with `tn()` / `t()` keys.
+- **UI Polish (#355)**:
+  - Unify `MemberChip`, visibility banner, Add-a-friend card, and Profile 4-up stat cards to `rounded-[var(--r-md)] border border-line bg-surface`.
+  - Replace raw hand-styled `<button>` and `<Link>` buttons (`Back to community`, `Friends`, `Your profile`, `Privacy settings`, `Open settings`, `Community`, `Browse the community`) with consistent `rounded-[var(--r-sm)]` or `<Button>` controls.
+
+### 10. News, Updates, Auth & Admin (`screens/news.tsx`, `screens/updates.tsx`, `screens/login.tsx`, `screens/register.tsx`, `screens/admin/`, `screens/not-found.tsx`)
+- **UX Gap (Low) — Hardcoded English in Admin Users age-limit fields**:
+  - `screens/admin/users.tsx` rendered `"Age limit"`, its hint, and `"No limit"` outside `t()`.
+  - **Fix (#354)**: Wrap in `t()`.
+- **UI Polish (#355)**:
+  - Add clean hairline accent framing on `screens/not-found.tsx` so the 404 screen matches the precision aesthetic of the rest of the app.
+
+---
+
+## Tracking
+
+- **#354 (UX audit & upgrades)**: All functional UX bugs, broken deep links, confirmation dialogs, toolbar sort visibility, and i18n gaps listed above.
+- **#355 (UI polish & visual refinement)**: All surface, radius, button/skeleton/error-state unification, and typographic polish items listed above.

@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <a href="https://cleeryy.github.io/ludex/"><img src="https://img.shields.io/badge/docs-cleeryy.github.io%2Fludex-ff4422" alt="Website & Documentation"></a>
   <a href="https://github.com/cleeryy/ludex/actions/workflows/ci.yml"><img src="https://github.com/cleeryy/ludex/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
   <a href="https://github.com/cleeryy/ludex/releases"><img src="https://img.shields.io/github/v/release/cleeryy/ludex?sort=semver" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later"></a>
@@ -231,6 +232,8 @@ CI (`.github/workflows/ci.yml`) runs `rustfmt`, `clippy -D warnings`, Rust & Pos
 
 ## Documentation
 
+Browse the searchable documentation site at **[cleeryy.github.io/ludex](https://cleeryy.github.io/ludex/docs/)**, or read the canonical Markdown files in `docs/`:
+
 | Topic | Document |
 |---|---|
 | API and Tauri contract | [`docs/CONTRACT.md`](docs/CONTRACT.md) |
@@ -252,7 +255,6 @@ Genuinely unshipped work planned after v0.5.2 (see [`docs/COMPETITIVE-ROADMAP.md
 - **Console 2.0 promotion to default** — real Windows 11 + Sunshine/Moonlight + TV + physical gamepad sign-off (#270, #306).
 - **GameVault database import** — pointing Ludex at a `/games` volume and adopting installed folders already works ([`docs/MIGRATION.md`](docs/MIGRATION.md)); importing users, custom metadata overrides and progress from GameVault's PostgreSQL DB is still planned.
 - **Passkeys (WebAuthn)** — TOTP 2FA and OIDC SSO are shipped today.
-- **Documentation & project site** — static landing page and searchable Fumadocs documentation site on GitHub Pages (#367).
 - **Server-side cloud streaming** remains an explicit non-goal: games run locally on your machine.
 
 Release notes for every tag live in [`CHANGELOG.md`](CHANGELOG.md).
