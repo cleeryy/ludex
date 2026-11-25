@@ -6,6 +6,23 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-25
+
+### Added
+
+- Content-hashed Steam portrait capsule (`library_capsule_2x` / `library_capsule`) and widescreen hero (`library_hero_2x` / `library_hero`) resolution via `IStoreBrowseService/GetItems/v1`, with PNG/JPEG/WebP header dimension sniffing so portrait covers are preferred over landscape fallbacks (#371).
+- Interactive 5-game Home Hero Showcase with poster inset and switcher, 4-tile launcher telemetry strip, `16:9` "Ready to play" installed cards, and a Steam/GOG-style quick-launch game list in the left sidebar (#372).
+- Library `Poster` (`2:3`), `Wide` (`16:9`), and `List` view switcher with `Compact` / `Standard` / `Large` card size controls, inline Genre picker, and streamlined 2-row sticky toolbar (#372).
+- Full-bleed Console 2.0 Game Hub hero backdrop and screenshot gallery, plus `Recently played`, `Installed`, `Bookmarks`, `All games`, and `Collections` shelf tabs directly on the Console Stage (#372).
+- Public landing & documentation site (`apps/site`) deployed to GitHub Pages (#370) and refreshed README for `v0.5` (#369).
+
+### Changed
+
+- Replaced the blurred-backdrop letterboxed `GameCover` fallback with clean full-bleed `2:3` poster art and optional `16:9` wide banner framing (#371).
+- Upgraded `GameCard` with hover quick-Play/Update CTA overlay, floating bookmark control, single high-signal status badge, and clean rating chips (#372).
+- Rebalanced Console 2.0 `.bp-stage-wash` and rail geometry for vivid full-bleed artwork and zero clipping from 720p to 4K, paired the monogram with `Ludex` in the status bar, and replaced the keyboard footer notice with `Keyboard and mouse` (#372).
+- Elevated Game Detail hero with a Steam-style Action & Telemetry Ribbon, removed the duplicate desktop bottom download strip, and auto-hid the completed Getting Started card on Home (#372).
+
 ## [0.5.2] - 2026-11-25
 
 ### Added
