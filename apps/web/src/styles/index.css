@@ -757,15 +757,19 @@
     border-radius: var(--r-md);
   }
 
-  /* covers are objects: 3:4 plate, 1px hairline border shifting line -> ink on hover */
+  /* covers are full-bleed 2:3 poster art (Steam/IGDB/GOG standard) with crisp hairline framing */
   .cover {
     position: relative;
-    aspect-ratio: 3 / 4;
+    aspect-ratio: 2 / 3;
     overflow: hidden;
     border-radius: var(--r-md);
     container-type: inline-size;
     background: var(--c-base, var(--surface-2));
     isolation: isolate;
+  }
+
+  .cover-wide {
+    aspect-ratio: 16 / 9;
   }
 
   .cover::after {
