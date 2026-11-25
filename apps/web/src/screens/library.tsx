@@ -48,6 +48,8 @@ import { GameCard } from "@/components/game/game-card";
 import { GameCover } from "@/components/art/cover";
 import { STATE_TONE } from "@/components/game/state";
 import { FilterPanel } from "@/components/library/filter-panel";
+import { PresetsBar, SurpriseMeButton } from "@/components/library/presets-bar";
+import { applyPresetParams } from "@/lib/library-presets";
 import {
   ExternalGameCard,
   ExternalGameRow,
@@ -129,6 +131,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const effectiveView = mode === "index" ? "list" : view;
 
   const [filterOpen, setFilterOpen] = useState(false);
+  const [pickingRandom, setPickingRandom] = useState(false);
   const [padIndex, setPadIndex] = useState(0);
   const [importEntry, setImportEntry] = useState<ImportLibraryEntry | null>(null);
   const [removingImport, setRemovingImport] = useState(false);
@@ -220,6 +223,40 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
   const clearFilters = () => {
     setParams((current) => clearFilterParams(current), { replace: true });
+  };
+
+  const applyPreset = (preset: Readonly<Record<string, string>>) => {
+    setParams((current) => applyPresetParams(current, preset), { replace: true });
+  };
+
+  const surpriseMe = async () => {
+    if (pickingRandom) return;
+    if (installedOnly || filters.launcher) {
+      if (items.length === 0) {
+        push({ title: t("No game matches these filters"), tone: "default" });
+        return;
+      }
+      const pick = items[Math.floor(Math.random() * items.length)].game;
+      push({ title: t("Picked {title}", { title: pick.title }), tone: "default" });
+      navigate(`/game/${pick.id}`);
+      return;
+    }
+    setPickingRandom(true);
+    try {
+      const picked = await api.randomGame(filterQuery(filters));
+      push({ title: t("Picked {title}", { title: picked.title }), tone: "default" });
+      navigate(`/game/${picked.id}`);
+    } catch {
+      if (items.length > 0) {
+        const fallback = items[Math.floor(Math.random() * items.length)].game;
+        push({ title: t("Picked {title}", { title: fallback.title }), tone: "default" });
+        navigate(`/game/${fallback.id}`);
+      } else {
+        push({ title: t("No game matches these filters"), tone: "default" });
+      }
+    } finally {
+      setPickingRandom(false);
+    }
   };
 
   const removeChip = (key: FilterKey) => {
@@ -477,6 +514,11 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 </span>
               )}
             </Button>
+            <SurpriseMeButton
+              loading={pickingRandom}
+              disabled={model.total === 0}
+              onClick={() => void surpriseMe()}
+            />
             <div className="w-[150px] md:hidden">
               <Select
                 label={t("Sort games")}
@@ -499,6 +541,14 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               )}
             </div>
           </div>
+
+          <PresetsBar
+            params={params}
+            includeInstalled={installsAvailable()}
+            hasFilters={hasFilters}
+            onApply={applyPreset}
+            onClear={clearFilters}
+          />
 
           {shelves.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("Platform shelves")}>
