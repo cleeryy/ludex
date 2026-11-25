@@ -17,7 +17,7 @@ function Rail({ count }: { count: number }) {
   return (
     <div className="flex gap-[var(--bp-rail-gap)] px-[var(--bp-safe-x)] py-4">
       {Array.from({ length: count }).map((_, index) => (
-        <Skeleton key={index} className="aspect-[3/4] w-[var(--bp-rail-card)] shrink-0" />
+        <Skeleton key={index} className="aspect-[2/3] w-[var(--bp-rail-card)] shrink-0" />
       ))}
     </div>
   );
@@ -50,7 +50,7 @@ export function LayoutSkeleton({ layout, columns }: { layout: BigPictureLayout; 
       return (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-end gap-6 border-b border-line px-[var(--bp-safe-x)] py-5">
-            <Skeleton className="aspect-[3/4] w-[calc(var(--bp-u)*92)] shrink-0" />
+            <Skeleton className="aspect-[2/3] w-[calc(var(--bp-u)*92)] shrink-0" />
             <div className="flex flex-1 flex-col gap-2">
               <Skeleton className="h-[calc(var(--bp-u)*24)] w-1/4" />
               <Skeleton className="h-[calc(var(--bp-u)*34)] w-2/5" />
@@ -67,7 +67,7 @@ export function LayoutSkeleton({ layout, columns }: { layout: BigPictureLayout; 
             style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
           >
             {Array.from({ length: columns * 2 }).map((_, index) => (
-              <Skeleton key={index} className="aspect-[3/4] w-full" />
+              <Skeleton key={index} className="aspect-[2/3] w-full" />
             ))}
           </div>
         </div>
@@ -91,7 +91,7 @@ export function LayoutSkeleton({ layout, columns }: { layout: BigPictureLayout; 
           </div>
           {Array.from({ length: 7 }).map((_, index) => (
             <div key={index} className="flex items-center gap-4 border-b border-line px-[var(--bp-safe-x)] py-3">
-              <Skeleton className="aspect-[3/4] w-[calc(var(--bp-u)*39)]" />
+              <Skeleton className="aspect-[2/3] w-[calc(var(--bp-u)*39)]" />
               <div className="flex flex-1 flex-col gap-2">
                 <Skeleton className="h-[calc(var(--bp-u)*28)] w-1/3" />
                 <Skeleton className="h-[calc(var(--bp-u)*24)] w-1/5" />

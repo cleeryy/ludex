@@ -48,6 +48,7 @@ export function GridLayout({
           <ArtPlate
             title={game.title}
             artUrl={detail?.backgroundUrl ?? game.backgroundUrl}
+            fallbackUrls={[detail?.screenshots?.[0], game.coverUrl]}
             className="h-full w-full"
           />
         </motion.div>

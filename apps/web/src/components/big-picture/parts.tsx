@@ -56,17 +56,23 @@ export function MetaLine({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-x-5 gap-y-1 text-bp-meta text-stage-ink-2",
+        "flex flex-wrap items-center gap-x-4 gap-y-2 text-bp-meta text-stage-ink-2",
         className,
       )}
     >
-      <span className="num">{formatYear(game.releaseDate)}</span>
-      <span>{stateLabel(game.state)}</span>
+      {installed && (
+        <span className="inline-flex items-center gap-2 rounded-[var(--bp-radius-cover)] border border-sheen/15 bg-stage/75 px-3 py-0.5 text-stage-ok">
+          <span className="bp-dot" data-tone="ok" aria-hidden="true" />
+          <span>{t("Installed")}</span>
+        </span>
+      )}
       {rating && (
-        <span>
+        <span className="rounded-[var(--bp-radius-cover)] border border-sheen/15 bg-stage/75 px-3 py-0.5 text-stage-ink">
           <span className="num">{rating}</span> / <span className="num">100</span>
         </span>
       )}
+      <span className="num">{formatYear(game.releaseDate)}</span>
+      <span>{stateLabel(game.state)}</span>
       {minutes && (
         <span>
           <span className="num">{minutes}</span> {t("played")}
@@ -77,7 +83,6 @@ export function MetaLine({
           {t("Last played")} <span className="num">{formatRelative(game.lastPlayedAt)}</span>
         </span>
       )}
-      {installed && <span>{t("Installed")}</span>}
     </div>
   );
 }
@@ -185,17 +190,19 @@ export function Bracket({ inset = false }: { inset?: boolean }) {
   );
 }
 
-/** Rail card: cover, and a caption under the selected cover only. */
+/** Rail card: full-bleed cover, subtle installed indicator, caption under active/hovered cover. */
 function RailCardBase({
   game,
   position,
   selected,
+  installed = false,
   nav,
   className,
 }: {
   game: GameSummary;
   position: number;
   selected: boolean;
+  installed?: boolean;
   nav: BigPictureNavigation;
   className?: string;
 }) {
@@ -210,19 +217,27 @@ function RailCardBase({
       aria-label={game.title}
       className={cn(
         "group relative shrink-0 text-start bp-focus-move bp-rail-card",
-        selected ? "opacity-100" : "opacity-70 hover:opacity-100",
+        selected ? "opacity-100" : "opacity-85 hover:opacity-100",
         className,
       )}
     >
       <div className="relative block">
         <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} showType={false} />
+        {installed && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute start-2 top-2 z-[4] flex size-[calc(var(--bp-u)*18)] items-center justify-center rounded-full border border-sheen/20 bg-stage/85"
+          >
+            <span className="bp-dot" data-tone="ok" />
+          </span>
+        )}
         {selected && <Bracket />}
       </div>
       <span
         aria-hidden={!selected}
         className={cn(
-          "mt-2 block truncate text-bp-meta leading-snug",
-          selected ? "text-ink" : "invisible",
+          "mt-2 block truncate text-bp-meta leading-snug transition-opacity duration-[120ms]",
+          selected ? "font-medium text-ink opacity-100" : "text-ink-2 opacity-0 group-hover:opacity-100",
         )}
       >
         {game.title}
@@ -455,7 +470,7 @@ export function BigPictureFooter({
             {haptics && <span className="text-signal-text">{t("vibration")}</span>}
           </>
         ) : (
-          t("Keyboard only — connect a controller for couch navigation")
+          <span className="text-ink-3">{t("Keyboard and mouse")}</span>
         )}
       </span>
     </motion.footer>

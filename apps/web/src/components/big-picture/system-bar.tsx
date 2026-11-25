@@ -123,6 +123,7 @@ export function SystemBar({
     >
       <div className="flex min-w-0 shrink items-center gap-3">
         <Monogram size={28} className="h-[calc(var(--bp-u)*28)] w-auto text-ink" />
+        <span className="text-bp-body font-semibold tracking-[-0.02em] text-ink">Ludex</span>
         {refreshing && (
           <span role="status" className="flex items-center gap-1.5 text-bp-meta text-ink-3">
             <span className="bp-dot animate-pulse motion-reduce:animate-none" aria-hidden="true" />
