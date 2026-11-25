@@ -6,6 +6,42 @@ All notable changes to Ludex are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Competitive roadmap (`docs/COMPETITIVE-ROADMAP.md`, #351), library saved
+  filter presets (`Ready to play`, `Unplayed backlog`, `Top rated`,
+  `Short sessions`, plus custom presets) and `Surprise me` backlog picker
+  (#348), per-game personal notes, and the Storage Space Manager under
+  Settings → Storage (#349).
+- Page-by-page UX & UI audit (`docs/UX-UI-AUDIT-2026-11.md`, #354, #355).
+
+### Changed
+
+- Unified default vs power-user progressive disclosure (#347): game launch
+  and global settings hide deep technical panels by default behind a single
+  Power-user mode toggle while keeping search and deep links working.
+- Removed inert `eslint-disable` directives and extracted cohesive modules out
+  of `sections-device.tsx`, `game-detail.tsx`, and `library.tsx` (#350).
+- UX upgrades (#354): fixed topbar random-game filter forwarding on `/library`,
+  added Your profile and Keyboard shortcuts to the account menu, fixed Settings
+  deep links across Community/Friends/Profile/Remote/Home, gated destructive
+  friend removal behind confirmation dialogs with toast feedback, kept Sort
+  visible in the sticky desktop Library toolbar, and internationalized
+  remaining hardcoded English strings across all 10 top-10 locales.
+- UI polish (#355): unified card, callout, chip, and action surfaces to the
+  ARC × Swiss/Bauhaus radius and border tokens (`rounded-[var(--r-md)]` /
+  `--r-sm` / `--r-xs`), replaced raw loading pulses and alert blocks on Remote
+  installs with `<Skeleton>` and `<ErrorState>`, dropped monospace from human
+  collection owner names, and framed the 404 screen with the editorial signal
+  accent.
+
+### Fixed
+
+- Game page synopsis clamping with expandable toggle, portrait cover handling
+  for landscape legacy art, and Home hero backdrop fallbacks (#353).
+- Linux ProtonDB badge now renders on the game detail page with native tier
+  support and Steam App ID fallback lookup for IGDB-matched titles (#360).
+
 ## [0.5.1] - 2026-11-24
 
 ### Security

@@ -198,7 +198,7 @@ export function CollectionScreen() {
       {isOwner && <CollectionSharePanel collection={data} />}
 
       {data.kind === "smart" && (
-        <section className="mt-8 border border-line bg-surface/40 p-4" aria-labelledby="rules-heading">
+        <section className="mt-8 rounded-[var(--r-md)] border border-line bg-surface p-4 sm:p-5" aria-labelledby="rules-heading">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Sparkles className="size-3.5 text-signal-text" aria-hidden="true" />
@@ -219,7 +219,7 @@ export function CollectionScreen() {
           {data.rules.rules.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {data.rules.rules.map((rule, index) => (
-                <span key={`${rule.field}-${index}`} className="border border-line px-2 py-1 font-mono text-micro text-ink-3">
+                <span key={`${rule.field}-${index}`} className="rounded-[var(--r-xs)] border border-line bg-surface-2 px-2 py-1 font-mono text-micro text-ink-2">
                   {ruleLabel(rule)}
                 </span>
               ))}

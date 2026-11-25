@@ -116,7 +116,7 @@ export function FriendsScreen() {
         actions={
           <Link
             to="/community"
-            className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
+            className="inline-flex h-9 items-center gap-2 rounded-[var(--r-sm)] border border-line bg-surface px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:bg-surface-2 hover:text-ink"
           >
             {t("Community")}
             <ArrowUpRight className="size-3.5" aria-hidden="true" />
@@ -124,7 +124,7 @@ export function FriendsScreen() {
         }
       />
 
-      <section className="mt-8 border border-line bg-surface/40 p-4" aria-labelledby="add-friend-heading">
+      <section className="mt-8 rounded-[var(--r-md)] border border-line bg-surface p-4 sm:p-5" aria-labelledby="add-friend-heading">
         <h2 id="add-friend-heading" className="text-body font-medium text-ink">
           {t("Add a friend")}
         </h2>

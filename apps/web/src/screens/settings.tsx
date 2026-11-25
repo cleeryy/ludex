@@ -135,7 +135,7 @@ export function SettingsScreen() {
             focusToken={focusToken}
           >
             {section.tier === "advanced" && !unlocked && (
-              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border border-line bg-surface px-4 py-3">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[var(--r-md)] border border-line bg-surface px-4 py-3">
                 <p className="max-w-[60ch] text-label leading-relaxed text-ink-2">
                   {t("This is an advanced section. Turn on Power-user mode to keep it visible in the sidebar.")}
                 </p>

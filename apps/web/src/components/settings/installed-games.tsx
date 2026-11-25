@@ -142,9 +142,9 @@ function InstalledList() {
       </div>
 
       {summary.count > 0 && (
-        <div className="mt-4 border border-line bg-surface p-4">
+        <div className="mt-4 rounded-[var(--r-md)] border border-line bg-surface p-4">
           <div
-            className="flex h-2 w-full overflow-hidden border border-line bg-bg"
+            className="flex h-2 w-full overflow-hidden rounded-[var(--r-xs)] border border-line bg-bg"
             role="img"
             aria-label={t("Disk usage breakdown across installed games")}
           >

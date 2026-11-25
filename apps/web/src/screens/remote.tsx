@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   Download,
   Monitor,
   RefreshCw,
@@ -31,8 +30,8 @@ import type { Device, RemoteInstall } from "@/lib/types";
 import { useAuth } from "@/state/auth";
 import { useToast } from "@/state/toasts";
 import { GameCover } from "@/components/art/cover";
-import { EmptyState, PageHeader, SectionHeader } from "@/components/page";
-import { Badge, Button, Progress } from "@/components/ui/controls";
+import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
+import { Badge, Button, Progress, Skeleton } from "@/components/ui/controls";
 import { DevicePicker, deviceSummary, preferredDeviceId, rememberPreferredDevice, useDevices } from "@/components/game/device-picker";
 import { qk } from "@/lib/query-keys";
 
@@ -131,7 +130,7 @@ export function RemoteScreen() {
         }
       />
 
-      <section className="mt-6 border border-line bg-surface/40 p-4 sm:p-5">
+      <section className="mt-6 rounded-[var(--r-md)] border border-line bg-surface p-4 sm:p-5">
         <div className="flex items-start gap-3">
           <Smartphone className="mt-0.5 size-4 shrink-0 text-signal" aria-hidden="true" />
           <div className="min-w-0 text-body leading-relaxed text-ink-2">
@@ -173,13 +172,13 @@ export function RemoteScreen() {
           </div>
         )}
         {devices.isError ? (
-          <p className="border border-danger/40 bg-danger/5 px-4 py-3 text-label text-ink-2">
+          <p className="rounded-[var(--r-md)] border border-danger/40 bg-danger/5 px-4 py-3 text-label text-ink-2">
             {errorMessage(devices.error)}
           </p>
         ) : devices.isPending ? (
-          <div className="h-20 animate-pulse border border-line bg-surface/40" />
+          <Skeleton className="h-20 w-full rounded-[var(--r-md)]" />
         ) : deviceList.length === 0 ? (
-          <div className="border border-line bg-surface/30 px-4 py-5 text-label leading-relaxed text-ink-2">
+          <div className="rounded-[var(--r-md)] border border-line bg-surface px-4 py-5 text-label leading-relaxed text-ink-2">
             <p className="font-medium text-ink">{t("No PC is registered yet")}</p>
             <p className="mt-1">{t("To install on a PC, all three are required:")}</p>
             <ol className="mt-2 list-decimal space-y-1 ps-5">
@@ -206,17 +205,17 @@ export function RemoteScreen() {
       </section>
 
       {isError ? (
-        <div className="mt-6 flex flex-wrap items-center gap-3 border border-danger/40 bg-danger/5 p-4 text-body text-ink-2">
-          <AlertTriangle className="size-4 text-danger" aria-hidden="true" />
-          <span>{errorMessage(error)}</span>
-          <Button variant="ghost" size="sm" onClick={() => void refetch()}>
-            {t("Try again")}
-          </Button>
+        <div className="mt-6">
+          <ErrorState
+            title={t("Remote installs")}
+            message={errorMessage(error)}
+            onRetry={() => void refetch()}
+          />
         </div>
       ) : isPending ? (
         <div className="mt-6 space-y-3">
           {[0, 1].map((index) => (
-            <div key={index} className="h-24 animate-pulse border border-line bg-surface/40" />
+            <Skeleton key={index} className="h-24 w-full rounded-[var(--r-md)]" />
           ))}
         </div>
       ) : installed.length === 0 ? (
@@ -242,7 +241,7 @@ export function RemoteScreen() {
               description={t("These requests wait for a desktop or are downloading on it.")}
             />
             {active.length === 0 ? (
-              <p className="border border-line px-4 py-6 text-body text-ink-3">
+              <p className="rounded-[var(--r-md)] border border-line bg-surface px-4 py-6 text-body text-ink-3">
                 {t("No install is running right now.")}
               </p>
             ) : (
@@ -284,7 +283,7 @@ export function RemoteScreen() {
         </>
       )}
 
-      <details className="mt-10 border border-line bg-surface/30 p-4 text-label leading-relaxed text-ink-3">
+      <details className="mt-10 rounded-[var(--r-md)] border border-line bg-surface p-4 text-label leading-relaxed text-ink-3">
         <summary className="cursor-pointer select-none text-body font-medium text-ink-2">
           {t("Reaching the server from outside your network")}
         </summary>
@@ -304,7 +303,7 @@ export function RemoteScreen() {
 
 function DeviceCard({ device }: { device: Device }) {
   return (
-    <li className="flex items-start gap-3 border border-line bg-surface/40 p-3">
+    <li className="flex items-start gap-3 rounded-[var(--r-md)] border border-line bg-surface p-4">
       <Monitor className="mt-0.5 size-4 shrink-0 text-signal" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
@@ -351,7 +350,7 @@ function RemoteInstallCard({
   const year = install.completedAt ?? install.requestedAt;
 
   return (
-    <li className="flex items-stretch gap-3 border border-line bg-surface/40 p-3 sm:gap-4 sm:p-4">
+    <li className="flex items-stretch gap-3 rounded-[var(--r-md)] border border-line bg-surface p-3.5 sm:gap-4 sm:p-4">
       <div className="w-14 shrink-0 self-center sm:w-16">
         <GameCover title={install.gameTitle} coverUrl={install.coverUrl} index={install.gameId} year={null} />
       </div>
