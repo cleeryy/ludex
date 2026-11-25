@@ -623,94 +623,125 @@ export function GameDetailScreen() {
           {t("Back")}
         </button>
 
-        <div className="mt-[16vh] grid gap-8 lg:mt-[13vh] lg:grid-cols-[250px_1fr] lg:gap-12 xl:grid-cols-[280px_1fr]">
-          <div className="w-[150px] sm:w-[190px] lg:w-full">
-            <div className="shadow-plate">
-              <GameCover title={game.title} coverUrl={game.coverUrl} index={game.id} year={formatYear(game.releaseDate)} genre={game.genres[0]} />
+        <div className="mt-[12vh] grid gap-8 lg:mt-[10vh] lg:grid-cols-[240px_1fr] lg:gap-10 xl:grid-cols-[264px_1fr]">
+          <div className="w-[148px] sm:w-[184px] lg:w-full">
+            <div className="overflow-hidden rounded-[var(--r-md)] shadow-hero">
+              <GameCover
+                title={game.title}
+                coverUrl={game.coverUrl}
+                index={game.id}
+                year={formatYear(game.releaseDate)}
+                genre={game.genres[0]}
+              />
             </div>
           </div>
 
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-meta uppercase tracking-[0.08em] text-ink-3">
-              <span>{formatYear(game.releaseDate)}</span>
+          <div className="flex min-w-0 flex-col justify-end">
+            <div className="flex flex-wrap items-center gap-2 text-meta text-stage-ink-2">
+              <span className="num rounded-[var(--r-xs)] border border-sheen/15 bg-stage/75 px-2 py-0.5 text-stage-ink">
+                {formatYear(game.releaseDate)}
+              </span>
               {game.ageRating && (
-                <>
-                  <span className="h-3 w-px bg-line-2" aria-hidden="true" />
-                  <span>{game.ageRating}+</span>
-                </>
+                <span className="num rounded-[var(--r-xs)] border border-sheen/15 bg-stage/75 px-2 py-0.5">
+                  {game.ageRating}+
+                </span>
               )}
-              <span className="h-3 w-px bg-line-2" aria-hidden="true" />
-              <span>{game.genres.join(" / ")}</span>
+              {game.genres.slice(0, 4).map((genre) => (
+                <span
+                  key={genre}
+                  className="rounded-[var(--r-xs)] border border-sheen/15 bg-stage/65 px-2 py-0.5 text-stage-ink-2"
+                >
+                  {genre}
+                </span>
+              ))}
               <ProtonDbBadge gameId={game.id} provider={game.provider} title={game.title} kind={game.kind} />
               {game.earlyAccess && <Badge tone="signal">{t("Early access")}</Badge>}
               {running && <Badge tone="ok">{t("Running")}</Badge>}
               {game.kind === "rom" && <Badge tone="outline">{t("ROM")}</Badge>}
             </div>
 
-            <h1 className="mt-3 max-w-[18ch] text-display sm:text-hero font-semibold leading-[0.94] tracking-[-0.035em]">
+            <h1 className="mt-3 max-w-[18ch] text-display font-semibold leading-[0.95] tracking-[-0.035em] text-stage-ink sm:text-hero">
               {game.title}
             </h1>
-
-            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-label text-ink-2">
-              {formatRating(game.rating) && (
-                <span className="flex items-baseline gap-1.5">
-                  <span className="num text-lead text-ink">{formatRating(game.rating)}</span>
-                  <span className="text-meta text-ink-3">/ 100</span>
-                </span>
-              )}
-              <span className="num">{formatBytes(game.totalSize)}</span>
-              <span>{tn(game.versionCount, "1 version", "{count} versions")}</span>
-              {formatMinutes(game.minutesPlayed) && (
-                <span className="flex items-center gap-1.5">
-                  <Clock className="size-3.5 text-ink-3" aria-hidden="true" />
-                  <span className="num">{formatMinutes(game.minutesPlayed)}</span>
-                </span>
-              )}
-              {game.lastPlayedAt && <span className="text-ink-3">{t("Last played")} {formatRelative(game.lastPlayedAt)}</span>}
-            </div>
 
             {game.description && <HeroSynopsis description={game.description} />}
 
             {game.versionCount === 0 && <MissingArchiveNotice game={game} />}
 
-            <div className="mt-7 flex flex-wrap items-center gap-2">
-              {primary}
-              {running && (
-                <Button
-                  variant="danger"
-                  size="lg"
-                  icon={<Power className="size-4" />}
-                  onClick={() => setForceClosePhase((phase) => nextForceClosePhase(phase, "ask"))}
-                >
-                  {t("Force close")}
-                </Button>
-              )}
-              {update && action.update && (
-                <Button
+            {/* Steam/GOG-caliber action & telemetry ribbon */}
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[var(--r-md)] border border-line-2 bg-surface/90 p-3.5 sm:p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                {primary}
+                {running && (
+                  <Button
+                    variant="danger"
+                    size="lg"
+                    icon={<Power className="size-4" />}
+                    onClick={() => setForceClosePhase((phase) => nextForceClosePhase(phase, "ask"))}
+                  >
+                    {t("Force close")}
+                  </Button>
+                )}
+                {update && action.update && (
+                  <Button
+                    variant="default"
+                    size="lg"
+                    icon={<RefreshCw className="size-4" />}
+                    loading={updateGame.isPending}
+                    onClick={() => updateGame.mutate({ id: game.id, title: game.title })}
+                  >
+                    {update.latestVersionLabel ? t("Update to v{version}", { version: update.latestVersionLabel }) : t("Update")}
+                  </Button>
+                )}
+                {streamTarget.data?.published && (
+                  <Button variant="default" size="lg" icon={<Cast className="size-4" />} onClick={() => setStreamOpen(true)}>
+                    {t("Stream")}
+                  </Button>
+                )}
+                <IconButton
+                  label={game.bookmarked ? t("Remove bookmark") : t("Bookmark")}
                   variant="default"
-                  size="lg"
-                  icon={<RefreshCw className="size-4" />}
-                  loading={updateGame.isPending}
-                  onClick={() => updateGame.mutate({ id: game.id, title: game.title })}
+                  aria-pressed={game.bookmarked}
+                  className={cn("size-12", game.bookmarked && "border-signal/60 text-signal-text")}
+                  onClick={() => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked })}
                 >
-                  {update.latestVersionLabel ? t("Update to v{version}", { version: update.latestVersionLabel }) : t("Update")}
-                </Button>
-              )}
-              {streamTarget.data?.published && (
-                <Button variant="default" size="lg" icon={<Cast className="size-4" />} onClick={() => setStreamOpen(true)}>
-                  {t("Stream")}
-                </Button>
-              )}
-              <IconButton
-                label={game.bookmarked ? t("Remove bookmark") : t("Bookmark")}
-                variant="default"
-                aria-pressed={game.bookmarked}
-                className={cn("size-12", game.bookmarked && "border-signal/60 text-signal-text")}
-                onClick={() => bookmark.mutate({ id: game.id, bookmarked: !game.bookmarked })}
-              >
-                {game.bookmarked ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
-              </IconButton>
-              <DetailMenu items={menu} />
+                  {game.bookmarked ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
+                </IconButton>
+                <DetailMenu items={menu} />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-3 text-label sm:border-t-0 sm:pt-0">
+                {formatRating(game.rating) && (
+                  <div className="flex flex-col">
+                    <span className="text-micro text-ink-3">{t("Rating")}</span>
+                    <span className="num text-body font-semibold text-ink">
+                      {formatRating(game.rating)} <span className="text-micro font-normal text-ink-3">/ 100</span>
+                    </span>
+                  </div>
+                )}
+                {formatMinutes(game.minutesPlayed) && (
+                  <div className="flex flex-col">
+                    <span className="text-micro text-ink-3">{t("Playtime")}</span>
+                    <span className="flex items-center gap-1 text-body font-semibold text-ink">
+                      <Clock className="size-3.5 text-ink-3" aria-hidden="true" />
+                      <span className="num">{formatMinutes(game.minutesPlayed)}</span>
+                    </span>
+                  </div>
+                )}
+                {game.lastPlayedAt && (
+                  <div className="flex flex-col">
+                    <span className="text-micro text-ink-3">{t("Last played")}</span>
+                    <span className="text-body font-medium text-ink-2">{formatRelative(game.lastPlayedAt)}</span>
+                  </div>
+                )}
+                <div className="flex flex-col">
+                  <span className="text-micro text-ink-3">{t("Size")}</span>
+                  <span className="num text-body font-medium text-ink-2">
+                    {formatBytes(game.totalSize)} · {tn(game.versionCount, "1 version", "{count} versions")}
+                  </span>
+                </div>
+                <StatePicker state={game.state} onChange={setProgress} />
+              </div>
             </div>
 
             {activeJob && (
@@ -728,10 +759,6 @@ export function GameDetailScreen() {
                 </p>
               </div>
             )}
-
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <StatePicker state={game.state} onChange={setProgress} />
-            </div>
           </div>
         </div>
         </div>

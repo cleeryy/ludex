@@ -24,12 +24,15 @@ export function PresetsBar({
   hasFilters,
   onApply,
   onClear,
+  inline = false,
 }: {
   params: URLSearchParams;
   includeInstalled: boolean;
   hasFilters: boolean;
   onApply: (preset: Readonly<Record<string, string>>) => void;
   onClear: () => void;
+  /** Compact inline mode for embedding inside the unified library pill strip. */
+  inline?: boolean;
 }) {
   const [custom, setCustom] = useState<LibraryPreset[]>(() => loadCustomPresets());
   const [saveOpen, setSaveOpen] = useState(false);
@@ -52,15 +55,21 @@ export function PresetsBar({
   };
 
   return (
-    <div className="mt-2.5 flex flex-wrap items-center gap-1.5" aria-label={t("Saved views")}>
-      <span className="mr-1 text-micro uppercase tracking-[0.12em] text-ink-3">{t("Views")}</span>
+    <div
+      className={cn(
+        "flex items-center gap-1.5",
+        inline ? "shrink-0 flex-nowrap" : "mt-2.5 flex-wrap",
+      )}
+      aria-label={t("Saved views")}
+    >
+      {!inline && <span className="mr-1 text-micro uppercase tracking-[0.12em] text-ink-3">{t("Views")}</span>}
       {presets.map((preset) => {
         const active = matchesPreset(params, preset.params);
         return (
           <span
             key={preset.id}
             className={cn(
-              "inline-flex h-7 items-center rounded-[var(--r-sm)] border transition-colors",
+              "inline-flex h-7 shrink-0 items-center rounded-[var(--r-sm)] border transition-colors",
               active
                 ? "border-signal/60 bg-signal/12 text-signal-text"
                 : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
@@ -70,7 +79,7 @@ export function PresetsBar({
               type="button"
               onClick={() => (active ? onClear() : onApply(preset.params))}
               aria-pressed={active}
-              className="inline-flex h-full items-center px-2 text-meta"
+              className="inline-flex h-full items-center whitespace-nowrap px-2 text-meta"
             >
               {preset.name}
             </button>
@@ -92,7 +101,7 @@ export function PresetsBar({
         <button
           type="button"
           onClick={() => setSaveOpen(true)}
-          className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] border border-dashed border-line-2 px-2 text-meta text-ink-3 transition-colors hover:border-ink-3 hover:text-ink"
+          className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-[var(--r-sm)] border border-dashed border-line-2 px-2 text-meta text-ink-3 transition-colors hover:border-ink-3 hover:text-ink"
         >
           <BookmarkPlus className="size-3.5" aria-hidden="true" />
           {t("Save view")}

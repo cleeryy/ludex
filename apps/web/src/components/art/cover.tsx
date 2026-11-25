@@ -380,6 +380,7 @@ export function GameCover({
   genre,
   className,
   showType = true,
+  showIndex = true,
 }: {
   title: string;
   coverUrl: string | null;
@@ -391,6 +392,8 @@ export function GameCover({
   genre?: string | null;
   className?: string;
   showType?: boolean;
+  /** Show the archive header strip (`Ludex / No. 001`) on generated fallback motifs. */
+  showIndex?: boolean;
 }) {
   const spec = artFromUrl(coverUrl ?? fallbackUrl ?? null, title);
   const seed = hashString(coverUrl ?? fallbackUrl ?? title);
@@ -422,11 +425,13 @@ export function GameCover({
       {showMotif && showType && (
         <>
           <div className="pointer-events-none absolute inset-0 z-[1] cover-shade" />
-          <div className="cover-type">
-            <div className="cover-series">
-              <span>Ludex</span>
-              <span>{typeof index === "number" ? `No. ${String(index).padStart(3, "0")}` : t("Archive")}</span>
-            </div>
+          <div className={cn("cover-type", !showIndex && "!justify-end")}>
+            {showIndex && (
+              <div className="cover-series">
+                <span>Ludex</span>
+                <span>{typeof index === "number" ? `No. ${String(index).padStart(3, "0")}` : t("Archive")}</span>
+              </div>
+            )}
             <div>
               <div className="cover-title">{title}</div>
               <div className="cover-foot">

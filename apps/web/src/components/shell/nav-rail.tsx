@@ -1,11 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, CircleHelp, Download } from "lucide-react";
+import { ChevronRight, CircleHelp, Download, Play } from "lucide-react";
 import { api, USING_MOCKS } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { formatPercent, formatSpeed } from "@/lib/format";
+import { formatMinutes, formatPercent, formatSpeed } from "@/lib/format";
+import { useAllGames, useInstalledGames, useLaunchGame } from "@/lib/hooks";
 import { t } from "@/lib/i18n";
+import { isNative } from "@/lib/native";
 import {
   isNavActive,
   navGroups,
@@ -15,6 +17,7 @@ import {
 } from "@/lib/navigation";
 import { useActiveCount, useActiveJobs, useQueueSummary, useTitleFor } from "@/state/downloads";
 import { useAuth } from "@/state/auth";
+import { GameCover } from "@/components/art/cover";
 import { Badge, Led, SegmentedGauge } from "@/components/ui/controls";
 import { NavIcon } from "@/components/shell/nav-icons";
 import { navGroupLabel, navLabel } from "@/components/shell/nav-copy";
@@ -23,6 +26,9 @@ import { qk } from "@/lib/query-keys";
 /** Which rail groups the user folded away, remembered per device. */
 const COLLAPSE_KEY = "ludex.nav.collapsed";
 const DEFAULT_COLLAPSED = ["admin"];
+const QUICK_LAUNCH_LIMIT = 5;
+const EMPTY_GAMES: never[] = [];
+const EMPTY_INSTALLS: never[] = [];
 
 function readCollapsedGroups(): string[] {
   if (typeof window === "undefined") return [...DEFAULT_COLLAPSED];
@@ -55,6 +61,7 @@ function RailGroup({
   label,
   collapsed,
   active,
+  count,
   onToggle,
   children,
 }: {
@@ -62,6 +69,7 @@ function RailGroup({
   label: string;
   collapsed: boolean;
   active: boolean;
+  count?: number;
   onToggle: () => void;
   children: ReactNode;
 }) {
@@ -79,8 +87,11 @@ function RailGroup({
           className={cn("size-3 transition-transform duration-150 motion-reduce:transition-none", !collapsed && "rotate-90")}
           aria-hidden="true"
         />
-        <span>{label}</span>
-        {active && collapsed && <Led tone="signal" className="ms-auto me-1" />}
+        <span className="truncate">{label}</span>
+        {typeof count === "number" && count > 0 && (
+          <span className="num ms-auto text-micro text-ink-3">{count}</span>
+        )}
+        {active && collapsed && <Led tone="signal" className={count ? "ms-1.5 me-1" : "ms-auto me-1"} />}
       </button>
       <ul id={listId} aria-label={label} hidden={collapsed} className="flex flex-col gap-0.5">
         {children}
@@ -110,6 +121,120 @@ function RailLink({ destination, count, kbd }: { destination: NavDestination; co
         {active && <Led tone="signal" className={count || kbd ? "ms-1.5" : "ms-auto"} />}
       </Link>
     </li>
+  );
+}
+
+/**
+ * Steam/GOG-style quick game list inside the left sidebar: shows locally
+ * installed titles (with one-click Play) on desktop, or recently played titles
+ * in the browser, keeping the sidebar alive and games always one click away.
+ */
+function RailQuickGames({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const { pathname } = useLocation();
+  const desktop = isNative();
+  const installedQuery = useInstalledGames();
+  const allGamesQuery = useAllGames();
+  const launch = useLaunchGame();
+
+  const games = allGamesQuery.data?.items ?? EMPTY_GAMES;
+  const installs = installedQuery.data ?? EMPTY_INSTALLS;
+
+  const entries = useMemo(() => {
+    const byId = new Map(games.map((game) => [game.id, game]));
+    if (installs.length > 0) {
+      return [...installs]
+        .sort((a, b) => Date.parse(b.lastLaunchedAt ?? "") - Date.parse(a.lastLaunchedAt ?? ""))
+        .slice(0, QUICK_LAUNCH_LIMIT)
+        .map((entry) => {
+          const game = byId.get(entry.gameId);
+          return {
+            id: entry.gameId,
+            title: game?.title ?? entry.title,
+            coverUrl: game?.coverUrl ?? null,
+            installed: true,
+            executable: entry.executable,
+            minutesPlayed: game?.minutesPlayed ?? 0,
+            hasPage: Boolean(game),
+          };
+        });
+    }
+    return games
+      .filter((game) => game.lastPlayedAt || game.bookmarked)
+      .sort((a, b) => Date.parse(b.lastPlayedAt ?? "") - Date.parse(a.lastPlayedAt ?? ""))
+      .slice(0, QUICK_LAUNCH_LIMIT)
+      .map((game) => ({
+        id: game.id,
+        title: game.title,
+        coverUrl: game.coverUrl,
+        installed: false,
+        executable: null as string | null,
+        minutesPlayed: game.minutesPlayed,
+        hasPage: true,
+      }));
+  }, [games, installs]);
+
+  if (entries.length === 0) return null;
+
+  const showingInstalled = installs.length > 0;
+  const active = entries.some((entry) => pathname === `/game/${entry.id}`);
+
+  return (
+    <div className="mt-2 border-t border-line pt-1.5">
+      <RailGroup
+        id="quick-games"
+        label={showingInstalled ? t("Ready to play") : t("Jump back in")}
+        collapsed={collapsed}
+        active={active}
+        count={showingInstalled ? installs.length : entries.length}
+        onToggle={onToggle}
+      >
+        {entries.map((entry) => {
+          const isCurrent = pathname === `/game/${entry.id}`;
+          const played = formatMinutes(entry.minutesPlayed);
+          return (
+            <li key={entry.id} className="group/item relative mx-2.5">
+              <div
+                data-active={isCurrent}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-[var(--r-sm)] px-2 py-1.5 transition-colors",
+                  isCurrent ? "bg-surface text-ink" : "text-ink-2 hover:bg-surface hover:text-ink",
+                )}
+              >
+                <div className="w-[22px] shrink-0 overflow-hidden rounded-[var(--r-xs)]">
+                  <GameCover title={entry.title} coverUrl={entry.coverUrl} showType={false} />
+                </div>
+                {entry.hasPage ? (
+                  <Link to={`/game/${entry.id}`} className="min-w-0 flex-1">
+                    <span className="block truncate text-label font-medium leading-tight">{entry.title}</span>
+                    {played && <span className="num block truncate text-micro text-ink-3">{played}</span>}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-label font-medium leading-tight">{entry.title}</span>
+                )}
+                {desktop && entry.installed ? (
+                  <button
+                    type="button"
+                    onClick={() => launch.mutate({ id: entry.id, title: entry.title, executable: entry.executable })}
+                    aria-label={t("Play {title}", { title: entry.title })}
+                    className="grid size-6 shrink-0 place-items-center rounded-[var(--r-xs)] text-ink-3 opacity-0 transition-all hover:bg-signal hover:text-on-signal focus:opacity-100 group-hover/item:opacity-100"
+                  >
+                    <Play className="size-3 fill-current" aria-hidden="true" />
+                  </button>
+                ) : entry.installed ? (
+                  <Led tone="ok" className="shrink-0" />
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </RailGroup>
+    </div>
   );
 }
 
@@ -164,7 +289,8 @@ function RailTransferWidget() {
 
 /**
  * Desktop rail (#174, #333): 236px sidebar on `bg-deep` with square 7px LEDs on
- * active states and a mini 16-segment active-download widget in the footer.
+ * active states, a Steam/GOG-style quick-launch list and a mini 16-segment
+ * active-download widget in the footer.
  */
 export function NavRail({ context, onOpenHelp }: { context: NavContext; onOpenHelp: () => void }) {
   const location = useLocation();
@@ -210,6 +336,12 @@ export function NavRail({ context, onOpenHelp }: { context: NavContext; onOpenHe
                 />
               ))}
             </RailGroup>
+            {entry.group.id === "library" && (
+              <RailQuickGames
+                collapsed={collapsed.includes("quick-games")}
+                onToggle={() => toggle("quick-games")}
+              />
+            )}
           </div>
         ))}
       </nav>

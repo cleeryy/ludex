@@ -59,6 +59,8 @@ export function GettingStartedCard({ className }: { className?: string }) {
     },
   ];
   const remaining = rows.filter((row) => !row.done);
+  // Hide automatically once every applicable step is done so the home hero stays front and center.
+  if (stats.isSuccess && (!desktop || settings.isSuccess) && remaining.length === 0) return null;
 
   const hide = () => {
     dismissGettingStarted();

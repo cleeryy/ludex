@@ -263,7 +263,7 @@ function ShareLoading() {
         <Skeleton className="h-3 w-56" />
         <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="aspect-[3/4] w-full" />
+            <Skeleton key={index} className="aspect-[2/3] w-full" />
           ))}
         </div>
       </div>

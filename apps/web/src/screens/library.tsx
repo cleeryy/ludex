@@ -2,7 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
-import { AlertTriangle, Gamepad2, LayoutGrid, List, Plus, SlidersHorizontal, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Gamepad2,
+  Grid2x2,
+  LayoutGrid,
+  List,
+  Plus,
+  RectangleHorizontal,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/http";
@@ -107,6 +117,44 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 const NO_INSTALLS: InstalledGame[] = [];
 
+type CardStyle = "poster" | "wide";
+type GridDensity = "compact" | "standard" | "large";
+
+const CARD_STYLE_KEY = "ludex.library.cardStyle";
+const GRID_DENSITY_KEY = "ludex.library.density";
+
+function readCardStyle(): CardStyle {
+  try {
+    return window.localStorage.getItem(CARD_STYLE_KEY) === "wide" ? "wide" : "poster";
+  } catch {
+    return "poster";
+  }
+}
+
+function readGridDensity(): GridDensity {
+  try {
+    const raw = window.localStorage.getItem(GRID_DENSITY_KEY);
+    return raw === "compact" || raw === "large" ? raw : "standard";
+  } catch {
+    return "standard";
+  }
+}
+
+function gridClassFor(style: CardStyle, density: GridDensity): string {
+  if (style === "wide") {
+    if (density === "compact") return "grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5";
+    if (density === "large") return "grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3";
+    return "grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+  }
+  if (density === "compact") {
+    return "grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7";
+  }
+  if (density === "large") {
+    return "grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+  }
+  return "grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6";
+}
+
 export function LibraryScreen({ mode }: { mode: LibraryMode }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -137,7 +185,29 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
 
   const [filterOpen, setFilterOpen] = useState(false);
   const [pickingRandom, setPickingRandom] = useState(false);
+  const [cardStyle, setCardStyleState] = useState<CardStyle>(() => readCardStyle());
+  const [density, setDensityState] = useState<GridDensity>(() => readGridDensity());
   const [padIndex, setPadIndex] = useState(0);
+
+  const setCardStyle = (next: CardStyle) => {
+    setCardStyleState(next);
+    try {
+      window.localStorage.setItem(CARD_STYLE_KEY, next);
+    } catch {
+      /* ignore storage errors */
+    }
+  };
+
+  const cycleDensity = () => {
+    const order: GridDensity[] = ["compact", "standard", "large"];
+    const next = order[(order.indexOf(density) + 1) % order.length];
+    setDensityState(next);
+    try {
+      window.localStorage.setItem(GRID_DENSITY_KEY, next);
+    } catch {
+      /* ignore storage errors */
+    }
+  };
   const [importEntry, setImportEntry] = useState<ImportLibraryEntry | null>(null);
   const [removingImport, setRemovingImport] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -424,6 +494,18 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
     // The DOM is the source of truth here; mode/search/view changes rebuild it.
   }, [mode, search, effectiveView, model.total, gamepad.connected]);
 
+  const headerViewValue = effectiveView === "list" ? "list" : cardStyle;
+  const setHeaderView = (next: "poster" | "wide" | "list") => {
+    if (next === "list") {
+      setView("list");
+    } else {
+      setView("grid");
+      setCardStyle(next);
+    }
+  };
+
+  const densityLabel = density === "compact" ? t("Compact") : density === "large" ? t("Large") : t("Standard");
+
   const headerActions = (
     <>
       {isEditor && mode === "library" && (
@@ -431,13 +513,26 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
           {t("Add games")}
         </Button>
       )}
+      {mode !== "index" && effectiveView === "grid" && (
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Grid2x2 className="size-3.5" />}
+          onClick={cycleDensity}
+          title={t("Card size")}
+          aria-label={`${t("Card size")}: ${densityLabel}`}
+        >
+          <span className="hidden md:inline">{densityLabel}</span>
+        </Button>
+      )}
       {mode !== "index" && (
         <Segmented
           label={t("Layout")}
-          value={view}
-          onChange={setView}
+          value={headerViewValue}
+          onChange={setHeaderView}
           options={[
-            { value: "grid", label: t("Grid"), icon: <LayoutGrid className="size-3.5" /> },
+            { value: "poster", label: t("Poster"), icon: <LayoutGrid className="size-3.5" /> },
+            { value: "wide", label: t("Wide"), icon: <RectangleHorizontal className="size-3.5" /> },
             { value: "list", label: t("List"), icon: <List className="size-3.5" /> },
           ]}
         />
@@ -478,10 +573,10 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
       />
 
       {mode === "library" && !(model.total === 0 && !hasFilters) && (
-        <div className="sticky top-0 z-20 -mx-[var(--page-x)] mt-4 border-b border-line bg-bg px-[var(--page-x)] py-2.5">
+        <div className="sticky top-0 z-20 -mx-[var(--page-x)] mt-4 border-b border-line bg-bg/95 px-[var(--page-x)] py-2.5 backdrop-blur-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <LibrarySearch value={filters.q} onCommit={(value) => update("q", value)} className="min-w-0 flex-1 sm:max-w-[340px]" />
-            <div className="hidden w-[150px] sm:block">
+            <LibrarySearch value={filters.q} onCommit={(value) => update("q", value)} className="min-w-0 flex-1 sm:max-w-[300px]" />
+            <div className="hidden w-[144px] sm:block">
               <Select
                 label={t("Filter by progress state")}
                 value={filters.state || "any"}
@@ -490,6 +585,20 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 className="h-9 text-label"
               />
             </div>
+            {genres.length > 0 && (
+              <div className="hidden w-[150px] md:block">
+                <Select
+                  label={t("Genre")}
+                  value={filters.genre || "all"}
+                  onChange={(value) => update("genre", value === "all" ? null : value)}
+                  options={[
+                    { value: "all", label: t("All genres") },
+                    ...genres.map((item) => ({ value: item, label: item })),
+                  ]}
+                  className="h-9 text-label"
+                />
+              </div>
+            )}
             {(hiddenMissing > 0 || filters.missing) && (
               <Button
                 variant={filters.missing ? "default" : "ghost"}
@@ -522,7 +631,7 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
               disabled={model.total === 0}
               onClick={() => void surpriseMe()}
             />
-            <div className="w-[150px]">
+            <div className="w-[144px]">
               <Select
                 label={t("Sort games")}
                 value={filters.sort}
@@ -531,107 +640,82 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                 className="h-9 text-label"
               />
             </div>
-            <div className="ml-auto flex items-center gap-3">
-              {hasFilters && (
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="flex h-9 items-center gap-1 text-label text-ink-3 transition-colors hover:text-ink"
-                >
-                  <X className="size-3.5" aria-hidden="true" />
-                  {t("Clear all")}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <PresetsBar
-            params={params}
-            includeInstalled={installsAvailable()}
-            hasFilters={hasFilters}
-            onApply={applyPreset}
-            onClear={clearFilters}
-          />
-
-          {shelves.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("Platform shelves")}>
-              <span className="mr-1 text-micro uppercase tracking-[0.12em] text-ink-3">{t("Platforms")}</span>
-              {shelves.map((platform) => (
-                <button
-                  key={platform.id}
-                  type="button"
-                  onClick={() => update("platform", filters.platform === platform.id ? null : platform.id)}
-                  aria-pressed={filters.platform === platform.id}
-                  className={cn(
-                    "inline-flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] border px-1.5 text-micro uppercase tracking-[0.06em] transition-colors",
-                    filters.platform === platform.id
-                      ? "border-signal/60 bg-signal/12 text-signal-text"
-                      : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
-                  )}
-                >
-                  {platform.id}
-                  <span className="num text-micro opacity-70">{platform.gameCount}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {importChips.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("Launcher imports")}>
-              <span className="mr-1 text-micro uppercase tracking-[0.12em] text-ink-3">{t("Launchers")}</span>
-              {importChips.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => update("launcher", filters.launcher === option.value ? null : option.value)}
-                  aria-pressed={filters.launcher === option.value}
-                  className={cn(
-                    "inline-flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] border px-1.5 text-micro uppercase tracking-[0.06em] transition-colors",
-                    filters.launcher === option.value
-                      ? "border-signal/60 bg-signal/12 text-signal-text"
-                      : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
-                  )}
-                >
-                  {option.label}
-                  <span className="num text-micro opacity-70">{importCounts.get(option.value) ?? 0}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
-            <div className="nav-scroll -mb-0.5 flex min-w-0 flex-1 items-center gap-4 overflow-x-auto">
+            {hasFilters && (
               <button
                 type="button"
-                onClick={() => update("genre", null)}
-                className={cn(
-                  "relative h-8 shrink-0 text-body transition-colors",
-                  !filters.genre ? "text-ink" : "text-ink-3 hover:text-ink-2",
-                )}
+                onClick={clearFilters}
+                className="ml-auto flex h-9 items-center gap-1 text-label text-ink-3 transition-colors hover:text-ink"
               >
-                {t("All")}
-                {!filters.genre && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-signal" aria-hidden="true" />}
+                <X className="size-3.5" aria-hidden="true" />
+                {t("Clear all")}
               </button>
-              {genres.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => update("genre", item === filters.genre ? null : item)}
-                  aria-pressed={filters.genre === item}
-                  className={cn(
-                    "relative h-8 shrink-0 text-body transition-colors",
-                    filters.genre === item ? "text-ink" : "text-ink-3 hover:text-ink-2",
-                  )}
-                >
-                  {item}
-                  {filters.genre === item && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-signal" aria-hidden="true" />}
-                </button>
-              ))}
-            </div>
+            )}
+          </div>
+
+          {/* Single compact horizontal strip: saved views + platform/launcher quick filters */}
+          <div className="nav-scroll mt-2.5 flex items-center gap-2 overflow-x-auto pb-0.5">
+            <PresetsBar
+              inline
+              params={params}
+              includeInstalled={installsAvailable()}
+              hasFilters={hasFilters}
+              onApply={applyPreset}
+              onClear={clearFilters}
+            />
+
+            {shelves.length > 0 && (
+              <>
+                <span className="h-4 w-px shrink-0 bg-line" aria-hidden="true" />
+                <div className="flex shrink-0 items-center gap-1.5" aria-label={t("Platform shelves")}>
+                  {shelves.map((platform) => (
+                    <button
+                      key={platform.id}
+                      type="button"
+                      onClick={() => update("platform", filters.platform === platform.id ? null : platform.id)}
+                      aria-pressed={filters.platform === platform.id}
+                      className={cn(
+                        "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--r-sm)] border px-2 text-meta transition-colors",
+                        filters.platform === platform.id
+                          ? "border-signal/60 bg-signal/12 text-signal-text"
+                          : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
+                      )}
+                    >
+                      <span className="uppercase">{platform.id}</span>
+                      <span className="num text-micro opacity-70">{platform.gameCount}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {importChips.length > 0 && (
+              <>
+                <span className="h-4 w-px shrink-0 bg-line" aria-hidden="true" />
+                <div className="flex shrink-0 items-center gap-1.5" aria-label={t("Launcher imports")}>
+                  {importChips.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => update("launcher", filters.launcher === option.value ? null : option.value)}
+                      aria-pressed={filters.launcher === option.value}
+                      className={cn(
+                        "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--r-sm)] border px-2 text-meta transition-colors",
+                        filters.launcher === option.value
+                          ? "border-signal/60 bg-signal/12 text-signal-text"
+                          : "border-line-2 text-ink-3 hover:border-ink-3 hover:text-ink-2",
+                      )}
+                    >
+                      <span>{option.label}</span>
+                      <span className="num text-micro opacity-70">{importCounts.get(option.value) ?? 0}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {chips.length > 0 && (
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5" aria-label={t("Active filters")}>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label={t("Active filters")}>
               {chips.map((chip) => (
                 <button
                   key={`${chip.key}-${chip.label}`}
@@ -644,13 +728,6 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
                   <X className="size-3 text-ink-3" aria-hidden="true" />
                 </button>
               ))}
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="ml-1 h-6 text-meta text-ink-3 transition-colors hover:text-ink"
-              >
-                {t("Clear all")}
-              </button>
             </div>
           )}
 
@@ -663,8 +740,8 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         </div>
       )}
 
-      <div ref={gridRef} className="mt-7">
-        {isPending && <LibrarySkeleton view={effectiveView} />}
+      <div ref={gridRef} className="mt-6">
+        {isPending && <LibrarySkeleton view={effectiveView} cardStyle={cardStyle} />}
 
         {isError && (
           <ErrorState
@@ -686,12 +763,13 @@ export function LibraryScreen({ mode }: { mode: LibraryMode }) {
         )}
 
         {!isPending && !isError && items.length > 0 && effectiveView === "grid" && (
-          <div className="stagger-in grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+          <div className={cn("stagger-in grid", gridClassFor(cardStyle, density))}>
             {items.map((entry) => (
               <GameCard
                 key={entry.gameId}
                 game={entry.game}
                 index={entry.gameId}
+                variant={cardStyle}
                 installed={entry.install ?? undefined}
                 source={entry.launcher ? launcherLabel(entry.launcher) : null}
                 update={updates.get(entry.gameId)}
