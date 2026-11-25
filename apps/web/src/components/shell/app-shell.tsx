@@ -206,7 +206,7 @@ function Topbar({ onOpenPalette, chrome }: { onOpenPalette: () => void; chrome: 
             <Dice5 className="size-4" />
           </IconButton>
           <span className="hidden sm:block">
-            <IconButton label={t("Console mode")} variant="ghost" onClick={() => navigate("/bigpicture")}>
+            <IconButton label={t("Console mode")} variant="ghost" onClick={() => navigate("/console")}>
               <Gamepad2 className="size-4" />
             </IconButton>
           </span>
@@ -243,7 +243,7 @@ function DownloadsStrip() {
     <Link
       to="/downloads"
       aria-label={t("Downloads: {title}, {percent} percent", { title: titleFor(job), percent: pct !== null ? pct.toFixed(0) : "" })}
-      className="relative flex h-10 shrink-0 items-center gap-3 border-t border-line bg-surface-2 px-4 text-label text-ink-2 transition-colors hover:bg-surface"
+      className="relative flex h-10 shrink-0 items-center gap-3 border-t border-line bg-surface-2 px-4 text-label text-ink-2 transition-colors hover:bg-surface lg:hidden"
     >
       <span className="absolute inset-x-0 top-0 h-[2px] bg-line" aria-hidden="true">
         <span

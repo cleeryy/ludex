@@ -97,7 +97,7 @@ export function CollectionScreen() {
         <Skeleton className="mt-3 h-3 w-1/3" />
         <div className="mt-10 grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {Array.from({ length: 5 }).map((_, index) => (
-            <Skeleton key={index} className="aspect-[3/4] w-full" />
+            <Skeleton key={index} className="aspect-[2/3] w-full" />
           ))}
         </div>
       </div>
@@ -241,7 +241,7 @@ export function CollectionScreen() {
         {games.isPending && (
           <div id="collection-games" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {Array.from({ length: 5 }).map((_, index) => (
-              <Skeleton key={index} className="aspect-[3/4] w-full" />
+              <Skeleton key={index} className="aspect-[2/3] w-full" />
             ))}
           </div>
         )}

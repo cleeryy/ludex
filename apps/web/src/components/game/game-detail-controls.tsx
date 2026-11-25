@@ -53,7 +53,7 @@ export function DetailSkeleton() {
     <div className="page">
       <Skeleton className="h-3 w-16" />
       <div className="mt-[18vh] grid gap-8 lg:grid-cols-[250px_1fr] lg:gap-12">
-        <Skeleton className="aspect-[3/4] w-[150px] sm:w-[190px] lg:w-full" />
+        <Skeleton className="aspect-[2/3] w-[150px] sm:w-[190px] lg:w-full" />
         <div className="flex flex-col gap-4">
           <Skeleton className="h-3 w-40" />
           <Skeleton className="h-12 w-3/4" />

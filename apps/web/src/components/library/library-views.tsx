@@ -15,7 +15,13 @@ export function GameCardCoverThumb({ game }: { game: GameSummary }) {
   return <GameCover title={game.title} coverUrl={game.coverUrl} showType={false} />;
 }
 
-export function LibrarySkeleton({ view }: { view: "grid" | "list" }) {
+export function LibrarySkeleton({
+  view,
+  cardStyle = "poster",
+}: {
+  view: "grid" | "list";
+  cardStyle?: "poster" | "wide";
+}) {
   if (view === "list") {
     return (
       <div className="border-t border-line">
@@ -34,10 +40,16 @@ export function LibrarySkeleton({ view }: { view: "grid" | "list" }) {
     );
   }
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-      {Array.from({ length: 10 }).map((_, i) => (
+    <div
+      className={
+        cardStyle === "wide"
+          ? "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          : "grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
+      }
+    >
+      {Array.from({ length: cardStyle === "wide" ? 8 : 10 }).map((_, i) => (
         <div key={i}>
-          <Skeleton className="aspect-[2/3] w-full" />
+          <Skeleton className={cardStyle === "wide" ? "aspect-[16/9] w-full" : "aspect-[2/3] w-full"} />
           <div className="mt-3 space-y-2">
             <Skeleton className="h-3.5 w-4/5" />
             <Skeleton className="h-2.5 w-2/5" />
