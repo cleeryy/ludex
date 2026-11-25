@@ -33,6 +33,13 @@ export type SettingsSectionId =
 /** `desktop` needs the install bridge, `native` needs the Tauri window. */
 export type SettingsSectionAvailability = "always" | "desktop" | "native";
 
+/**
+ * Progressive disclosure tier (#347). `default` categories stay visible for
+ * every player; `advanced` categories stay hidden from the default nav until
+ * Power-user mode is turned on, though deep links and search still reach them.
+ */
+export type SettingsSectionTier = "default" | "advanced";
+
 export type SettingsIconName =
   | "account"
   | "appearance"
@@ -56,6 +63,7 @@ export interface SettingsSectionMeta {
   descriptionKey: string;
   icon: SettingsIconName;
   availability: SettingsSectionAvailability;
+  tier: SettingsSectionTier;
   /** Words that find this section in search, beyond its translated label. */
   keywords: readonly string[];
   /**
@@ -72,6 +80,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Your sign-in, your password and the profile other members can see.",
     icon: "account",
     availability: "always",
+    tier: "default",
     keywords: ["identity", "email", "password", "login", "profile", "public", "bio", "display name"],
     panels: ["identity", "password", "public-profile"],
   },
@@ -81,6 +90,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Themes, accent colour and the shape of the window on this device.",
     icon: "appearance",
     availability: "always",
+    tier: "default",
     keywords: ["theme", "dark", "light", "colour", "color", "accent", "contrast", "title bar", "big picture"],
     panels: ["theme", "accent", "tint", "theme-file", "bigpicture-layout", "window-chrome"],
   },
@@ -90,6 +100,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "The language of the interface. Community translations fall back to English.",
     icon: "language",
     availability: "always",
+    tier: "default",
     keywords: ["locale", "translation", "french", "english", "language"],
     panels: ["locale"],
   },
@@ -99,6 +110,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Where games are installed, what this machine already has, and the folders Ludex can link.",
     icon: "storage",
     availability: "always",
+    tier: "default",
     keywords: ["disk", "folder", "install", "gamevault", "space", "drive", "library"],
     panels: ["install-locations", "installed-games", "gamevault"],
   },
@@ -108,6 +120,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "How archives arrive, where they are kept, and how quiet installers run.",
     icon: "downloads",
     availability: "always",
+    tier: "default",
     keywords: ["bandwidth", "archive", "password", "installer", "silent", "speed", "zip", "7z"],
     panels: ["stream-install", "keep-archives", "bandwidth", "archive-passwords", "installer-args", "installer-timeout"],
   },
@@ -117,6 +130,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Back up save folders to your server and teach Ludex where each game keeps its saves.",
     icon: "saves",
     availability: "always",
+    tier: "default",
     keywords: ["cloud", "save", "backup", "snapshot", "device", "ludusavi", "sync"],
     panels: ["cloud-auto", "cloud-device", "save-database", "save-locations"],
   },
@@ -126,6 +140,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Sunshine and Moonlight: publish the library and start a stream.",
     icon: "streaming",
     availability: "native",
+    tier: "advanced",
     keywords: ["sunshine", "moonlight", "remote play", "stream", "host"],
     panels: ["sunshine", "moonlight"],
   },
@@ -135,6 +150,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Install the console session and boot this machine straight into it.",
     icon: "console",
     availability: "native",
+    tier: "advanced",
     keywords: ["console", "boot", "autologin", "auto-login", "wayland", "session", "sddm", "gdm", "greetd", "lightdm", "login"],
     panels: ["console-session"],
   },
@@ -144,6 +160,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Steam, Proton, UMU and Wine detection for Linux launches.",
     icon: "compatibility",
     availability: "native",
+    tier: "advanced",
     keywords: ["proton", "wine", "umu", "linux", "steam"],
     panels: ["steam-proton"],
   },
@@ -153,6 +170,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "What this machine is missing to play games, and how to install it with your permission.",
     icon: "host",
     availability: "desktop",
+    tier: "advanced",
     keywords: ["vulkan", "gpu", "driver", "umu", "gamemode", "mangohud", "gamescope", "webkit", "packages", "preflight"],
     panels: ["host-preflight"],
   },
@@ -162,6 +180,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Import games from other launchers, talk to Discord, and keep several servers at hand.",
     icon: "integrations",
     availability: "always",
+    tier: "default",
     keywords: ["steam", "epic", "gog", "launcher", "discord", "presence", "server", "import"],
     panels: ["launcher-import", "steam-folder", "discord-presence", "servers"],
   },
@@ -171,6 +190,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Controller mapping and the emulator commands used to launch ROMs.",
     icon: "profiles",
     availability: "always",
+    tier: "default",
     keywords: ["controller", "gamepad", "deadzone", "vibration", "emulator", "rom", "overlay", "shift+tab", "home button"],
     panels: ["controllers", "in-game-overlay", "emulators"],
   },
@@ -180,6 +200,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Which build you run, how it updates itself, and when it checks.",
     icon: "updates",
     availability: "always",
+    tier: "default",
     keywords: ["version", "channel", "early access", "release", "update"],
     panels: ["update-channel", "update-startup", "update-panel"],
   },
@@ -189,6 +210,7 @@ export const SETTINGS_SECTIONS = [
     descriptionKey: "Version, the first-run checklist, the keyboard shortcuts and your privacy controls.",
     icon: "help",
     availability: "always",
+    tier: "default",
     keywords: ["about", "help", "onboarding", "shortcuts", "docs", "version", "keyboard", "privacy", "diagnostics", "crash", "report", "telemetry"],
     panels: ["onboarding", "getting-started", "shortcuts", "about", "privacy-diagnostics", "admin-diagnostics"],
   },
@@ -271,6 +293,21 @@ export function isSettingsSectionAvailable(
 
 export function availableSettingsSections(context: SettingsAvailabilityContext): SettingsSectionMeta[] {
   return SETTINGS_SECTIONS.filter((section) => isSettingsSectionAvailable(section, context));
+}
+
+/**
+ * Sections shown in the navigation rail (#347). Advanced categories stay out of
+ * the default view until Power-user mode is unlocked, except when one is the
+ * active deep-linked section so the sidebar never loses its current highlight.
+ */
+export function visibleSettingsSections(
+  sections: readonly SettingsSectionMeta[],
+  advancedUnlocked: boolean,
+  active?: SettingsSectionId,
+): SettingsSectionMeta[] {
+  return sections.filter(
+    (section) => section.tier === "default" || advancedUnlocked || section.id === active,
+  );
 }
 
 /**

@@ -14,13 +14,35 @@ pure functions in `apps/web/src/lib/settings-tiers.ts`.
 |---|---|---|
 | 1 — Just works | A computed "ready / needs a fix" verdict and exactly one primary action. | Nothing. Every cause and every fix is computed. |
 | 2 — Per game | Six curated switches, each with a one-line "why it is on or off". | At most six binary/simple choices. |
-| 3 — Advanced | The existing launch-options panel: raw environment, Wine overrides, prefix path, Proton pin, working directory, display details — plus the custom launch command for editors. | Everything, at their own risk. |
+| 3 — Advanced | The existing launch-options panel (raw environment, Wine overrides, prefix path, Proton pin, working directory, display details), custom launch command for editors, audio sink routing, shader prep, automatic launch plan inspection, and compatibility rules. | Everything, at their own risk. |
 
-Tier 3 is **locked on a first run**. "Unlock advanced view" stores
-`ludex.settings.tiers.advanced = "1"` in `localStorage`; the choice is
-device-local (like the console shell flag) because it belongs to the machine in
-front of the user, not to the account. "Lock advanced view" removes the key. The
-same flag survives a reload, and a locked surface never mounts the raw panel.
+Tier 3 is **locked on a first run**. "Unlock advanced view" (or toggling
+**Power-user mode** in Settings) stores `ludex.settings.tiers.advanced = "1"`
+in `localStorage`; the choice is device-local (like the console shell flag)
+because it belongs to the machine in front of the user, not to the account.
+"Lock advanced view" removes the key. The same flag survives a reload, and a
+locked surface never mounts the raw panels.
+
+## Unified Power-user mode in Global Settings (#347)
+
+Global Settings shares the exact same `ludex.settings.tiers.advanced` device
+flag so players never face two competing "advanced" switches:
+
+- **Default view**: everyday categories (`Account`, `Appearance`, `Language`,
+  `Storage`, `Downloads`, `Saves and cloud`, `Integrations`, `Profiles`,
+  `Updates`, `Help and about`). `Downloads` keeps archive retention,
+  auto-resume, and bandwidth limit upfront; `Saves and cloud` keeps automatic
+  backup, device name, and save discovery upfront.
+- **Power-user mode**: reveals the machine/infrastructure categories
+  (`Streaming`, `Console`, `Compatibility`, `Host`) in the sidebar, plus deep
+  tuning inside `Downloads` (transfer policy, local extracted-file cache,
+  staging drive, timeouts/retries, wake lock, shader prep, concurrency,
+  archive passwords, silent installer flags) and `Saves and cloud` (device
+  identifier and Ludusavi manifest management).
+- **Search and deep links never break**: `Find a setting` always searches all
+  categories (tagging advanced matches with an `Advanced` badge), and direct
+  URLs such as `/settings?section=compatibility` still open with a one-click
+  banner to turn on Power-user mode.
 
 ## Tier 1: the computed verdict
 
