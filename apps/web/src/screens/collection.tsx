@@ -151,10 +151,10 @@ export function CollectionScreen() {
             </Badge>
             <Badge tone="outline">{data.visibility === "public" ? t("Public") : data.visibility === "unlisted" ? t("Link only") : t("Private")}</Badge>
             <span>
-              {data.gameCount} {data.gameCount === 1 ? "game" : "games"}
+              {tn(data.gameCount, "1 game", "{count} games")}
             </span>
             <span>
-              {isOwner ? t("Yours") : `By ${data.owner.displayName ?? data.owner.username}`}
+              {isOwner ? t("Yours") : t("By {name}", { name: data.owner.displayName ?? data.owner.username })}
             </span>
           </>
         }

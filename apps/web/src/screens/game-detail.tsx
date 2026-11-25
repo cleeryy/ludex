@@ -85,7 +85,7 @@ import { NotFoundScreen } from "@/screens/not-found";
 import { Badge, Button, IconButton, Progress } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 
 /** Groups whose body is several panels; the group keeps the `h2`. */
@@ -659,7 +659,7 @@ export function GameDetailScreen() {
                 </span>
               )}
               <span className="num">{formatBytes(game.totalSize)}</span>
-              <span>{game.versionCount === 1 ? t("1 version") : `${game.versionCount} versions`}</span>
+              <span>{tn(game.versionCount, "1 version", "{count} versions")}</span>
               {formatMinutes(game.minutesPlayed) && (
                 <span className="flex items-center gap-1.5">
                   <Clock className="size-3.5 text-ink-3" aria-hidden="true" />
@@ -693,7 +693,7 @@ export function GameDetailScreen() {
                   loading={updateGame.isPending}
                   onClick={() => updateGame.mutate({ id: game.id, title: game.title })}
                 >
-                  {update.latestVersionLabel ? `Update to v${update.latestVersionLabel}` : t("Update")}
+                  {update.latestVersionLabel ? t("Update to v{version}", { version: update.latestVersionLabel }) : t("Update")}
                 </Button>
               )}
               {streamTarget.data?.published && (

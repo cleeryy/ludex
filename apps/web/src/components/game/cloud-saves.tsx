@@ -38,7 +38,7 @@ import { Button, IconButton, Input, Progress, Skeleton, Switch } from "@/compone
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { EmptyState, SectionHeader } from "@/components/page";
-import { t } from "@/lib/i18n";
+import { t, tn } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 import { MySavesPanel } from "@/components/game/my-saves";
 
@@ -628,35 +628,35 @@ export function CloudSavesPanel({
 
               <dl className="mt-4 grid gap-x-8 gap-y-2 font-mono text-micro text-ink-3 sm:grid-cols-2">
                 <div className="flex min-w-0 items-baseline justify-between gap-3 border-b border-line/60 pb-1.5">
-                  <dt>Last backup</dt>
+                  <dt>{t("Last backup")}</dt>
                   <dd className="truncate text-ink-2" title={status.latest?.createdAt}>
                     {status.latest
                       ? `${formatDate(status.latest.createdAt)} · ${formatBytes(status.latest.size)}`
-                      : "Never"}
+                      : t("Never")}
                   </dd>
                 </div>
                 <div className="flex min-w-0 items-baseline justify-between gap-3 border-b border-line/60 pb-1.5">
-                  <dt>Device</dt>
+                  <dt>{t("Device")}</dt>
                   <dd className="truncate text-ink-2" title={status.latest?.deviceId ?? undefined}>
                     {status.latest
                       ? status.latest.source === "auto"
                         ? shortDeviceId(status.latest.deviceId)
-                        : "manual upload"
+                        : t("manual upload")
                       : "—"}
                   </dd>
                 </div>
                 <div className="flex min-w-0 items-baseline justify-between gap-3 border-b border-line/60 pb-1.5">
-                  <dt>Local saves</dt>
+                  <dt>{t("Local saves")}</dt>
                   <dd className="text-ink-2">
                     {status.localFiles === 0
-                      ? "No files yet"
-                      : `${status.localFiles} file${status.localFiles === 1 ? "" : "s"} · ${formatBytes(status.localBytes)}`}
+                      ? t("No files yet")
+                      : `${tn(status.localFiles, "1 file", "{count} files")} · ${formatBytes(status.localBytes)}`}
                   </dd>
                 </div>
                 <div className="flex min-w-0 items-baseline justify-between gap-3 border-b border-line/60 pb-1.5">
-                  <dt>Last restore</dt>
+                  <dt>{t("Last restore")}</dt>
                   <dd className="truncate text-ink-2" title={status.lastRestoreAt ?? undefined}>
-                    {status.lastRestoreAt ? formatDate(status.lastRestoreAt) : "Never"}
+                    {status.lastRestoreAt ? formatDate(status.lastRestoreAt) : t("Never")}
                   </dd>
                 </div>
               </dl>
@@ -667,7 +667,7 @@ export function CloudSavesPanel({
                   <p className="text-label leading-relaxed text-ink-2">
                     {status.pending.error}
                     {status.pending.nextAttemptAt && (
-                      <span className="text-ink-3"> Retrying after {formatDate(status.pending.nextAttemptAt)}.</span>
+                      <span className="text-ink-3"> {t("Retrying after {when}.", { when: formatDate(status.pending.nextAttemptAt) })}</span>
                     )}
                   </p>
                 </div>
@@ -681,12 +681,10 @@ export function CloudSavesPanel({
                 <div className="mt-4 border border-warning/40 bg-warning/[0.05] px-3 py-3">
                   <p className="flex items-center gap-2 text-label font-medium text-ink">
                     <AlertTriangle className="size-3.5 text-warning" aria-hidden="true" />
-                    Local and server saves both changed
+                    {t("Local and server saves both changed")}
                   </p>
                   <p className="mt-1 max-w-[70ch] text-meta leading-relaxed text-ink-2">
-                    The local files are newer than the last upload from this machine, and the newest server snapshot is
-                    different. Keeping local uploads it as a new snapshot; restoring the server copy writes a local
-                    backup first.
+                    {t("The local files are newer than the last upload from this machine, and the newest server snapshot is different. Keeping local uploads it as a new snapshot; restoring the server copy writes a local backup first.")}
                   </p>
                   <div className="mt-2.5 flex flex-wrap gap-2">
                     <Button
@@ -695,7 +693,7 @@ export function CloudSavesPanel({
                       loading={conflictBusy === "keep_local"}
                       onClick={() => void resolveConflict("keep_local")}
                     >
-                      Keep local
+                      {t("Keep local")}
                     </Button>
                     <Button
                       variant="ghost"
@@ -703,7 +701,7 @@ export function CloudSavesPanel({
                       loading={conflictBusy === "remote"}
                       onClick={() => void resolveConflict("remote")}
                     >
-                      Restore server copy
+                      {t("Restore server copy")}
                     </Button>
                   </div>
                 </div>
@@ -739,7 +737,7 @@ export function CloudSavesPanel({
                   disabled={!status.serverConfigured}
                   onClick={() => void syncNow()}
                 >
-                  Sync now
+                  {t("Sync now")}
                 </Button>
                 <Button
                   variant="ghost"
@@ -748,7 +746,7 @@ export function CloudSavesPanel({
                   disabled={!status.latest || !status.serverConfigured}
                   onClick={() => setRestoreOpen(true)}
                 >
-                  Restore latest
+                  {t("Restore latest")}
                 </Button>
               </div>
             </>
@@ -978,7 +976,10 @@ export function CloudSavesPanel({
         title={t("Delete this save?")}
         description={
           deleteTarget
-            ? `${deleteTarget.label} · ${formatBytes(deleteTarget.size)}. The archive is removed from the server for good.`
+            ? t("{label} · {size}. The archive is removed from the server for good.", {
+                label: deleteTarget.label,
+                size: formatBytes(deleteTarget.size),
+              })
             : ""
         }
         confirmLabel={t("Delete save")}
@@ -989,13 +990,13 @@ export function CloudSavesPanel({
       <ConfirmDialog
         open={restoreOpen}
         onOpenChange={setRestoreOpen}
-        title="Restore the server snapshot?"
+        title={t("Restore the server snapshot?")}
         description={
           status && status.localFiles > 0
-            ? `The newest server snapshot replaces the local save files. Ludex writes a timestamped backup of the current local saves first and returns its path.`
-            : "The newest server snapshot is written into the detected save folders. They are currently empty."
+            ? t("The newest server snapshot replaces the local save files. Ludex writes a timestamped backup of the current local saves first and returns its path.")
+            : t("The newest server snapshot is written into the detected save folders. They are currently empty.")
         }
-        confirmLabel={status && status.localFiles > 0 ? "Back up and restore" : "Restore snapshot"}
+        confirmLabel={status && status.localFiles > 0 ? t("Back up and restore") : t("Restore snapshot")}
         tone="primary"
         loading={restoring}
         onConfirm={() => void restoreRemote()}
@@ -1004,8 +1005,8 @@ export function CloudSavesPanel({
       <Dialog
         open={conflictOpen && Boolean(conflict)}
         onOpenChange={setConflictOpen}
-        title="Local and server saves both changed"
-        description="Nothing is overwritten until you choose. Hashes are SHA-256; timestamps are local time."
+        title={t("Local and server saves both changed")}
+        description={t("Nothing is overwritten until you choose. Hashes are SHA-256; timestamps are local time.")}
         size="md"
         footer={
           <>

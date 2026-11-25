@@ -50,7 +50,7 @@ export function CommunityScreen() {
         meta={
           <span>
             {tn(members.data?.length ?? 0, "1 public profile", "{count} public profiles")} ·{" "}
-            {items.length} {items.length === 1 ? "event" : "events"}
+            {tn(items.length, "1 event", "{count} events")}
           </span>
         }
         description={t("What people are playing, finishing and collecting. Only accounts that opt in appear here.")}
@@ -64,7 +64,7 @@ export function CommunityScreen() {
               {t("Friends")}
             </Link>
             <Link
-              to={user ? `/community/u/${user.id}` : "/settings"}
+              to={user ? `/community/u/${user.id}` : "/settings?section=account"}
               className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
             >
               {isPublic ? t("Your public page") : t("Your profile")}
@@ -94,7 +94,7 @@ export function CommunityScreen() {
             </div>
           </div>
           <Link
-            to="/settings"
+            to="/settings?section=account"
             className="inline-flex h-9 items-center gap-2 border border-line px-3 text-label text-ink-2 transition-colors hover:border-line-2 hover:text-ink"
           >
             {isPublic ? t("Privacy settings") : t("Make it public")}
@@ -109,7 +109,7 @@ export function CommunityScreen() {
           count={publicMembers.length}
           description={t("Accounts with a public profile")}
           actions={
-            <Link to="/settings" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+            <Link to="/settings?section=account" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
               {t("Manage yours")}
             </Link>
           }
@@ -122,7 +122,7 @@ export function CommunityScreen() {
             description={t("Public profiles are off by default. Turn yours on in Settings and your activity will be the first entry here.")}
           >
             <Link
-              to="/settings"
+              to="/settings?section=account"
               className="inline-flex h-11 items-center gap-2 rounded-[var(--r-sm)] border border-line-2 bg-surface px-4 text-sm text-ink transition-colors hover:border-ink-3 hover:bg-surface-2"
             >
               <Users className="size-4" aria-hidden="true" />

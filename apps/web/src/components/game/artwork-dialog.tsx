@@ -10,6 +10,7 @@ import type { GameDetail } from "@/lib/types";
 import { Button } from "@/components/ui/controls";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/state/toasts";
+import { t } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 
 /**
@@ -49,11 +50,11 @@ export function ArtworkDialog({
     if (!file) return;
     setError(null);
     if (file.size > ARTWORK_MAX_BYTES) {
-      setError(`${file.name} is larger than ${ARTWORK_MAX_BYTES / (1024 * 1024)} MiB.`);
+      setError(t("{name} is larger than {max} MiB.", { name: file.name, max: ARTWORK_MAX_BYTES / (1024 * 1024) }));
       return;
     }
     if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) {
-      setError("Use a PNG, JPEG, WebP or GIF image.");
+      setError(t("Use a PNG, JPEG, WebP or GIF image."));
       return;
     }
     const url = URL.createObjectURL(file);
@@ -71,7 +72,7 @@ export function ArtworkDialog({
     setError(null);
     try {
       await uploadArtwork(game.id, kind, file);
-      push({ title: `${kind === "cover" ? "Cover" : "Background"} updated`, tone: "success" });
+      push({ title: kind === "cover" ? t("Cover updated") : t("Background updated"), tone: "success" });
       setFiles((current) => ({ ...current, [kind]: undefined }));
       setPreviews((current) => ({ ...current, [kind]: undefined }));
       await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
@@ -92,8 +93,8 @@ export function ArtworkDialog({
     try {
       await resetArtwork(game.id, kind);
       push({
-        title: `${kind === "cover" ? "Cover" : "Background"} reset`,
-        description: "Provider artwork or the placeholder is used again.",
+        title: kind === "cover" ? t("Cover reset") : t("Background reset"),
+        description: t("Provider artwork or the placeholder is used again."),
         tone: "success",
       });
       await queryClient.invalidateQueries({ queryKey: qk.game.detail(game.id) });
@@ -107,12 +108,14 @@ export function ArtworkDialog({
 
   const slot = (kind: ArtworkKind) => {
     const current = kind === "cover" ? game.coverUrl : game.backgroundUrl;
-    const preview = previews[kind] ?? assetUrl(current);
+    const rawPreview = previews[kind] ?? assetUrl(current);
+    const preview = rawPreview ? rawPreview.replace(/[<>"']/g, (ch) => encodeURIComponent(ch)) : null;
+    const kindLabel = kind === "cover" ? t("Cover") : t("Background");
     return (
       <section className="flex flex-col gap-2 border-t border-line pt-4 first:border-t-0 first:pt-0">
         <div className="flex items-baseline justify-between gap-3">
-          <h3 className="text-body font-medium text-ink">{kind === "cover" ? "Cover" : "Background"}</h3>
-          <span className="font-mono text-micro text-ink-3">PNG · JPEG · WebP · GIF · max 8 MiB</span>
+          <h3 className="text-body font-medium text-ink">{kindLabel}</h3>
+          <span className="font-mono text-micro text-ink-3">{t("PNG · JPEG · WebP · GIF · max 8 MiB")}</span>
         </div>
         <div
           className={
@@ -122,7 +125,7 @@ export function ArtworkDialog({
           }
         >
           {preview ? (
-            <img src={preview} alt={`${game.title} ${kind}`} className="h-full w-full object-cover" />
+            <img src={preview} alt={`${game.title} ${kindLabel}`} className="h-full w-full object-cover" />
           ) : (
             <ImagePlus className="size-6 text-ink-3" aria-hidden="true" />
           )}
@@ -130,13 +133,13 @@ export function ArtworkDialog({
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-[var(--r-sm)] border border-line px-3 text-label text-ink-2 hover:border-line-2 hover:text-ink">
             <ImagePlus className="size-3.5" aria-hidden="true" />
-            Choose image
+            {t("Choose image")}
             <input
               type="file"
               accept={ARTWORK_ACCEPT}
               className="sr-only"
               onChange={(event) => choose(kind, event.target.files?.[0])}
-              aria-label={`Choose a new ${kind} image`}
+              aria-label={kind === "cover" ? t("Choose a new cover image") : t("Choose a new background image")}
             />
           </label>
           <Button
@@ -147,7 +150,7 @@ export function ArtworkDialog({
             disabled={!files[kind] || (busy !== null && busy !== kind)}
             onClick={() => void upload(kind)}
           >
-            Upload
+            {t("Upload")}
           </Button>
           <Button
             variant="ghost"
@@ -156,7 +159,7 @@ export function ArtworkDialog({
             disabled={busy !== null}
             onClick={() => setResetTarget(kind)}
           >
-            Reset to provider art
+            {t("Reset to provider art")}
           </Button>
         </div>
       </section>
@@ -168,11 +171,11 @@ export function ArtworkDialog({
       <Dialog
         open={open}
         onOpenChange={onOpenChange}
-        title={`Artwork for ${game.title}`}
-        description="Replace the cover or background with your own image. The server validates the file and clients pick it up after a refresh."
+        title={t("Artwork for {title}", { title: game.title })}
+        description={t("Replace the cover or background with your own image. The server validates the file and clients pick it up after a refresh.")}
         footer={
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Close
+            {t("Close")}
           </Button>
         }
       >
@@ -191,9 +194,9 @@ export function ArtworkDialog({
         onOpenChange={(next) => {
           if (!next) setResetTarget(null);
         }}
-        title="Reset custom artwork?"
-        description="The custom image is deleted and provider artwork or the placeholder is shown again. This cannot be undone."
-        confirmLabel="Reset artwork"
+        title={t("Reset custom artwork?")}
+        description={t("The custom image is deleted and provider artwork or the placeholder is shown again. This cannot be undone.")}
+        confirmLabel={t("Reset artwork")}
         onConfirm={() => void confirmReset()}
       />
     </>

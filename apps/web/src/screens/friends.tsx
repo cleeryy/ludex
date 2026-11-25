@@ -11,6 +11,7 @@ import { ActivityList } from "@/components/community/activity-list";
 import { PresenceBadge, isOnline } from "@/components/community/friend-presence";
 import { EmptyState, ErrorState, PageHeader, SectionHeader } from "@/components/page";
 import { Badge, Button, Field, Input, Skeleton } from "@/components/ui/controls";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { t, tn } from "@/lib/i18n";
 import { qk } from "@/lib/query-keys";
 
@@ -28,6 +29,7 @@ export function FriendsScreen() {
   const queryClient = useQueryClient();
   const [username, setUsername] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Friend | null>(null);
 
   const friendsQuery = useQuery({
     queryKey: qk.friends.root,
@@ -194,7 +196,7 @@ export function FriendsScreen() {
           count={data?.friends.length ?? 0}
           description={t("Presence is visible to friends only")}
           actions={
-            <Link to="/settings" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
+            <Link to="/settings?section=account" className="text-label text-ink-3 underline-offset-4 hover:text-ink hover:underline">
               {t("Presence settings")}
             </Link>
           }
@@ -241,7 +243,7 @@ export function FriendsScreen() {
                     </span>
                   </Link>
                   <PresenceBadge presence={current} />
-                  <Button variant="ghost" size="sm" onClick={() => remove.mutate(friend.user.id)}>
+                  <Button variant="ghost" size="sm" onClick={() => setRemoveTarget(friend)}>
                     {t("Remove")}
                   </Button>
                 </li>
@@ -329,11 +331,35 @@ export function FriendsScreen() {
           <Badge tone={profile.data.friendsActivity ? "signal" : "outline"}>
             {profile.data.friendsActivity ? t("Activity shared with friends") : t("Activity private")}
           </Badge>
-          <Link to="/settings" className="underline-offset-4 hover:text-ink hover:underline">
+          <Link to="/settings?section=account" className="underline-offset-4 hover:text-ink hover:underline">
             {t("Change")}
           </Link>
         </p>
       )}
+
+      <ConfirmDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+        title={t("Remove {name} from friends?", { name: removeTarget ? displayName(removeTarget.user) : "" })}
+        description={t("They will no longer see your presence or friend-only activity. You can send a new request later.")}
+        confirmLabel={t("Remove friend")}
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (!removeTarget) return;
+          const target = removeTarget;
+          remove.mutate(target.user.id, {
+            onSuccess: () => {
+              setRemoveTarget(null);
+              push({ title: t("Removed {name} from friends", { name: displayName(target.user) }), tone: "success" });
+            },
+            onError: (cause) => {
+              push({ title: t("Could not remove friend"), description: errorMessage(cause), tone: "danger" });
+            },
+          });
+        }}
+      />
     </div>
   );
 }
