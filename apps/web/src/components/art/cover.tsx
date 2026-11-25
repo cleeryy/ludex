@@ -342,6 +342,11 @@ const plateStyle = (spec: ArtSpec): CSSProperties => {
 /** Ratio above which an image is treated as landscape inside a portrait cover slot. */
 const LANDSCAPE_RATIO = 1.15;
 
+/** Percent-encodes HTML meta-characters so image URLs stay safe at DOM sinks. */
+function safeImgSrc(url: string): string {
+  return url.replace(/[<>"']/g, (ch) => encodeURIComponent(ch));
+}
+
 /**
  * Deduplicates candidate artwork URLs in priority order, ignoring empty and
  * `demo://` placeholders so real artwork is tried before falling back to a
@@ -357,9 +362,11 @@ export function resolveArtCandidates(
   for (const entry of raw) {
     if (!entry || entry.startsWith("demo://")) continue;
     const resolved = assetUrl(entry);
-    if (!resolved || seen.has(resolved)) continue;
-    seen.add(resolved);
-    out.push(resolved);
+    if (!resolved) continue;
+    const safe = safeImgSrc(resolved);
+    if (seen.has(safe)) continue;
+    seen.add(safe);
+    out.push(safe);
   }
   return out;
 }
@@ -386,7 +393,8 @@ export function GameCover({
   const spec = artFromUrl(coverUrl, title);
   const demo = !coverUrl || coverUrl.startsWith("demo://");
   const seed = hashString(coverUrl ?? title);
-  const src = demo ? null : assetUrl(coverUrl);
+  const resolved = demo ? null : assetUrl(coverUrl);
+  const src = resolved ? safeImgSrc(resolved) : null;
   const [imgState, setImgState] = useState<{ src: string | null; failed: boolean; landscape: boolean }>({
     src,
     failed: false,
