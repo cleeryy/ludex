@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, assetUrl } from "@/lib/api";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatMinutes, formatRating, formatYear, stateLabel } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -386,18 +386,17 @@ export function ConsoleGameSurface({
             </div>
             {(detail?.screenshots?.length ?? 0) > 0 && (
               <div className="grid gap-4 border-t border-line pt-5 sm:grid-cols-2">
-                {detail!.screenshots.slice(0, 4).map((shot, idx) => {
-                  const src = shot.startsWith("demo://") ? null : assetUrl(shot);
-                  if (!src) return null;
-                  return (
+                {detail!.screenshots
+                  .filter((shot) => !shot.startsWith("demo://"))
+                  .slice(0, 4)
+                  .map((shot, idx) => (
                     <div
                       key={`${shot}-${idx}`}
                       className="aspect-video overflow-hidden rounded-[var(--bp-radius-object)] border border-line bg-bg-deep"
                     >
-                      <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      <ArtPlate title={game.title} artUrl={shot} className="h-full w-full" />
                     </div>
-                  );
-                })}
+                  ))}
               </div>
             )}
           </div>
